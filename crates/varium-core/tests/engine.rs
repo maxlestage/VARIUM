@@ -1,0 +1,222 @@
+use varium_core::{
+    Block, Missing, Piece, Project, Values, VarInfo, VarType, blocks, export, inline_variable,
+    rename_variable, render, render_pieces, tex, variables,
+};
+
+fn vals(pairs: &[(&str, &str)]) -> Values {
+    let mut v = Values::default();
+    for (k, x) in pairs {
+        v.set(*k, *x);
+    }
+    v
+}
+
+fn r(src: &str, pairs: &[(&str, &str)]) -> String {
+    render(src, &vals(pairs), Missing::Keep).replace(['\u{202F}', '\u{00A0}'], " ")
+}
+
+#[test]
+fn detecte_les_variables_dans_l_ordre() {
+    let src = "Bonjour {{prénom}} {{nom}}, réf. {{référence}}. Merci {{prénom}} !";
+    let names: Vec<_> = variables(src)
+        .into_iter()
+        .map(|VarInfo { name, count }| (name, count))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("prénom".into(), 2),
+            ("nom".into(), 1),
+            ("référence".into(), 1)
+        ]
+    );
+}
+
+#[test]
+fn remplace_toutes_les_occurrences_sans_toucher_les_autres() {
+    assert_eq!(
+        r("{{prénom}} {{nom}} — {{prénom}}", &[("prénom", "Marc")]),
+        "Marc {{nom}} — Marc"
+    );
+    assert_eq!(
+        r("{{nom}}{{prénom}}{{nom}}", &[("nom", "A")]),
+        "A{{prénom}}A"
+    );
+    assert_eq!(r("nom: {{nom}}", &[("nom", "X")]), "nom: X");
+    assert_eq!(r("{{  nom  }}", &[("nom", "X")]), "X");
+}
+
+#[test]
+fn syntaxes_invalides_restent_du_texte() {
+    assert_eq!(variables("{{}} {{a b}} {{ }} {x} {{a").len(), 0);
+    assert_eq!(r("{{a b}}", &[("a", "1")]), "{{a b}}");
+}
+
+#[test]
+fn valeurs_manquantes() {
+    assert_eq!(
+        render("a{{x}}b", &Values::default(), Missing::Keep),
+        "a{{x}}b"
+    );
+    assert_eq!(render("a{{x}}b", &Values::default(), Missing::Empty), "ab");
+}
+
+#[test]
+fn echappement() {
+    assert_eq!(r("\\{{nom}} = {{nom}}", &[("nom", "Z")]), "{{nom}} = Z");
+    assert!(variables("\\{{nom}}").is_empty());
+}
+
+#[test]
+fn filtres_texte() {
+    assert_eq!(r("{{n|upper}}", &[("n", "dupont")]), "DUPONT");
+    assert_eq!(r("{{n | capitalize}}", &[("n", "élise")]), "Élise");
+    assert_eq!(
+        r("{{n|title}}", &[("n", "jean-pierre de l'isle")]),
+        "Jean-Pierre De L'Isle"
+    );
+    assert_eq!(r("{{n|trim|upper}}", &[("n", "  a ")]), "A");
+    assert_eq!(r("{{n|inconnu}}", &[("n", "a")]), "a");
+}
+
+#[test]
+fn filtres_types() {
+    assert_eq!(r("{{m|money}}", &[("m", "1234,5")]), "1 234,50 €");
+    assert_eq!(r("{{m|money:usd}}", &[("m", "10")]), "10,00 $US");
+    assert_eq!(
+        r("{{m|money}}", &[("m", "-1234567.891")]),
+        "-1 234 567,89 €"
+    );
+    assert_eq!(r("{{x|number:2}}", &[("x", "3.14159")]), "3,14");
+    assert_eq!(r("{{x|number}}", &[("x", "12500.25")]), "12 500,25");
+    assert_eq!(r("{{d|date}}", &[("d", "2026-03-15")]), "15 mars 2026");
+    assert_eq!(r("{{d|date}}", &[("d", "2026-03-01")]), "1er mars 2026");
+    assert_eq!(
+        r("{{d|date:full}}", &[("d", "2026-11-02")]),
+        "lundi 2 novembre 2026"
+    );
+    assert_eq!(r("{{d|date:short}}", &[("d", "2026-03-15")]), "15/03/2026");
+    assert_eq!(r("{{d|date}}", &[("d", "2026-02-30")]), "2026-02-30");
+    assert_eq!(r("{{d|date}}", &[("d", "demain")]), "demain");
+}
+
+#[test]
+fn filtre_default() {
+    assert_eq!(
+        r("{{t|default:\"Madame, Monsieur\"}}", &[]),
+        "Madame, Monsieur"
+    );
+    assert_eq!(r("{{t|default:'X'}}", &[("t", "Cher Marc")]), "Cher Marc");
+}
+
+#[test]
+fn le_type_donne_un_format_par_defaut() {
+    let mut v = vals(&[("m", "99.9"), ("d", "2026-12-25")]);
+    v.types.insert("m".into(), VarType::Money);
+    v.types.insert("d".into(), VarType::Date);
+    let out = render("{{m}} / {{d}} / {{m|number:0}}", &v, Missing::Keep).replace('\u{00A0}', " ");
+    assert_eq!(out, "99,90 € / 25 décembre 2026 / 100");
+}
+
+#[test]
+fn validation_des_types() {
+    assert!(VarType::Date.validate("2026-01-31").is_none());
+    assert!(VarType::Date.validate("31/01/2026").is_some());
+    assert!(VarType::Money.validate("12,5").is_none());
+    assert!(VarType::Number.validate("douze").is_some());
+    assert!(VarType::Email.validate("marc@exemple.fr").is_none());
+    assert!(VarType::Email.validate("marc@").is_some());
+    assert!(VarType::Email.validate("").is_none());
+}
+
+#[test]
+fn renommer_ne_touche_que_ses_occurrences() {
+    let src = "Le {{nom}} de {{prénom}} — {{ nom | upper }} — nom {{nomComplet}} \\{{nom}}";
+    assert_eq!(
+        rename_variable(src, "nom", "famille").unwrap(),
+        "Le {{famille}} de {{prénom}} — {{ famille | upper }} — nom {{nomComplet}} \\{{nom}}"
+    );
+    assert!(rename_variable("{{a}}", "a", "b c").is_err());
+    assert!(rename_variable("{{a}}", "a", "").is_err());
+}
+
+#[test]
+fn figer_une_variable() {
+    let src = "{{prénom}} {{nom}} {{prénom|upper}}";
+    assert_eq!(
+        inline_variable(src, "prénom", &vals(&[("prénom", "Marc")])),
+        "Marc {{nom}} MARC"
+    );
+    // une valeur contenant des accolades reste littérale
+    let frozen = inline_variable("{{a}}", "a", &vals(&[("a", "{{b}}")]));
+    assert_eq!(frozen, "\\{{b}}");
+    assert_eq!(r(&frozen, &[("b", "NON")]), "{{b}}");
+}
+
+#[test]
+fn formules_reperees_uniquement_dans_la_source() {
+    let v = vals(&[("m", "10"), ("x", "2")]);
+    let b = blocks(render_pieces(
+        "Prix {{m|money:usd}} et $a^{{x}}$ puis $$\\sum_i i$$ \\$5",
+        &v,
+    ));
+    assert_eq!(b.len(), 5);
+    assert!(
+        matches!(&b[0], Block::Prose(p) if p.iter().map(Piece::text).collect::<String>().contains("$US"))
+    );
+    assert!(
+        matches!(&b[1], Block::Math { display: false, pieces } if pieces.iter().map(Piece::text).collect::<String>() == "a^2")
+    );
+    assert!(matches!(&b[3], Block::Math { display: true, .. }));
+    assert!(
+        matches!(&b[4], Block::Prose(p) if p.iter().map(Piece::text).collect::<String>() == " $5")
+    );
+}
+
+#[test]
+fn formule_non_fermee_reste_du_texte() {
+    let b = blocks(render_pieces("coût $5", &Values::default()));
+    let all: String = b
+        .iter()
+        .map(|b| match b {
+            Block::Prose(p) => p.iter().map(Piece::text).collect::<String>(),
+            _ => panic!("pas de formule attendue"),
+        })
+        .collect();
+    assert_eq!(all, "coût $5");
+}
+
+#[test]
+fn apercu_unicode_des_formules() {
+    assert_eq!(tex::to_unicode("E = mc^2"), "E = mc²");
+    assert_eq!(tex::to_unicode("\\sum_{i=1}^{n} x_i"), "∑ᵢ₌₁ⁿ xᵢ");
+    assert_eq!(tex::to_unicode("\\frac{a+b}{2}"), "(a+b)⁄2");
+    assert_eq!(tex::to_unicode("\\alpha \\leq \\sqrt{x}"), "α ≤ √x");
+}
+
+#[test]
+fn exports() {
+    let v = vals(&[("nom", "Dupont & fils"), ("m", "5")]);
+    let src = "Société {{nom}} — 50 % — $x_1 = {{m}}$\n{{inconnu}}";
+    let html = export::to_html("Essai", src, &v);
+    assert!(html.contains("Dupont &amp; fils"));
+    assert!(html.contains("\\(x_1 = 5\\)"));
+    assert!(html.contains("<mark>{{inconnu}}</mark>"));
+    let tex = export::to_latex("Essai", src, &v);
+    assert!(tex.contains("Dupont \\& fils"));
+    assert!(tex.contains("50 \\%"));
+    assert!(tex.contains("$x_1 = 5$"));
+    assert!(tex.contains("\\fbox{\\{\\{inconnu\\}\\}}"));
+    assert!(tex.contains("\\begin{document}"));
+}
+
+#[test]
+fn projet_aller_retour() {
+    let mut v = vals(&[("prénom", "Marc")]);
+    v.types.insert("prénom".into(), VarType::Text);
+    let p = Project::new("Courrier", "Bonjour {{prénom}}", &v);
+    let back = Project::from_json(&p.to_json()).unwrap();
+    assert_eq!(back, p);
+    assert_eq!(back.values(), v);
+    assert!(Project::from_json("{\"format\":\"autre\"}").is_err());
+}
