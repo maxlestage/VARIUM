@@ -1,0 +1,15 @@
+{
+  "name": "Varium",
+  "description": "Le site de présentation de Varium, éditeur de documents à variables en Rust, écrit avec Paquets : présentation, syntaxe et démo en ligne.",
+  "repository": "https://github.com/maxlestage/varium",
+  "logo": "https://raw.githubusercontent.com/maxlestage/varium/master/site/public/favicon.svg",
+  "keywords": ["rust", "paquets", "varium", "documents"],
+  "stack": "container",
+  "env": {
+    "SITE_URL": {
+      "description": "Adresse publique du site, sans / final (URL canoniques et sitemap). Laisser vide pour la déduire de chaque requête.",
+      "required": false
+    }
+  },
+  "success_url": "/"
+}

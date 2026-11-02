@@ -1,0 +1,28 @@
+[package]
+name = "varium-site"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Le site de présentation de Varium, écrit avec Paquets."
+
+# Crate autonome : ne fait pas partie du workspace de Varium (exclu dans ../Cargo.toml).
+[workspace]
+
+[lib]
+name = "varium_site"
+path = "src/lib.rs"
+
+[[bin]]
+name = "varium-site"
+path = "src/main.rs"
+
+[dependencies]
+paquets = { git = "https://github.com/maxlestage/Paquets", default-features = false }
+varium-core = { path = "../crates/varium-core" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
