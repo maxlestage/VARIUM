@@ -115,9 +115,10 @@ impl Values {
             return None;
         }
         if v.filters.is_empty()
-            && let Some(f) = self.ty(&v.name).implicit_filter() {
-                return Some(filters::apply(raw, &[f]));
-            }
+            && let Some(f) = self.ty(&v.name).implicit_filter()
+        {
+            return Some(filters::apply(raw, &[f]));
+        }
         Some(filters::apply(raw, &v.filters))
     }
 }
