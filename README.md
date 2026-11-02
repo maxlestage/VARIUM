@@ -53,7 +53,24 @@ cargo clippy --workspace --all-targets -- -D warnings
 Sous Linux, la version de bureau a besoin des bibliothèques système habituelles
 (`libxkbcommon-x11`, `libwayland`, un pilote Vulkan ou OpenGL).
 
-## Site
+## Fusion et déploiement automatiques
+
+Chaque push sur une branche lance la CI (`.github/workflows/ci.yml`). Quand tout est vert,
+la branche est **fusionnée automatiquement dans `master`**, puis `master` est déployé : le
+site sur Heroku et l'application web sur GitHub Pages. Les branches nommées `wip/...` ne
+sont jamais fusionnées : c'est la place des travaux en cours.
+
+## Site de présentation
+
+Le dossier [`site/`](site) contient le site de présentation de Varium (accueil, syntaxe,
+démo en ligne), écrit avec [Paquets](https://github.com/maxlestage/Paquets).
+
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/varium)
+
+`cd site && cargo run --release`, puis <http://localhost:3000>. Déploiement (Heroku, Docker) :
+voir [`site/README.md`](site/README.md#déployer).
+
+## Application web
 
 À chaque push sur `master`, le workflow `.github/workflows/pages.yml` construit le site
 avec Trunk et le publie sur GitHub Pages. Il faut l'activer une seule fois : *Settings →
