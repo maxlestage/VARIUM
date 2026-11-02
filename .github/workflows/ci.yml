@@ -80,6 +80,16 @@ jobs:
       - name: Déployer master (Heroku, GitHub Pages)
         env:
           GH_TOKEN: ${{ github.token }}
+        # Un workflow qui vient d'arriver sur master peut mettre quelques secondes à être
+        # connu de GitHub : on réessaie, et un échec ne fait pas échouer la fusion.
         run: |
-          gh workflow run heroku.yml --ref master --repo "$GITHUB_REPOSITORY"
-          gh workflow run pages.yml --ref master --repo "$GITHUB_REPOSITORY"
+          for wf in heroku.yml pages.yml; do
+            ok=
+            for attempt in 1 2 3 4 5 6; do
+              if gh workflow run "$wf" --ref master --repo "$GITHUB_REPOSITORY"; then
+                ok=1; echo "$wf lancé."; break
+              fi
+              sleep $((attempt * 5))
+            done
+            [ -n "$ok" ] || echo "::warning title=Déploiement::$wf n'a pas pu être lancé (relancez-le depuis l'onglet Actions)."
+          done
