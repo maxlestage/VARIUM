@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/varium-core", "crates/varium"]
+# Le site de présentation (une app Paquets) a son propre workspace.
+exclude = ["site"]
 
 [workspace.package]
 version = "0.1.0"
