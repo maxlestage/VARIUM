@@ -1,9 +1,15 @@
+# Teste chaque push. Quand tout est vert, la branche est fusionnée automatiquement
+# dans master (sauf master elle-même et les branches nommées wip/...), puis master est
+# déployé : le site sur Heroku (heroku.yml) et l'application web sur GitHub Pages
+# (pages.yml). Un push fait par un workflow n'en démarre aucun autre : ils sont donc
+# lancés explicitement.
+
 name: CI
 
 on:
   push:
-    branches: [master, main]
   pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,3 +42,44 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  merge:
+    name: Fusion dans master
+    needs: [check, site]
+    if: >-
+      github.event_name == 'push' && github.ref_name != 'master' &&
+      !startsWith(github.ref_name, 'wip/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    concurrency:
+      group: merge-into-master
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Fusionner ${{ github.ref_name }}
+        env:
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$SHA"
+          if git merge-base --is-ancestor "$SHA" HEAD; then
+            echo "$BRANCH est déjà dans master."
+            exit 0
+          fi
+          git merge --no-ff --no-edit "$SHA" -m "Merge branch '$BRANCH' into master (auto-merge)"
+          git push origin HEAD:master
+          echo "::notice title=Auto-merge::$BRANCH fusionnée dans master"
+      - name: Déployer master (Heroku, GitHub Pages)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run heroku.yml --ref master --repo "$GITHUB_REPOSITORY"
+          gh workflow run pages.yml --ref master --repo "$GITHUB_REPOSITORY"
