@@ -39,3 +39,41 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
+
+## Déployer
+
+Tout est prêt à la racine du dépôt : `Dockerfile`, `heroku.yml`, `app.json` et
+`.github/workflows/heroku.yml`. Le serveur écoute sur `$PORT` et ne demande aucune base de
+données ni aucun secret.
+
+### Heroku, en un clic
+
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/varium)
+
+Heroku lit `app.json`, crée l'app sur la pile `container` et construit l'image du `Dockerfile`.
+
+### Heroku, à chaque push sur `master`
+
+Le workflow `.github/workflows/heroku.yml` déploie le site par l'API Platform de Heroku
+(sans la CLI, donc réglable depuis un téléphone). Dans *GitHub → Settings → Secrets and
+variables → Actions* :
+
+| Type | Nom | Valeur |
+|---|---|---|
+| secret | `HEROKU_API_KEY` | *Heroku → Account settings → API Key → Reveal* |
+| variable | `HEROKU_APP_NAME` | le nom de l'app (créée si elle n'existe pas) |
+| variable (facultative) | `HEROKU_REGION` | `us` (par défaut) ou `eu` |
+
+Sans ces réglages, le workflow s'arrête sans erreur. Le lien du site apparaît dans le
+résumé de chaque déploiement.
+
+### N'importe quel hôte Docker
+
+```sh
+docker build -t varium-site .            # depuis la racine du dépôt
+docker run --rm -p 8080:8080 varium-site # http://localhost:8080
+```
+
+Render, Fly.io, Railway, Koyeb, Google Cloud Run… : pointez-les sur le `Dockerfile` de la
+racine ; ils fournissent `PORT`. Pour des URL canoniques fixes, définissez
+`SITE_URL=https://votre-domaine.fr`.
