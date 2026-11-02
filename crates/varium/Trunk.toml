@@ -1,0 +1,4 @@
+[build]
+target = "index.html"
+dist = "dist"
+# Pour GitHub Pages : trunk build --release --public-url /varium/
