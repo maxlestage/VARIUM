@@ -76,6 +76,7 @@ enum Act {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Format {
+    Pdf,
     Odt,
     Docx,
     Epub,
@@ -876,6 +877,16 @@ impl VariumApp {
         let stem = self.file_stem();
         let docs = self.rendered();
         let (name, mime, bytes): (String, &'static str, Vec<u8>) = match f {
+            Format::Pdf => (
+                format!("{stem}.pdf"),
+                "application/pdf",
+                varium_core::pdf::pdf(
+                    &self.title,
+                    &docs,
+                    &self.page,
+                    &crate::fonts::pdf_fonts(self.page.font),
+                ),
+            ),
             Format::Odt => (
                 format!("{stem}.odt"),
                 "application/vnd.oasis.opendocument.text",
@@ -1042,6 +1053,7 @@ impl VariumApp {
             self.item(ui, "Enregistrer", Act::Save);
             self.item(ui, "Enregistrer sous…", Act::SaveAs);
             ui.menu_button("Exporter", |ui| {
+                self.item(ui, "PDF (.pdf)", Act::Export(Format::Pdf));
                 self.item(
                     ui,
                     "OpenDocument Texte (.odt) — LibreOffice",
@@ -1059,7 +1071,7 @@ impl VariumApp {
                 self.item(ui, "Texte brut (.txt)", Act::Export(Format::Text));
                 self.item(ui, "Modèle avec ses {{champs}}", Act::Export(Format::Model));
             });
-            self.item(ui, "Exporter en PDF / Imprimer…", Act::Print);
+            self.item(ui, "Imprimer (via le navigateur)…", Act::Print);
             ui.separator();
             self.item(ui, "Publipostage…", Act::Merge);
             ui.separator();
@@ -1219,8 +1231,8 @@ impl VariumApp {
                 self.tool(
                     ui,
                     Icon::Pdf,
-                    "Exporter en PDF / Imprimer",
-                    Act::Print,
+                    "Exporter en PDF",
+                    Act::Export(Format::Pdf),
                     false,
                 );
                 self.tool(
@@ -2532,8 +2544,8 @@ impl VariumApp {
                     if ui.button("Word (.docx)").clicked() {
                         self.queue.push(Act::Export(Format::Docx));
                     }
-                    if ui.button("PDF / Imprimer").clicked() {
-                        self.queue.push(Act::Print);
+                    if ui.button("PDF").clicked() {
+                        self.queue.push(Act::Export(Format::Pdf));
                     }
                     if ui.button("HTML").clicked() {
                         self.queue.push(Act::Export(Format::Html));
@@ -2695,10 +2707,10 @@ impl VariumApp {
                         self.queue.push(Act::Undo);
                     }
                     if icon_button(ui, Icon::Pdf, false)
-                        .on_hover_text("PDF / Imprimer")
+                        .on_hover_text("Exporter en PDF")
                         .clicked()
                     {
-                        self.queue.push(Act::Print);
+                        self.queue.push(Act::Export(Format::Pdf));
                     }
                     ui.add(
                         egui::TextEdit::singleline(&mut self.title)
@@ -3302,8 +3314,9 @@ fn act_label(a: Act) -> &'static str {
         Act::Save => "Enregistrer",
         Act::SaveAs => "Enregistrer sous",
         Act::Export(Format::Odt) => "Exporter pour LibreOffice (.odt)",
+        Act::Export(Format::Pdf) => "Exporter en PDF",
         Act::Export(_) => "Exporter",
-        Act::Print => "Exporter en PDF / Imprimer",
+        Act::Print => "Imprimer",
         Act::Undo => "Annuler",
         Act::Redo => "Rétablir",
         Act::Find => "Rechercher",
@@ -3401,7 +3414,7 @@ mod native {
                 "Exporter vers",
                 true,
                 &[
-                    &b.item("PDF…", Act::Print, None),
+                    &b.item("PDF…", Act::Export(Format::Pdf), None),
                     &b.item("Word (.docx)…", Act::Export(Format::Docx), None),
                     &b.item("LibreOffice (.odt)…", Act::Export(Format::Odt), None),
                     &b.item("Texte enrichi (.rtf)…", Act::Export(Format::Rtf), None),
