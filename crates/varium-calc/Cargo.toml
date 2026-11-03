@@ -1,0 +1,12 @@
+[package]
+name = "varium-calc"
+description = "Moteur de classeur de Varium : cellules, formules, fonctions, exports XLSX/ODS/CSV"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+varium-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

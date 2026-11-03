@@ -9,6 +9,8 @@ default-run = "varium"
 
 [dependencies]
 varium-core.workspace = true
+varium-calc.workspace = true
+varium-slides.workspace = true
 eframe = { workspace = true, features = ["persistence"] }
 egui = { workspace = true, features = ["monochrome_emoji_fonts"] }
 egui_extras = { workspace = true, features = ["datepicker", "serde"] }

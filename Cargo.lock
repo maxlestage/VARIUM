@@ -3875,7 +3875,7 @@ dependencies = [
 
 [[package]]
 name = "varium"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "eframe",
  "egui",
@@ -3886,16 +3886,36 @@ dependencies = [
  "muda",
  "rfd",
  "serde",
+ "varium-calc",
  "varium-core",
+ "varium-slides",
  "winresource",
 ]
 
 [[package]]
-name = "varium-core"
-version = "0.3.0"
+name = "varium-calc"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
+ "varium-core",
+]
+
+[[package]]
+name = "varium-core"
+version = "0.4.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "varium-slides"
+version = "0.4.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "varium-core",
 ]
 
 [[package]]

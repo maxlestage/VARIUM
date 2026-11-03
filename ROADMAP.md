@@ -55,3 +55,15 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Barre de titre unifiée façon macOS, à valider sur un vrai Mac
 - [ ] Vignettes des pages dans la barre latérale (comme Pages)
 - [ ] Commentaires et suivi des modifications
+
+## 10. Suite bureautique et langues
+- [x] Module Classeur (varium-calc + calc_ui) : formules FR/EN, feuilles, formats, tri, recopie, graphiques, XLSX/ODS/CSV
+- [x] Module Présentation (varium-slides + slides_ui) : dispositions, thèmes, transitions, notes, diaporama plein écran, PDF/ODP/HTML
+- [x] Langue du document : formats, typographie, révision, aide par langue
+- [x] Site traduit (fr, en, es, de, it, pt)
+- [x] Révision de l'écriture par langue (espaces, ponctuation, majuscules, accords a/an, ¿ ¡) — version 0.4.0
+- [ ] Classeur : mise en forme conditionnelle, figer les volets, import XLSX/ODS, plus de types de graphiques
+- [ ] Présentation : images, formes, mode présentateur sur deuxième écran, import ODP/PPTX
+- [ ] Dictionnaires orthographiques (Hunspell) par langue
+- [ ] Interface traduite (les menus restent en français)
+- [ ] Menus natifs macOS pour le Classeur et la Présentation
