@@ -1,8 +1,8 @@
 # Teste chaque push. Quand tout est vert, la branche est fusionnée automatiquement
 # dans master (sauf master elle-même et les branches nommées wip/...), puis master est
-# déployé : le site sur Heroku (heroku.yml) et l'application web sur GitHub Pages
-# (pages.yml). Un push fait par un workflow n'en démarre aucun autre : ils sont donc
-# lancés explicitement.
+# déployé : le site de présentation et l'application web sur GitHub Pages (pages.yml),
+# et, s'il est configuré, le serveur du site sur Heroku (heroku.yml). Un push fait par
+# un workflow n'en démarre aucun autre : ils sont donc lancés explicitement.
 
 name: CI
 
