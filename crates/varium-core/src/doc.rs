@@ -545,6 +545,15 @@ fn trim_runs(runs: &mut Vec<Run>) {
     runs.retain(|r| !matches!(r, Run::Text { text, .. } if text.is_empty()));
 }
 
+/// Dernière cellule, créée au besoin : ne panique jamais.
+fn derniere_cellule(cells: &mut Vec<Vec<Item>>) -> &mut Vec<Item> {
+    if cells.is_empty() {
+        cells.push(Vec::new());
+    }
+    let i = cells.len() - 1;
+    &mut cells[i]
+}
+
 /// Découpe une ligne de tableau en cellules, sur les `|` de la source.
 fn cells(items: Vec<Item>) -> Vec<Vec<Run>> {
     let mut cells: Vec<Vec<Item>> = vec![Vec::new()];
@@ -559,10 +568,7 @@ fn cells(items: Vec<Item>) -> Vec<Vec<Run>> {
                         chars.next();
                     } else if c == '|' {
                         if !buf.is_empty() {
-                            cells
-                                .last_mut()
-                                .unwrap()
-                                .push(Item::Text(std::mem::take(&mut buf)));
+                            derniere_cellule(&mut cells).push(Item::Text(std::mem::take(&mut buf)));
                         }
                         cells.push(Vec::new());
                     } else {
@@ -570,10 +576,10 @@ fn cells(items: Vec<Item>) -> Vec<Vec<Run>> {
                     }
                 }
                 if !buf.is_empty() {
-                    cells.last_mut().unwrap().push(Item::Text(buf));
+                    derniere_cellule(&mut cells).push(Item::Text(buf));
                 }
             }
-            other => cells.last_mut().unwrap().push(other),
+            other => derniere_cellule(&mut cells).push(other),
         }
     }
     // Le texte avant le premier `|` et après le dernier n'est pas une cellule.
@@ -630,8 +636,8 @@ fn tokens(items: Vec<Item>) -> Vec<Tok> {
         while i < chars.len() {
             let c = chars[i];
             let next = chars.get(i + 1).copied();
-            if c == '\\' && matches!(next, Some('*' | '_' | '~' | '|' | '#' | '>')) {
-                out.push(Tok::Char(next.unwrap()));
+            if let ('\\', Some(e @ ('*' | '_' | '~' | '|' | '#' | '>'))) = (c, next) {
+                out.push(Tok::Char(e));
                 i += 2;
             } else if c == '*' && next == Some('*') {
                 out.push(Tok::Mark(Mark::Bold));
