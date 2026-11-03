@@ -296,3 +296,12 @@ table { display: block; overflow-x: auto; }
 .document th.r, .document td.r { text-align: right; }
 .document hr { border: 0; border-top: 1px solid color-mix(in srgb, var(--fg) 45%, transparent); margin: .5em 0; }
 .document .saut { border-top: 2px dashed var(--line); margin: .9em 0 .5em; text-align: center; font: .75rem var(--font); color: var(--muted); }
+
+/* ---- Téléchargements ------------------------------------------------------------ */
+
+.prose.large { max-width: 64rem; }
+.telechargements { margin: 2rem 0; align-items: start; }
+.telechargements .card h2 { margin: 0 0 .25rem; }
+.telechargements .button { width: 100%; text-align: center; margin: .5rem 0 .25rem; }
+.telechargements ol { padding-left: 1.2rem; margin: .75rem 0 0; font-size: .92rem; }
+.telechargements li { margin: .3rem 0; }

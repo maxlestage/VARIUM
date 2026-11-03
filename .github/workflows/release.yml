@@ -1,0 +1,125 @@
+# Publie les binaires de Varium dans une Release GitHub, à chaque tag `v*`
+# (ex. `git tag v0.2.0 && git push origin v0.2.0`) ou à la main (Actions → Run workflow).
+#
+# Les noms de fichiers ne changent pas d'une version à l'autre : le site les télécharge par
+# https://github.com/maxlestage/VARIUM/releases/latest/download/<fichier>.
+#
+#   varium-windows-x86_64.zip     varium.exe
+#   varium-macos.zip              Varium.app (Apple Silicon et Intel)
+#   varium-linux-x86_64.tar.gz    varium, varium.desktop, varium.svg
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de la version (ex. v0.2.0), créé sur la branche choisie s'il n'existe pas"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+          # Ubuntu 22.04 : une glibc assez ancienne pour la plupart des distributions.
+          - name: Linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install stable --profile minimal
+      - name: Cibles macOS
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --release --locked -p varium
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/varium.exe dist/
+          Copy-Item crates/varium/assets/fonts/LICENSE-OFL.txt dist/
+          Compress-Archive -Path dist/* -DestinationPath varium-windows-x86_64.zip
+
+      - name: macOS (binaire universel dans Varium.app)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p varium --target aarch64-apple-darwin
+          cargo build --release --locked -p varium --target x86_64-apple-darwin
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          app=dist/Varium.app/Contents
+          mkdir -p "$app/MacOS" "$app/Resources"
+          lipo -create -output "$app/MacOS/varium" \
+            target/aarch64-apple-darwin/release/varium target/x86_64-apple-darwin/release/varium
+          sed "s/VERSION/$version/g" packaging/Info.plist > "$app/Info.plist"
+          cp crates/varium/assets/fonts/LICENSE-OFL.txt "$app/Resources/"
+          # Signature ad hoc : nécessaire pour lancer un binaire arm64.
+          codesign --force --deep --sign - dist/Varium.app
+          (cd dist && ditto -c -k --keepParent Varium.app ../varium-macos.zip)
+
+      - name: Linux
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p varium
+          mkdir -p dist/varium
+          cp target/release/varium dist/varium/
+          cp packaging/varium.desktop dist/varium/
+          cp crates/varium/assets/icon.svg dist/varium/varium.svg
+          cp crates/varium/assets/fonts/LICENSE-OFL.txt dist/varium/
+          tar -czf varium-linux-x86_64.tar.gz -C dist varium
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: varium-${{ matrix.name }}
+          path: varium-*.*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Créer ou mettre à jour la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls -la assets
+          notes="Varium ${TAG} — application de bureau pour Windows, macOS et Linux.
+
+          - **Windows** : varium-windows-x86_64.zip, décompressez puis lancez varium.exe (SmartScreen : « Informations complémentaires » → « Exécuter quand même »).
+          - **macOS** : varium-macos.zip (Apple Silicon et Intel), glissez Varium dans Applications ; au premier lancement, clic droit → Ouvrir.
+          - **Linux** : varium-linux-x86_64.tar.gz, décompressez puis lancez ./varium.
+
+          Mode d'emploi : https://maxlestage.github.io/VARIUM/installer/"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" \
+              --target "${GITHUB_SHA}" --title "Varium ${TAG#v}" --notes "$notes" --latest
+          fi

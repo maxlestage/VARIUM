@@ -2,6 +2,9 @@
 //!
 //! `cargo run -p varium --release`
 
+// Sous Windows, pas de fenêtre de console derrière l'application.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod editor;
 mod fonts;
