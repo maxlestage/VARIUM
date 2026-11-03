@@ -1,6 +1,6 @@
 # Teste chaque push. Quand tout est vert, la branche est fusionnée automatiquement
 # dans master (sauf master elle-même et les branches nommées wip/...), puis master est
-# déployé : le site de présentation et l'application web sur GitHub Pages (pages.yml),
+# déployé : le site de présentation sur GitHub Pages (pages.yml),
 # et, s'il est configuré, le serveur du site sur Heroku (heroku.yml). Un push fait par
 # un workflow n'en démarre aucun autre : ils sont donc lancés explicitement.
 
@@ -20,11 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install stable --profile minimal -c rustfmt,clippy -t wasm32-unknown-unknown
+      - run: rustup toolchain install stable --profile minimal -c rustfmt,clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo clippy -p varium --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --workspace
 
   site:

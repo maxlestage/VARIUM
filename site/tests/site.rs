@@ -131,15 +131,15 @@ async fn les_routes_repondent_avec_et_sans_barre_finale() {
 }
 
 #[tokio::test]
-async fn le_serveur_garde_le_formulaire_et_ouvre_l_application() {
+async fn le_serveur_garde_le_formulaire_et_mene_a_l_installation() {
     let client = app_with(Options::new()).test().await;
     let html = client.get("/essayer/").await.text();
     assert!(html.contains(r#"<form class="stack" method="post" action="/essayer/">"#));
-    assert!(html.contains(r#"<a class="button petit" href="/app/">Ouvrir l&#x27;application"#));
-    // Le serveur, sans APP_URL, mène à l'application publiée sur GitHub Pages.
+    assert!(html.contains(r#"<a class="button petit" href="/installer/">Installer Varium"#));
+    // Pas de version en ligne : le serveur mène à la page d'installation.
     let html = app().test().await.get("/").await.text();
     if std::env::var_os("APP_URL").is_none() {
-        assert!(html.contains(&format!(r#"href="{}""#, varium_site::APP_PUBLIQUE)));
+        assert!(html.contains(r#"href="/installer/""#));
     }
 }
 
@@ -194,6 +194,7 @@ async fn l_export_statique() {
         "index.html",
         "syntaxe/index.html",
         "essayer/index.html",
+        "installer/index.html",
         "404.html",
         "sitemap.xml",
         "robots.txt",
@@ -210,6 +211,7 @@ async fn l_export_statique() {
         "index.html",
         "syntaxe/index.html",
         "essayer/index.html",
+        "installer/index.html",
         "404.html",
     ] {
         let html = lire(page);
@@ -217,11 +219,11 @@ async fn l_export_statique() {
         assert!(html.contains(r#"href="/VARIUM/site.css""#), "{page}");
         assert!(html.contains(r#"href="/VARIUM/syntaxe/""#), "{page}");
         // Le bouton de l'en-tête : l'application, publiée à côté du site.
-        assert!(html.contains(r#"href="/VARIUM/app/""#), "{page}");
+        assert!(html.contains(r#"href="/VARIUM/installer/""#), "{page}");
     }
 
     let accueil = lire("index.html");
-    assert!(accueil.contains(r#"<a class="button" href="/VARIUM/app/">"#));
+    assert!(accueil.contains(r#"<a class="button" href="/VARIUM/installer/">"#));
     assert!(accueil.contains(r#"href="https://maxlestage.github.io/VARIUM/""#));
 
     let essayer = lire("essayer/index.html");
@@ -231,7 +233,7 @@ async fn l_export_statique() {
     assert!(essayer.contains(r#"class="source""#)); // le modèle, coloré
     assert!(essayer.contains(r#"class="document""#)); // le document rendu
     assert!(essayer.contains("ATELIER LUMEN"));
-    assert!(essayer.contains(r#"<a class="button" href="/VARIUM/app/">"#));
+    assert!(essayer.contains(r#"<a class="button" href="/VARIUM/installer/">"#));
     assert!(essayer.contains(r#"href="https://maxlestage.github.io/VARIUM/essayer/""#));
 
     let introuvable = lire("404.html");

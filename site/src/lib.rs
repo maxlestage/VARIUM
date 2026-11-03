@@ -23,7 +23,7 @@ pub use demo::LIMITE;
 pub mod export;
 mod layout;
 mod options;
-pub use options::{APP_PUBLIQUE, Options};
+pub use options::Options;
 mod pages;
 
 use paquets::prelude::*;
@@ -58,6 +58,7 @@ pub fn app_with(options: Options) -> App {
     app.get("/", pages::accueil);
     app.get("/syntaxe", pages::syntaxe);
     app.get("/essayer", demo::page);
+    app.get("/installer", pages::installer);
     app.post("/essayer", demo::soumettre);
     app.post("/api/rendu", demo::api);
     app.get("/robots.txt", pages::robots);
