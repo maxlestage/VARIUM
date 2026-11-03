@@ -8,7 +8,8 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Formules très imbriquées refusées proprement (plus de dépassement de pile) — idem
 - [x] Parseur linéaire sur les `{{` non fermés (était quadratique) — idem
 - [ ] Fuzz côté application (editor.rs, pageview.rs) : indexation sur positions de curseur/Unicode
-- [ ] Revue des `unwrap`/`expect` restants dans `crates/varium` (app.rs, io.rs)
+- [x] Revue des `unwrap`/`expect` hors tests : pagination (pageview.rs), tableaux et échappements (doc.rs), graphique du Classeur remplacés par du code sans panique ; test `tableaux_et_echappements_limites_ne_paniquent_pas` — « Robustesse : suppression des unwrap hors tests »
+  (reste `expect` de `Project::to_json`, infaillible : types à clés texte)
 - [ ] Récupération d'un projet corrompu dans l'application (message clair, ouverture de la source brute)
 - [x] Test de rétro-compatibilité des projets v1 : existe déjà (`projets_v1_toujours_lisibles`, tests/engine.rs)
 
