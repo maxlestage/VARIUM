@@ -379,7 +379,7 @@ kbd{font:inherit;font-weight:700;color:#fff}
 @media (prefers-reduced-motion:reduce){.slide.anim,.slide.pousse{animation:none!important}}
 "#;
 
-const SCRIPT: &str = r#"(function () {
+const SCRIPT: &str = r##"(function () {
   "use strict";
   var scene = document.querySelector(".scene");
   var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
@@ -516,7 +516,7 @@ const SCRIPT: &str = r#"(function () {
     setTimeout(function () { aide.classList.remove("visible"); }, 3500);
   }
 })();
-"#;
+"##;
 
 #[cfg(test)]
 mod tests {
