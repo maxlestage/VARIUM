@@ -31,7 +31,11 @@ la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
   alignement, listes, champs, tableau, saut de page.
 - **Raccourcis de Writer** : Ctrl+B/I/U, Ctrl+1/2/3 (titres), Ctrl+0 (corps de texte),
   Ctrl+E/R/L (alignement), F12 / Maj+F12 (listes), Ctrl+Entrée (saut de page),
-  Ctrl+Z/Y, Ctrl+F/H, Ctrl+S, Ctrl+P.
+  Ctrl+Z/Y, Ctrl+F/H, Ctrl+S (enregistrer), Ctrl+Maj+S (enregistrer sous), Ctrl+P.
+- **Fichiers comme Writer** : Ctrl+S réécrit le fichier ouvert (écriture atomique),
+  « Enregistrer sous… », indicateur • de modifications non enregistrées dans le titre
+  de la fenêtre, confirmation avant de fermer, de créer ou d'ouvrir un autre document,
+  menu « Documents récents ».
 - **Vue page** : de vraies feuilles A4, A5, Lettre ou Légal, en portrait ou en paysage,
   avec marges, en-tête, pied de page, numéros « Page 1 sur 3 », pagination
   automatique et zoom. Police Liberation Serif ou Sans, celles de LibreOffice.
