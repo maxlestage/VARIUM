@@ -173,21 +173,26 @@ fn mask(text: &str) -> Vec<bool> {
             s += 1;
             continue;
         }
-        let e = text[s..]
-            .find(char::is_whitespace)
-            .map_or(n, |k| s + k);
+        let e = text[s..].find(char::is_whitespace).map_or(n, |k| s + k);
         let chunk = &text[s..e];
         let trimmed = chunk.trim_start_matches(|c: char| !c.is_alphanumeric());
-        let dotted = chunk
-            .char_indices()
-            .any(|(k, c)| {
-                c == '.'
-                    && chunk[..k].chars().next_back().is_some_and(char::is_alphanumeric)
-                    && chunk[k + 1..].chars().next().is_some_and(char::is_alphanumeric)
-            });
+        let dotted = chunk.char_indices().any(|(k, c)| {
+            c == '.'
+                && chunk[..k]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_alphanumeric)
+                && chunk[k + 1..]
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_alphanumeric)
+        });
         let email = chunk.char_indices().any(|(k, c)| {
             c == '@'
-                && chunk[..k].chars().next_back().is_some_and(char::is_alphanumeric)
+                && chunk[..k]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_alphanumeric)
                 && chunk[k + 1..].contains('.')
         });
         if chunk.contains("://") || trimmed.starts_with("www.") || email || dotted {
@@ -206,8 +211,8 @@ fn elisions(lang: Lang) -> &'static [&'static str] {
         ],
         Lang::It => &[
             "l", "un", "dell", "all", "dall", "nell", "sull", "coll", "pell", "d", "c", "quest",
-            "quell", "bell", "sant", "tutt", "nessun", "ciascun", "buon", "m", "t", "s", "v",
-            "gl", "senz", "com", "dov", "anch",
+            "quell", "bell", "sant", "tutt", "nessun", "ciascun", "buon", "m", "t", "s", "v", "gl",
+            "senz", "com", "dov", "anch",
         ],
         Lang::Pt => &["d", "n"],
         Lang::En | Lang::Es | Lang::De => &[],
@@ -430,7 +435,10 @@ mod tests {
         let de = Fake(&["donaudampfschifffahrt", "und"]);
         assert!(bad("Donaudampfschifffahrt und", Lang::De, &de).is_empty());
         // un composé inconnu est signalé d'un seul tenant
-        assert_eq!(bad("Donaudampfschiffahrt", Lang::De, &de), ["Donaudampfschiffahrt"]);
+        assert_eq!(
+            bad("Donaudampfschiffahrt", Lang::De, &de),
+            ["Donaudampfschiffahrt"]
+        );
         let es = Fake(&["cómo", "estás", "qué", "bien"]);
         assert!(bad("¿Cómo estás? ¡Qué bien!", Lang::Es, &es).is_empty());
         assert_eq!(bad("¿Cómo etsás?", Lang::Es, &es), ["etsás"]);
@@ -441,7 +449,11 @@ mod tests {
         let src = "# Titre\n\n- liste {{ nomzz | upper }} $xyzt + qqq$ https://exemple.fr/abcd \
                    www.qwerty.org jean.dupont@exemple.fr rapport.pdf 12h30 3e B2B ONU \
                    iPhone \\newpage \\sommaire `codezz` [texte](lien/qqq) | texte |\n|---|---|";
-        assert!(bad(src, Lang::Fr, &FR).is_empty(), "{:?}", bad(src, Lang::Fr, &FR));
+        assert!(
+            bad(src, Lang::Fr, &FR).is_empty(),
+            "{:?}",
+            bad(src, Lang::Fr, &FR)
+        );
         assert!(bad("{{si x}}texte{{sinon}}texte{{fin}}", Lang::Fr, &FR).is_empty());
     }
 
@@ -452,7 +464,7 @@ mod tests {
         let r = misspelled(src, Lang::Fr, &FR, &|_| false);
         assert_eq!(r, [12..18, 21..26]);
         assert_eq!(paragraphs(""), Vec::<Range<usize>>::new());
-        assert_eq!(paragraphs("a\n"), [0..1]);
+        assert_eq!(paragraphs("a\n"), vec![0..1_usize]);
     }
 
     #[test]

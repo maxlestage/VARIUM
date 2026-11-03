@@ -66,20 +66,6 @@ impl Node {
         self.elems().filter(move |n| n.is(name))
     }
 
-    /// Descendant (recherche en profondeur, sans récursion).
-    pub fn find(&self, name: &str) -> Option<&Node> {
-        let mut stack: Vec<&Node> = vec![self];
-        while let Some(n) = stack.pop() {
-            for c in n.elems().collect::<Vec<_>>().into_iter().rev() {
-                if c.is(name) {
-                    return Some(c);
-                }
-                stack.push(c);
-            }
-        }
-        None
-    }
-
     /// Tout le texte contenu (descendants compris), dans l'ordre.
     pub fn text(&self) -> String {
         let mut out = String::new();
@@ -135,7 +121,7 @@ fn element(e: &quick_xml::events::BytesStart<'_>) -> Node {
         .map(|a| {
             let k = a.key.as_ref().to_string();
             let v = a
-                .unescape_value()
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                 .map(|v| v.into_owned())
                 .unwrap_or_else(|_| a.value.to_string());
             (k, v)
@@ -244,7 +230,7 @@ mod tests {
         assert!(c.is("b:c"));
         assert_eq!(c.attr("y"), Some("z"));
         assert_eq!(c.text(), "t<1é<k>");
-        assert!(n.find("d").is_some());
+        assert!(n.child("d").is_some());
     }
 
     #[test]

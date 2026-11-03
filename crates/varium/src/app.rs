@@ -1593,8 +1593,138 @@ impl VariumApp {
                             let rr = r.as_sorted_char_range();
                             self.sel = (rr.start.0, rr.end.0);
                         }
+                        self.spell_overlay(ui, &out);
                     });
             });
+    }
+
+    /// Orthographe dans l'éditeur : mots inconnus soulignés d'une vague rouge
+    /// (les remarques typographiques gardent leur trait droit), et menu du clic droit.
+    fn spell_overlay(&mut self, ui: &mut egui::Ui, out: &egui::text_edit::TextEditOutput) {
+        if !(self.prefs.spell_live || self.prefs.inspector == Inspector::Review) {
+            self.spell_menu = None;
+            return;
+        }
+        let ctx = ui.ctx().clone();
+        let lang = self.page.langue;
+        // Pas de dictionnaire chargé (chargement en cours ?) : rien à souligner.
+        let Some(ranges) = self.dicos.misspelled(&self.source, lang, &ctx) else {
+            return;
+        };
+        let chars = editor::chars_of(&self.source, ranges.iter().flat_map(|r| [r.start, r.end]));
+        let painter = ui
+            .painter()
+            .with_clip_rect(out.text_clip_rect.intersect(ui.clip_rect()));
+        let color = Color32::from_rgb(0xE0, 0x3A, 0x30);
+        let at = |c: usize| {
+            out.galley
+                .pos_from_cursor(CCursor::new(CharIndex(c)))
+                .translate(out.galley_pos.to_vec2())
+        };
+        for pair in chars.chunks(2) {
+            let (a, b) = (at(pair[0]), at(pair[1]));
+            if (a.min.y - b.min.y).abs() < 1.0 {
+                editor::paint_wave(&painter, a.min.x, b.min.x, a.max.y - 1.0, color);
+            } else {
+                let right = out.galley_pos.x + out.galley.rect.max.x;
+                let left = out.galley_pos.x + out.galley.rect.min.x;
+                editor::paint_wave(&painter, a.min.x, right, a.max.y - 1.0, color);
+                editor::paint_wave(&painter, left, b.min.x, b.max.y - 1.0, color);
+            }
+        }
+        let resp = &out.response.response;
+        if resp.secondary_clicked()
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            let c = out.galley.cursor_from_pos(pos - out.galley_pos).index.0;
+            let byte = editor::byte_of(&self.source, c);
+            self.spell_menu = ranges
+                .iter()
+                .find(|r| r.start <= byte && byte <= r.end)
+                .map(|r| SpellMenu {
+                    start: r.start,
+                    end: r.end,
+                    word: self.source[r.clone()].to_string(),
+                });
+        }
+        if self.spell_menu.is_some() {
+            let mut action = None;
+            let shown = resp.context_menu(|ui| action = self.spell_menu_ui(ui));
+            if shown.is_none() || action.is_some() {
+                self.spell_menu = None;
+            }
+            if let Some(a) = action {
+                self.apply_spell(a);
+            }
+        }
+    }
+
+    fn spell_menu_ui(&mut self, ui: &mut egui::Ui) -> Option<SpellAction> {
+        let m = self.spell_menu.as_ref()?;
+        let (start, end, word) = (m.start, m.end, m.word.clone());
+        let ctx = ui.ctx().clone();
+        let mut action = None;
+        ui.label(RichText::new(&word).strong().color(err(ui)));
+        match self
+            .dicos
+            .suggestions(self.page.langue, &word, &ctx)
+            .map(<[String]>::to_vec)
+        {
+            None => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new("Suggestions…").weak());
+                });
+            }
+            Some(list) if list.is_empty() => {
+                ui.label(RichText::new("Aucune suggestion").weak());
+            }
+            Some(list) => {
+                for sug in list {
+                    if ui.button(RichText::new(&sug).strong()).clicked() {
+                        action = Some(SpellAction::Replace {
+                            start,
+                            end,
+                            word: word.clone(),
+                            with: sug,
+                        });
+                    }
+                }
+            }
+        }
+        ui.separator();
+        if ui.button("Ajouter au dictionnaire").clicked() {
+            action = Some(SpellAction::Add(word.clone()));
+        }
+        if ui
+            .button("Ignorer")
+            .on_hover_text("Ne plus signaler ce mot dans ce document")
+            .clicked()
+        {
+            action = Some(SpellAction::Ignore(word));
+        }
+        if action.is_some() {
+            ui.close();
+        }
+        action
+    }
+
+    fn apply_spell(&mut self, a: SpellAction) {
+        match a {
+            SpellAction::Replace {
+                start,
+                end,
+                word,
+                with,
+            } => {
+                if self.source.get(start..end) == Some(word.as_str()) {
+                    self.history.cut = true;
+                    self.source.replace_range(start..end, &with);
+                }
+            }
+            SpellAction::Add(w) => self.dicos.add_personal(&w),
+            SpellAction::Ignore(w) => self.dicos.ignore(&w),
+        }
     }
 
     // ---------------- Champs ----------------
@@ -1799,6 +1929,8 @@ impl VariumApp {
                 self.queue.push(Act::Languages);
             }
         });
+        self.spelling_section(ui);
+        ui.separator();
         let issues = varium_core::check::check(&self.source, self.page.langue);
         let fixable = issues.iter().filter(|i| i.replacement.is_some()).count();
         ui.horizontal(|ui| {
@@ -1909,6 +2041,278 @@ impl VariumApp {
             if self.prefs.layout == Layout::Page {
                 self.prefs.layout = Layout::Split;
             }
+        }
+    }
+
+    /// Révision → Orthographe : état du dictionnaire de la langue, mots inconnus
+    /// avec leurs suggestions, dictionnaire personnel.
+    fn spelling_section(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let lang = self.page.langue;
+        ui.add_space(4.0);
+        ui.label(RichText::new("Orthographe").strong());
+        let installed = self.dicos.installed(lang).cloned();
+        let etat = self.dicos.etat(lang);
+        if matches!(etat, dico::Etat::Installe) {
+            // Le chargement démarre dès que l'onglet est ouvert.
+            self.dicos.dict(lang, &ctx);
+        }
+        let progress = self.dicos.download_progress(lang);
+        match (&etat, &progress) {
+            (_, Some(p)) => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spinner();
+                    ui.label(if p.steps == 0 {
+                        "Téléchargement…".to_string()
+                    } else {
+                        format!(
+                            "Téléchargement {}/{} : {} ({})",
+                            p.step,
+                            p.steps,
+                            p.file,
+                            human_size(p.bytes)
+                        )
+                    });
+                });
+            }
+            (dico::Etat::Absent, None) => {
+                ui.label(
+                    RichText::new(format!(
+                        "Aucun dictionnaire {} sur cet ordinateur.",
+                        lang.label().to_lowercase()
+                    ))
+                    .color(warn(ui)),
+                );
+                let r = dico::remote(lang);
+                ui.label(
+                    RichText::new(format!(
+                        "« Télécharger » l'obtient des dictionnaires de LibreOffice ({}, licence {}).",
+                        r.locale, r.licence_name
+                    ))
+                    .small()
+                    .weak(),
+                );
+            }
+            (dico::Etat::Installe | dico::Etat::Chargement, None) => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Chargement du dictionnaire…");
+                });
+            }
+            (dico::Etat::Pret, None) => {
+                if let Some(d) = &installed {
+                    ui.label(format!("✔ Dictionnaire {}", d.locale))
+                        .on_hover_text(d.dic.display().to_string());
+                }
+            }
+            (dico::Etat::Erreur(e), None) => {
+                ui.label(RichText::new(e).color(err(ui)));
+            }
+        }
+        if let Some(d) = &installed {
+            let origine = if d.own {
+                "dossier de Varium"
+            } else {
+                "installé sur l'ordinateur"
+            };
+            let lic = d.licence_name.as_deref().unwrap_or("non précisée");
+            egui::CollapsingHeader::new(RichText::new(format!("Licence : {lic}")).small().weak())
+                .id_salt("spell-licence")
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(format!("{} ({origine}) : {}", d.locale, d.aff.display()))
+                            .small()
+                            .weak(),
+                    );
+                    match d.licence.as_deref().and_then(|p| std::fs::read(p).ok()) {
+                        Some(bytes) => {
+                            let text = dico::decode(&bytes, "");
+                            egui::ScrollArea::vertical()
+                                .id_salt("spell-licence-text")
+                                .max_height(140.0)
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new(text).small().monospace());
+                                });
+                        }
+                        None => {
+                            ui.label(
+                                RichText::new("Pas de fichier de licence à côté du dictionnaire.")
+                                    .small()
+                                    .weak(),
+                            );
+                        }
+                    }
+                });
+        }
+        ui.horizontal_wrapped(|ui| {
+            let own = installed.as_ref().is_some_and(|d| d.own);
+            if progress.is_none() && !own {
+                let r = dico::remote(lang);
+                if ui
+                    .button("⤓ Télécharger")
+                    .on_hover_text(format!(
+                        "Dictionnaire {} des dictionnaires de LibreOffice (licence {}), enregistré dans le dossier de Varium",
+                        r.locale, r.licence_name
+                    ))
+                    .clicked()
+                {
+                    self.dicos.download(lang, &ctx);
+                }
+            }
+            if ui
+                .button("Importer…")
+                .on_hover_text(format!(
+                    "Un dictionnaire Hunspell (.aff et .dic) ou une extension LibreOffice (.oxt), copié dans {}",
+                    self.dicos.own_dir().display()
+                ))
+                .clicked()
+            {
+                self.dicos.import_dialog(&ctx);
+            }
+        });
+        ui.checkbox(&mut self.prefs.spell_live, "Vérifier pendant la frappe")
+            .on_hover_text(
+                "Souligner les mots inconnus d'une vague rouge, même quand cet onglet est fermé",
+            );
+
+        let Some(ranges) = self.dicos.misspelled(&self.source, lang, &ctx) else {
+            return;
+        };
+        ui.label(
+            RichText::new(match ranges.len() {
+                0 => "Aucune faute d'orthographe ✔".to_string(),
+                1 => "1 mot inconnu".to_string(),
+                n => format!("{n} mots inconnus"),
+            })
+            .strong(),
+        );
+        let mut action: Option<SpellAction> = None;
+        let mut goto: Option<(usize, usize)> = None;
+        egui::ScrollArea::vertical()
+            .id_salt("spell-list")
+            .max_height(260.0)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for r in ranges.iter().take(100) {
+                    let word = self.source[r.clone()].to_string();
+                    egui::Frame::group(ui.style())
+                        .inner_margin(6.0)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .link(RichText::new(&word).strong().color(err(ui)))
+                                    .on_hover_text("Aller au mot")
+                                    .clicked()
+                                {
+                                    goto = Some((r.start, r.end));
+                                }
+                                match self
+                                    .dicos
+                                    .suggestions(lang, &word, &ctx)
+                                    .map(<[String]>::to_vec)
+                                {
+                                    None => {
+                                        ui.spinner();
+                                    }
+                                    Some(list) if list.is_empty() => {
+                                        ui.label(RichText::new("pas de suggestion").weak());
+                                    }
+                                    Some(list) => {
+                                        ui.label(RichText::new("→").weak());
+                                        for sug in list.into_iter().take(4) {
+                                            if ui
+                                                .small_button(&sug)
+                                                .on_hover_text("Remplacer")
+                                                .clicked()
+                                            {
+                                                action = Some(SpellAction::Replace {
+                                                    start: r.start,
+                                                    end: r.end,
+                                                    word: word.clone(),
+                                                    with: sug,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                if ui.small_button("Ajouter au dictionnaire").clicked() {
+                                    action = Some(SpellAction::Add(word.clone()));
+                                }
+                                if ui
+                                    .small_button("Ignorer")
+                                    .on_hover_text("Ne plus signaler ce mot dans ce document")
+                                    .clicked()
+                                {
+                                    action = Some(SpellAction::Ignore(word.clone()));
+                                }
+                            });
+                        });
+                }
+                if ranges.len() > 100 {
+                    ui.label(RichText::new("… (100 premiers mots)").weak());
+                }
+            });
+        if let Some(a) = action {
+            self.apply_spell(a);
+        }
+        if let Some((a, b)) = goto {
+            let sel = (
+                editor::char_of(&self.source, a),
+                editor::char_of(&self.source, b),
+            );
+            self.sel = sel;
+            self.pending_sel = Some(sel);
+            self.tab = Tab::Text;
+            if self.prefs.layout == Layout::Page {
+                self.prefs.layout = Layout::Split;
+            }
+        }
+        let n = self.dicos.personal.len();
+        let mut remove = None;
+        egui::CollapsingHeader::new(format!(
+            "Dictionnaire personnel ({n} mot{})",
+            if n > 1 { "s" } else { "" }
+        ))
+        .id_salt("spell-personal")
+        .show(ui, |ui| {
+            if n == 0 {
+                ui.label(
+                    RichText::new(
+                        "« Ajouter au dictionnaire » y range un mot, pour tous les documents.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+            for w in &self.dicos.personal {
+                ui.horizontal(|ui| {
+                    if ui.small_button("✖").on_hover_text("Retirer").clicked() {
+                        remove = Some(w.clone());
+                    }
+                    ui.label(w);
+                });
+            }
+            if !self.dicos.ignored.is_empty() {
+                ui.label(
+                    RichText::new(format!(
+                        "Ignorés dans ce document : {}",
+                        self.dicos
+                            .ignored
+                            .iter()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                    .small()
+                    .weak(),
+                );
+            }
+        });
+        if let Some(w) = remove {
+            self.dicos.remove_personal(&w);
         }
     }
 
@@ -2495,6 +2899,7 @@ impl VariumApp {
                 Dialog::Languages(lang) => {
                     ui.heading("Écrire en plusieurs langues");
                     ui.label("Choisissez la langue du document (Document → Langue) : les dates, les nombres, les montants, la typographie automatique et la révision suivent ses règles.");
+                    ui.label(RichText::new("Orthographe : Varium vérifie les mots avec un dictionnaire Hunspell, le format de LibreOffice. Il emploie ceux déjà installés sur l'ordinateur (LibreOffice, dictionnaires du système) ; sinon, Révision → Orthographe propose de télécharger celui de la langue depuis les dictionnaires de LibreOffice (chacun avec sa licence libre, affichée) ou d'en importer un (.aff et .dic, ou extension .oxt). Les mots inconnus sont soulignés d'une vague rouge ; un clic droit propose des corrections, « Ajouter au dictionnaire » (dictionnaire personnel, pour tous les documents) ou « Ignorer » (pour ce document)."));
                     ui.horizontal_wrapped(|ui| {
                         for l in varium_core::Lang::ALL {
                             ui.selectable_value(lang, l, l.native());
@@ -2991,6 +3396,17 @@ impl VariumApp {
     }
 }
 
+enum SpellAction {
+    Replace {
+        start: usize,
+        end: usize,
+        word: String,
+        with: String,
+    },
+    Add(String),
+    Ignore(String),
+}
+
 enum VarAction {
     Rename { from: String, to: String },
     Inline(String),
@@ -3187,6 +3603,15 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
 }
 
 /// Nombre à la française : `12,5`, `20`.
+/// Taille lisible : « 1,2 Mo ».
+fn human_size(bytes: u64) -> String {
+    if bytes >= 1_000_000 {
+        format!("{} Mo", fr((bytes as f64 / 100_000.0).round() / 10.0))
+    } else {
+        format!("{} ko", bytes.div_ceil(1000))
+    }
+}
+
 fn fr(v: f64) -> String {
     let s = format!("{v:.1}");
     s.trim_end_matches('0')

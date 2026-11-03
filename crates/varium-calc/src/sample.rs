@@ -2,7 +2,8 @@
 //! référence entre feuilles.
 
 use crate::format::{CellFormat, HAlign, NumberFormat};
-use crate::refs::CellRef;
+use crate::cond::{CompareOp, CondFormat, CondRule, CondStyle};
+use crate::refs::{CellRef, Range};
 use crate::workbook::Workbook;
 
 const EN_TETE: [u8; 3] = [221, 235, 247];
@@ -104,6 +105,31 @@ pub(crate) fn sample() -> Workbook {
         f.align = Some(HAlign::Right)
     });
     wb.sheets[b].col_widths.insert(0, 190.0);
+    // Mise en forme conditionnelle : dépassements en rouge, parts en barres.
+    let range = |s: &str| Range::parse(s).unwrap_or(Range::cell(CellRef::new(0, 0)));
+    wb.sheets[b].cond_formats = vec![
+        CondFormat {
+            range: range("D4:D8"),
+            rule: CondRule::Compare {
+                op: CompareOp::Gt,
+                value: "0".into(),
+                value2: String::new(),
+            },
+            style: CondStyle {
+                color: Some([0xC0, 0x28, 0x20]),
+                bold: true,
+                ..CondStyle::default()
+            },
+        },
+        CondFormat {
+            range: range("E4:E8"),
+            rule: CondRule::DataBar {
+                color: [0x63, 0x8E, 0xC6],
+            },
+            style: CondStyle::default(),
+        },
+    ];
+    wb.sheets[b].frozen_rows = 3;
 
     // ---------------------------------------------------------------- Facture
     put(&mut wb, f, "A1", "Facture n° 2026-042");

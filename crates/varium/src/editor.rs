@@ -525,6 +525,42 @@ pub fn highlight(
     job
 }
 
+/// Convertit des positions en octets (croissantes) en positions en caractères,
+/// en un seul passage sur le texte.
+pub fn chars_of(src: &str, bytes: impl IntoIterator<Item = usize>) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut it = src.char_indices().map(|(i, _)| i).enumerate().peekable();
+    let mut prev = 0;
+    for b in bytes {
+        if b < prev {
+            out.push(char_of(src, b));
+            continue;
+        }
+        prev = b;
+        while it.next_if(|&(_, i)| i < b).is_some() {}
+        out.push(it.peek().map_or_else(|| src.chars().count(), |&(k, _)| k));
+    }
+    out
+}
+
+/// Souligne d'une vague (fautes d'orthographe) de `x0` à `x1`, à la hauteur `y`.
+pub fn paint_wave(painter: &egui::Painter, x0: f32, x1: f32, y: f32, color: Color32) {
+    if x1 - x0 < 1.0 {
+        return;
+    }
+    let step = 2.0;
+    let mut pts = Vec::new();
+    let mut x = x0;
+    let mut up = false;
+    while x < x1 {
+        pts.push(egui::pos2(x, if up { y - 1.5 } else { y + 0.5 }));
+        x += step;
+        up = !up;
+    }
+    pts.push(egui::pos2(x1, if up { y - 1.5 } else { y + 0.5 }));
+    painter.add(egui::Shape::line(pts, Stroke::new(1.1, color)));
+}
+
 /// Positions (en octets) des occurrences de `query`.
 pub fn find_all(src: &str, query: &str, case: bool) -> Vec<(usize, usize)> {
     if query.is_empty() {
@@ -607,6 +643,14 @@ mod tests {
         assert_eq!(s, "-> intro ->\nun\ndeux\nfin");
         set_line_style(&mut s, (0, 0), LineStyle::Body);
         assert_eq!(s, "intro\nun\ndeux\nfin");
+    }
+
+    #[test]
+    fn octets_en_caracteres() {
+        let s = "aé bè c";
+        let bytes = [0, 1, 3, 4, 5, 7, s.len(), 3];
+        let want: Vec<usize> = bytes.iter().map(|&b| char_of(s, b)).collect();
+        assert_eq!(chars_of(s, bytes), want);
     }
 
     #[test]

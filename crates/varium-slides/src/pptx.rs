@@ -14,7 +14,7 @@ use varium_core::zip::ZipReader;
 use crate::import::{Ligne, Marques, Medias, Page, Paragraphe, Role, Zone, construire};
 use crate::objets::{Object, ObjectKind};
 use crate::xml::{Enfant, Noeud, lire};
-use crate::{Aspect, Deck, Frame};
+use crate::{Aspect, Deck, Frame, Transition};
 
 pub(crate) fn pptx(bytes: &[u8]) -> Result<Deck, String> {
     let z = ZipReader::new(bytes)?;
@@ -180,6 +180,7 @@ pub(crate) fn depuis_zip(z: &ZipReader) -> Result<Deck, String> {
                 fond(&lire(&z.text(maitre)?).ok()?)
             })
         });
+        page.transition = transition(&racine);
         if let Some(arbre) = racine.chemin(&["cSld", "spTree"]) {
             let ctx = Contexte {
                 z,
@@ -198,7 +199,7 @@ pub(crate) fn depuis_zip(z: &ZipReader) -> Result<Deck, String> {
                 if ph.and_then(|p| p.attr("type")) == Some("body")
                     && let Some(tx) = sp.enfant("txBody")
                 {
-                    page.notes.extend(paragraphes(tx, false));
+                    page.notes.extend(paragraphes(tx, false, false));
                 }
             }
         }
@@ -347,7 +348,10 @@ impl Contexte<'_> {
                 _ => Role::Corps,
             };
             let puces = role == Role::Corps;
-            let lignes = texte.map(|t| paragraphes(t, puces)).unwrap_or_default();
+            let titre = matches!(role, Role::Titre | Role::TitreCentre);
+            let lignes = texte
+                .map(|t| paragraphes(t, puces, titre))
+                .unwrap_or_default();
             page.zones.push(Zone {
                 role,
                 frame: cadre.map(|c| c.0),
@@ -370,10 +374,14 @@ impl Contexte<'_> {
         };
         if zone_texte {
             if let Some(t) = texte {
+                let numero = t
+                    .descendants("fld")
+                    .iter()
+                    .any(|f| f.attr("type") == Some("slidenum"));
                 page.zones.push(Zone {
-                    role: Role::Corps,
+                    role: if numero { Role::Numero } else { Role::Corps },
                     frame: Some(f),
-                    lignes: paragraphes(t, false),
+                    lignes: paragraphes(t, false, false),
                 });
             }
             return;
@@ -391,8 +399,17 @@ impl Contexte<'_> {
             _ => ObjectKind::Rect,
         };
         let txt = texte
-            .map(|t| crate::import::titre_markup(&paragraphes(t, false)))
+            .map(|t| crate::import::titre_markup(&paragraphes(t, false, false)))
             .unwrap_or_default();
+        // Taille du texte (centièmes de point) en fraction de la hauteur.
+        let taille = texte
+            .and_then(|t| {
+                t.descendants("rPr")
+                    .into_iter()
+                    .find_map(|r| r.attr("sz")?.parse::<f32>().ok())
+            })
+            .map(|sz| sz / 100.0 / (self.ph / 12_700.0))
+            .unwrap_or(0.04);
         page.objets.push(Object {
             kind,
             frame: f,
@@ -406,14 +423,32 @@ impl Contexte<'_> {
             },
             stroke_width: w,
             text: if kind.is_line() { String::new() } else { txt },
+            text_size: taille,
             ..Object::default()
         });
     }
 }
 
+/// Transition d'une diapositive (`p:transition`, éventuellement dans un
+/// `mc:AlternateContent`).
+fn transition(racine: &Noeud) -> Option<Transition> {
+    let t = racine.enfant("transition").or_else(|| {
+        let alt = racine.enfant("AlternateContent")?;
+        alt.enfant("Fallback")
+            .or_else(|| alt.enfant("Choice"))?
+            .enfant("transition")
+    })?;
+    Some(match t.noeuds().next().map(Noeud::local) {
+        Some("push" | "wipe" | "cover" | "pull" | "split" | "strips") => Transition::Glissement,
+        Some("zoom" | "circle" | "diamond" | "plus" | "wedge") => Transition::Zoom,
+        _ => Transition::Fondu,
+    })
+}
+
 /// Les paragraphes d'un `p:txBody`. `puces` : zone de contenu, dont les
-/// paragraphes ont une puce sauf mention contraire (`a:buNone`).
-fn paragraphes(tx: &Noeud, puces: bool) -> Vec<Ligne> {
+/// paragraphes ont une puce sauf mention contraire (`a:buNone`) ; `titre` : le
+/// gras de tout un paragraphe est retiré.
+fn paragraphes(tx: &Noeud, puces: bool, titre: bool) -> Vec<Ligne> {
     let mut out = Vec::new();
     for p in tx.noeuds().filter(|n| n.est("p")).take(10_000) {
         let ppr = p.enfant("pPr");
@@ -463,7 +498,11 @@ fn paragraphes(tx: &Noeud, puces: bool) -> Vec<Ligne> {
         let vide = para.est_vide();
         let liste = ((puces && !sans) || puce) && !vide;
         out.push(Ligne {
-            texte: para.markup(),
+            texte: if titre {
+                para.markup_titre()
+            } else {
+                para.markup()
+            },
             liste: liste.then_some((niveau, numero)),
         });
     }
@@ -491,7 +530,7 @@ mod tests {
             r#"<p:txBody xmlns:p="p" xmlns:a="a"><a:p><a:r><a:rPr b="1"/><a:t>Gras</a:t></a:r><a:r><a:t> et normal</a:t></a:r></a:p><a:p><a:pPr lvl="1"/><a:r><a:t>Sous</a:t></a:r></a:p><a:p><a:pPr><a:buNone/></a:pPr><a:r><a:t>Libre</a:t></a:r></a:p></p:txBody>"#,
         )
         .unwrap();
-        let l = paragraphes(&x, true);
+        let l = paragraphes(&x, true, false);
         assert_eq!(l[0].texte, "**Gras** et normal");
         assert_eq!(l[0].liste, Some((0, false)));
         assert_eq!(l[1].liste, Some((1, false)));

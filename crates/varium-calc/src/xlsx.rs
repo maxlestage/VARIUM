@@ -9,9 +9,10 @@ use std::fmt::Write as _;
 
 use varium_core::zip::Zip;
 
+use crate::cond::{CompareOp, CondRule, CondStyle};
 use crate::eval::{CellMap, is_formula};
-use crate::format::{CellFormat, HAlign, NumberFormat};
-use crate::refs::{CellRef, Range};
+use crate::format::{CellFormat, HAlign, NumberFormat, parse_literal};
+use crate::refs::{CellRef, MAX_COLS, MAX_ROWS, Range};
 use crate::rewrite::to_xlsx_formula;
 use crate::value::Value;
 use crate::workbook::{MAX_SHEET_NAME, Sheet, Workbook};
@@ -29,6 +30,8 @@ struct Styles {
     fonts: Vec<(bool, bool, Option<[u8; 3]>)>,
     fills: Vec<[u8; 3]>,
     numfmts: Vec<String>,
+    /// Styles différentiels de la mise en forme conditionnelle.
+    dxfs: Vec<CondStyle>,
 }
 
 impl Styles {
@@ -61,6 +64,16 @@ impl Styles {
             self.numfmts.push(code);
         }
         i
+    }
+
+    fn dxf(&mut self, s: CondStyle) -> usize {
+        match self.dxfs.iter().position(|d| *d == s) {
+            Some(i) => i,
+            None => {
+                self.dxfs.push(s);
+                self.dxfs.len() - 1
+            }
+        }
     }
 
     fn numfmt_id(&self, n: NumberFormat) -> usize {
@@ -163,6 +176,34 @@ impl Styles {
         }
         x.push_str("</cellXfs>");
         x.push_str("<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>");
+        if !self.dxfs.is_empty() {
+            let _ = write!(x, "<dxfs count=\"{}\">", self.dxfs.len());
+            for d in &self.dxfs {
+                x.push_str("<dxf>");
+                if d.bold || d.italic || d.color.is_some() {
+                    x.push_str("<font>");
+                    if d.bold {
+                        x.push_str("<b/>");
+                    }
+                    if d.italic {
+                        x.push_str("<i/>");
+                    }
+                    if let Some(c) = d.color {
+                        let _ = write!(x, "<color rgb=\"FF{}\"/>", hex(c));
+                    }
+                    x.push_str("</font>");
+                }
+                if let Some(c) = d.fill {
+                    let _ = write!(
+                        x,
+                        "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF{0}\"/><bgColor rgb=\"FF{0}\"/></patternFill></fill>",
+                        hex(c)
+                    );
+                }
+                x.push_str("</dxf>");
+            }
+            x.push_str("</dxfs>");
+        }
         x.push_str("</styleSheet>");
         x
     }
@@ -233,9 +274,11 @@ fn sheet_xml(
     let _ = write!(x, "<dimension ref=\"{dim}\"/>");
     let _ = write!(
         x,
-        "<sheetViews><sheetView workbookViewId=\"0\"{}/></sheetViews>",
+        "<sheetViews><sheetView workbookViewId=\"0\"{}>",
         if selected { " tabSelected=\"1\"" } else { "" }
     );
+    x.push_str(&pane_xml(sheet.frozen_rows, sheet.frozen_cols));
+    x.push_str("</sheetView></sheetViews>");
     x.push_str("<sheetFormatPr defaultRowHeight=\"15\"/>");
     let widths = sheet.clean_col_widths();
     let heights = sheet.clean_row_heights();
@@ -330,7 +373,146 @@ fn sheet_xml(
         }
         x.push_str("</row>");
     }
-    x.push_str("</sheetData></worksheet>");
+    x.push_str("</sheetData>");
+    x.push_str(&cond_xml(sheet, styles));
+    x.push_str("</worksheet>");
+    x
+}
+
+/// Volets figés : `<pane state="frozen"/>` et la sélection du volet actif.
+fn pane_xml(rows: u32, cols: u32) -> String {
+    let rows = rows.min(MAX_ROWS - 1);
+    let cols = cols.min(MAX_COLS - 1);
+    if rows == 0 && cols == 0 {
+        return String::new();
+    }
+    let active = match (rows > 0, cols > 0) {
+        (true, true) => "bottomRight",
+        (true, false) => "bottomLeft",
+        _ => "topRight",
+    };
+    let mut x = String::from("<pane");
+    if cols > 0 {
+        let _ = write!(x, " xSplit=\"{cols}\"");
+    }
+    if rows > 0 {
+        let _ = write!(x, " ySplit=\"{rows}\"");
+    }
+    let top_left = CellRef::new(rows, cols).name();
+    let _ = write!(
+        x,
+        " topLeftCell=\"{top_left}\" activePane=\"{active}\" state=\"frozen\"/><selection pane=\"{active}\" activeCell=\"{top_left}\" sqref=\"{top_left}\"/>"
+    );
+    x
+}
+
+/// Constante d'une règle pour une formule Excel : nombre ou texte entre guillemets.
+fn rule_operand(v: &str) -> String {
+    match parse_literal(v.trim()).0 {
+        Value::Number(n) => num(n),
+        Value::Bool(b) => if b { "TRUE" } else { "FALSE" }.into(),
+        _ => format!("\"{}\"", v.trim().replace('"', "\"\"")),
+    }
+}
+
+/// `<conditionalFormatting>` : une règle par plage, priorités dans l'ordre.
+fn cond_xml(sheet: &Sheet, styles: &mut Styles) -> String {
+    let mut x = String::new();
+    for (i, cf) in sheet.cond_formats.iter().enumerate() {
+        let priority = i + 1;
+        let sqref = cf.range.name();
+        let tl = cf.range.start.name();
+        let dxf = if cf.rule.has_style() {
+            format!(" dxfId=\"{}\"", styles.dxf(cf.style))
+        } else {
+            String::new()
+        };
+        let rule = match &cf.rule {
+            CondRule::Compare { op, value, value2 } => {
+                let operator = match op {
+                    CompareOp::Gt => "greaterThan",
+                    CompareOp::Ge => "greaterThanOrEqual",
+                    CompareOp::Lt => "lessThan",
+                    CompareOp::Le => "lessThanOrEqual",
+                    CompareOp::Eq => "equal",
+                    CompareOp::Ne => "notEqual",
+                    CompareOp::Between => "between",
+                    CompareOp::NotBetween => "notBetween",
+                };
+                let mut f = format!("<formula>{}</formula>", esc_text(&rule_operand(value)));
+                if op.two_values() {
+                    let _ = write!(f, "<formula>{}</formula>", esc_text(&rule_operand(value2)));
+                }
+                format!(
+                    "<cfRule type=\"cellIs\"{dxf} priority=\"{priority}\" operator=\"{operator}\">{f}</cfRule>"
+                )
+            }
+            CondRule::Contains { text } => {
+                let q = text.replace('"', "\"\"");
+                format!(
+                    "<cfRule type=\"containsText\"{dxf} priority=\"{priority}\" operator=\"containsText\" text=\"{}\"><formula>{}</formula></cfRule>",
+                    esc(text),
+                    esc_text(&format!("NOT(ISERROR(SEARCH(\"{q}\",{tl})))"))
+                )
+            }
+            CondRule::BeginsWith { text } => {
+                let q = text.replace('"', "\"\"");
+                format!(
+                    "<cfRule type=\"beginsWith\"{dxf} priority=\"{priority}\" operator=\"beginsWith\" text=\"{}\"><formula>{}</formula></cfRule>",
+                    esc(text),
+                    esc_text(&format!("LEFT({tl},LEN(\"{q}\"))=\"{q}\""))
+                )
+            }
+            CondRule::EndsWith { text } => {
+                let q = text.replace('"', "\"\"");
+                format!(
+                    "<cfRule type=\"endsWith\"{dxf} priority=\"{priority}\" operator=\"endsWith\" text=\"{}\"><formula>{}</formula></cfRule>",
+                    esc(text),
+                    esc_text(&format!("RIGHT({tl},LEN(\"{q}\"))=\"{q}\""))
+                )
+            }
+            CondRule::Empty => format!(
+                "<cfRule type=\"containsBlanks\"{dxf} priority=\"{priority}\"><formula>LEN(TRIM({tl}))=0</formula></cfRule>"
+            ),
+            CondRule::NotEmpty => format!(
+                "<cfRule type=\"notContainsBlanks\"{dxf} priority=\"{priority}\"><formula>LEN(TRIM({tl}))&gt;0</formula></cfRule>"
+            ),
+            CondRule::Error => format!(
+                "<cfRule type=\"containsErrors\"{dxf} priority=\"{priority}\"><formula>ISERROR({tl})</formula></cfRule>"
+            ),
+            CondRule::Top { n, bottom, percent } => format!(
+                "<cfRule type=\"top10\"{dxf} priority=\"{priority}\" rank=\"{}\"{}{}/>",
+                (*n).max(1),
+                if *bottom { " bottom=\"1\"" } else { "" },
+                if *percent { " percent=\"1\"" } else { "" }
+            ),
+            CondRule::Average { above } => format!(
+                "<cfRule type=\"aboveAverage\"{dxf} priority=\"{priority}\"{}/>",
+                if *above { "" } else { " aboveAverage=\"0\"" }
+            ),
+            CondRule::ColorScale { min, mid, max } => {
+                let mut c = String::from("<cfvo type=\"min\"/>");
+                if mid.is_some() {
+                    c.push_str("<cfvo type=\"percentile\" val=\"50\"/>");
+                }
+                c.push_str("<cfvo type=\"max\"/>");
+                for col in [Some(*min), *mid, Some(*max)].into_iter().flatten() {
+                    let _ = write!(c, "<color rgb=\"FF{}\"/>", hex(col));
+                }
+                format!(
+                    "<cfRule type=\"colorScale\" priority=\"{priority}\"><colorScale>{c}</colorScale></cfRule>"
+                )
+            }
+            CondRule::DataBar { color } => format!(
+                "<cfRule type=\"dataBar\" priority=\"{priority}\"><dataBar><cfvo type=\"min\"/><cfvo type=\"max\"/><color rgb=\"FF{}\"/></dataBar></cfRule>",
+                hex(*color)
+            ),
+        };
+        let _ = write!(
+            x,
+            "<conditionalFormatting sqref=\"{sqref}\">{rule}</conditionalFormatting>"
+        );
+    }
     x
 }
 

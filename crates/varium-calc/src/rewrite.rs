@@ -5,7 +5,7 @@
 //! La réécriture se fait jeton par jeton : les espaces et l'écriture d'origine
 //! (noms de fonctions en français, minuscules…) sont conservés.
 
-use crate::format::pattern_to_english;
+use crate::format::{pattern_to_english, pattern_to_french};
 use crate::functions::{F, info, lookup, odf_name, xlsx_name};
 use crate::lexer::{Kind, RefTok, Tok, tokenize};
 use crate::refs::{Addr, MAX_COLS, MAX_ROWS, always_quote_sheet_name};
@@ -398,19 +398,52 @@ fn outside_strings(text: &str, mut f: impl FnMut(&str) -> String) -> String {
 /// Écriture française des jetons : noms de fonctions, `VRAI`/`FAUX`, codes
 /// d'erreur et virgule décimale.
 fn to_french_tokens(formula: &str) -> String {
-    rewrite(formula, |t, text| match &t.kind {
-        Kind::Func(name) => {
-            let bare = strip_func_prefix(name);
-            match lookup(bare).or_else(|| lookup(name)) {
-                Some(id) => Some(info(id).fr.to_string()),
-                None => (bare.len() != name.len()).then(|| bare.to_string()),
+    let mut calls: Vec<(Option<F>, usize)> = Vec::new();
+    let mut pending: Option<F> = None;
+    rewrite(formula, |t, text| {
+        let func = pending.take();
+        match &t.kind {
+            Kind::Func(name) => {
+                let bare = strip_func_prefix(name);
+                let id = lookup(bare).or_else(|| lookup(name));
+                pending = id;
+                match id {
+                    Some(id) => Some(info(id).fr.to_string()),
+                    None => (bare.len() != name.len()).then(|| bare.to_string()),
+                }
             }
+            Kind::LParen => {
+                calls.push((func, 0));
+                None
+            }
+            Kind::RParen => {
+                calls.pop();
+                None
+            }
+            Kind::Semi => {
+                if let Some(top) = calls.last_mut() {
+                    top.1 += 1;
+                }
+                None
+            }
+            Kind::Str(s) => {
+                // Motif de TEXTE : #,##0.00 → # ##0,00, dd/mm/yyyy → jj/mm/aaaa.
+                let is_pattern = matches!(calls.last(), Some((Some(F::Texte), 1)));
+                is_pattern.then(|| format!("\"{}\"", pattern_to_french(s).replace('"', "\"\"")))
+            }
+            Kind::Ref(r) => {
+                let prefix = match &r.sheet {
+                    Some(p) => format!("{}!", crate::refs::quote_sheet_name(&p.name)),
+                    None => String::new(),
+                };
+                Some(ref_text(&prefix, r.start, r.end))
+            }
+            Kind::Bool(true) => Some("VRAI".into()),
+            Kind::Bool(false) => Some("FAUX".into()),
+            Kind::Err(e) => Some(e.code().to_string()),
+            Kind::Num(_) => Some(text.replace('.', ",")),
+            _ => None,
         }
-        Kind::Bool(true) => Some("VRAI".into()),
-        Kind::Bool(false) => Some("FAUX".into()),
-        Kind::Err(e) => Some(e.code().to_string()),
-        Kind::Num(_) => Some(text.replace('.', ",")),
-        _ => None,
     })
 }
 

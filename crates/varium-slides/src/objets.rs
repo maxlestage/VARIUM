@@ -461,18 +461,12 @@ impl<'de> Deserialize<'de> for Media {
 pub(crate) fn media_de_valeur(v: &serde_json::Value) -> Option<Media> {
     let data = unbase64(v.get("data")?.as_str()?)?;
     let format = format_image(&data)?;
-    let dim = |k: &str| {
-        v.get(k)
-            .and_then(serde_json::Value::as_u64)
-            .filter(|&n| n > 0 && n <= 1_000_000)
-            .map(|n| n as u32)
-    };
-    let (width, height) = match (dim("width"), dim("height")) {
-        (Some(w), Some(h)) => (w, h),
-        _ => image::ImageReader::with_format(Cursor::new(&data), format)
-            .into_dimensions()
-            .ok()?,
-    };
+    // Les dimensions sont toujours relues dans l'image : celles du fichier
+    // pourraient être fausses.
+    let (width, height) = image::ImageReader::with_format(Cursor::new(&data), format)
+        .into_dimensions()
+        .ok()
+        .filter(|(w, h)| *w > 0 && *h > 0)?;
     Some(Media {
         mime: if format == image::ImageFormat::Jpeg {
             "image/jpeg"

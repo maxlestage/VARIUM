@@ -64,10 +64,19 @@ impl Io {
                 .add_filter("Tableau CSV", DATA_EXTENSIONS),
             OpenKind::Workbook => rfd::AsyncFileDialog::new()
                 .set_title("Ouvrir un classeur")
-                .add_filter("Classeur Varium ou CSV", &["json", "csv", "tsv", "txt"]),
+                .add_filter(
+                    "Classeur (Varium, Excel, OpenDocument, CSV)",
+                    &["json", "xlsx", "xlsm", "ods", "csv", "tsv", "txt"],
+                ),
             OpenKind::Deck => rfd::AsyncFileDialog::new()
                 .set_title("Ouvrir une présentation")
-                .add_filter("Présentation Varium", &["json"]),
+                .add_filter(
+                    "Présentation (Varium, Impress, PowerPoint)",
+                    &["json", "odp", "pptx"],
+                )
+                .add_filter("Présentation Varium", &["json"])
+                .add_filter("LibreOffice Impress", &["odp"])
+                .add_filter("PowerPoint", &["pptx"]),
         };
         spawn(async move {
             let Some(file) = dialog.pick_file().await else {
@@ -160,6 +169,16 @@ impl Io {
 
 /// Le contenu d'un fichier ouvert, en texte.
 fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -> Event {
+    // Présentations ODP et PPTX (archives ZIP) : transmises octet pour caractère
+    // (U+0000 à U+00FF), que le module Présentation reconvertit en octets.
+    if kind == OpenKind::Deck && (bytes.starts_with(b"PK\x03\x04") || is_zip_deck(&name)) {
+        return Event::Opened {
+            kind,
+            name,
+            content: bytes.iter().map(|&b| b as char).collect(),
+            path,
+        };
+    }
     match String::from_utf8(bytes) {
         Ok(content) => Event::Opened {
             kind,
@@ -176,6 +195,12 @@ fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -
         },
         Err(_) => Event::Error(format!("« {name} » n'est pas un fichier texte UTF-8")),
     }
+}
+
+/// Présentation enregistrée dans une archive (`.odp`, `.pptx`).
+fn is_zip_deck(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.ends_with(".odp") || n.ends_with(".pptx")
 }
 
 /// Écrit dans un fichier temporaire voisin puis le renomme : un plantage ou un
@@ -264,6 +289,18 @@ mod tests {
     fn ecriture_dans_un_dossier_absent_echoue_proprement() {
         let f = std::env::temp_dir().join("varium-absent-xyz/dossier/doc.json");
         assert!(write_atomic(&f, b"x").is_err());
+    }
+
+    #[test]
+    fn decode_transmet_les_presentations_binaires() {
+        let octets = vec![b'P', b'K', 3, 4, 0xff, 0x80, 0];
+        match decode(OpenKind::Deck, "a.pptx".into(), None, octets.clone()) {
+            Event::Opened { content, .. } => {
+                let relu: Vec<u8> = content.chars().map(|c| c as u32 as u8).collect();
+                assert_eq!(relu, octets);
+            }
+            _ => panic!("présentation binaire attendue"),
+        }
     }
 
     #[test]

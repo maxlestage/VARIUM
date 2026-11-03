@@ -666,6 +666,37 @@ fn number_pattern(n: f64, parts: &[(bool, String)]) -> String {
 
 /// Traduit un motif de `TEXTE` français vers l'anglais (exports) : `0,00` → `0.00`,
 /// `jj/mm/aaaa` → `dd/mm/yyyy`.
+/// Motif anglais (fichier importé) → motif à la française : `#,##0.00` →
+/// `# ##0,00`, `dd/mm/yyyy` → `jj/mm/aaaa`. Inverse de [`pattern_to_english`].
+pub(crate) fn pattern_to_french(pattern: &str) -> String {
+    let parts = pattern_parts(pattern);
+    let code: String = parts
+        .iter()
+        .filter(|(lit, _)| !lit)
+        .map(|(_, s)| s.as_str())
+        .collect();
+    let date = is_date_pattern(&code);
+    let mut out = String::new();
+    for (lit, s) in &parts {
+        if *lit {
+            out.push('"');
+            out.push_str(&s.replace('"', ""));
+            out.push('"');
+            continue;
+        }
+        for c in s.chars() {
+            match c {
+                'd' | 'D' if date => out.push('j'),
+                'y' | 'Y' if date => out.push('a'),
+                ',' if !date => out.push(' '),
+                '.' if !date => out.push(','),
+                c => out.push(c),
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn pattern_to_english(pattern: &str) -> String {
     let parts = pattern_parts(pattern);
     let code: String = parts
@@ -848,5 +879,8 @@ mod tests {
         assert_eq!(pattern_to_english("jj/mm/aaaa"), "dd/mm/yyyy");
         assert_eq!(pattern_to_english("0 %"), "0 %");
         assert_eq!(pattern_to_english("#,##0.00"), "#,##0.00");
+        for p in ["0,00", "# ##0,00", "jj/mm/aaaa", "0 %"] {
+            assert_eq!(pattern_to_french(&pattern_to_english(p)), p);
+        }
     }
 }
