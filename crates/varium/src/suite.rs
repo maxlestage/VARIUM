@@ -1,7 +1,6 @@
 //! La suite Varium : trois applications dans une fenêtre, comme LibreOffice —
 //! Documents (traitement de texte), Classeur (tableur) et Présentation (diaporamas).
 
-use eframe::App as _;
 use egui::{Color32, RichText, Vec2};
 use serde::{Deserialize, Serialize};
 
@@ -76,8 +75,14 @@ impl Suite {
             for m in Module::ALL {
                 let on = self.module == m;
                 let text = RichText::new(format!("{}  {}", m.icon(), m.label())).size(13.5);
-                let text = if on { text.strong().color(Color32::WHITE) } else { text };
-                let mut b = egui::Button::new(text).min_size(Vec2::new(128.0, 26.0)).corner_radius(13.0);
+                let text = if on {
+                    text.strong().color(Color32::WHITE)
+                } else {
+                    text
+                };
+                let mut b = egui::Button::new(text)
+                    .min_size(Vec2::new(128.0, 26.0))
+                    .corner_radius(13.0);
                 if on {
                     b = b.fill(m.color());
                 }
@@ -108,7 +113,10 @@ impl eframe::App for Suite {
         let presenting = self.module == Module::Presentation && self.slides.is_presenting();
         if !presenting {
             egui::Panel::top("suite-switcher")
-                .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(8, 5)))
+                .frame(
+                    egui::Frame::side_top_panel(ui.style())
+                        .inner_margin(egui::Margin::symmetric(8, 5)),
+                )
                 .show(ui, |ui| self.switcher(ui));
         }
         match self.module {
