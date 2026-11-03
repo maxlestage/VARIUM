@@ -64,7 +64,9 @@ fn texte_valide(s: &str) -> Result<(), String> {
         }
         reste = &reste[i + fin + 1..];
     }
-    if s.chars().any(|c| c < ' ' && !matches!(c, '\n' | '\r' | '\t')) {
+    if s.chars()
+        .any(|c| c < ' ' && !matches!(c, '\n' | '\r' | '\t'))
+    {
         return Err("caractère de contrôle interdit en XML".into());
     }
     Ok(())
@@ -72,8 +74,7 @@ fn texte_valide(s: &str) -> Result<(), String> {
 
 fn nom_valide(n: &str) -> bool {
     !n.is_empty()
-        && n
-            .chars()
+        && n.chars()
             .all(|c| c.is_alphanumeric() || matches!(c, ':' | '_' | '-' | '.'))
 }
 
@@ -112,7 +113,9 @@ pub fn xml_bien_forme(xml: &str) -> Result<(), String> {
         let balise = &s[1..fin];
         s = &s[fin + 1..];
         if let Some(nom) = balise.strip_prefix('/') {
-            let ouvert = pile.pop().ok_or_else(|| format!("</{nom}> sans ouverture"))?;
+            let ouvert = pile
+                .pop()
+                .ok_or_else(|| format!("</{nom}> sans ouverture"))?;
             if ouvert != nom.trim() {
                 return Err(format!("<{ouvert}> fermée par </{nom}>"));
             }

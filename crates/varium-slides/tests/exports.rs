@@ -11,7 +11,8 @@ fn piegee() -> Deck {
     deck.slides.push(Slide {
         layout: Layout::TitleContent,
         title: "<script>alert('titre')</script> & « Été »".into(),
-        body: "- <b>gras ?</b> \"guillemets\" & 'apostrophes'\n- {{absent}}\n</section></div>".into(),
+        body: "- <b>gras ?</b> \"guillemets\" & 'apostrophes'\n- {{absent}}\n</section></div>"
+            .into(),
         notes: "<script>alert(1)</script> note secrète".into(),
         transition: Transition::Zoom,
         ..Slide::default()
@@ -37,7 +38,11 @@ fn html_contient_chaque_diapositive_et_ses_notes() {
         assert!(html.contains(&format!("data-t=\"{}\"", s.transition.id())));
         assert!(html.contains(&format!("class=\"slide d-{}\"", s.layout.id())));
     }
-    for titre in ["Pourquoi Varium ?", "Documents et classeurs", "Démonstration en direct"] {
+    for titre in [
+        "Pourquoi Varium ?",
+        "Documents et classeurs",
+        "Démonstration en direct",
+    ] {
         assert!(html.contains(titre), "titre {titre}");
     }
     // Notes de l'orateur présentes mais cachées.
@@ -51,11 +56,16 @@ fn html_contient_chaque_diapositive_et_ses_notes() {
 #[test]
 fn html_remplit_les_champs_et_rend_la_syntaxe() {
     let html = Deck::sample().to_html();
-    assert!(html.contains("Présentée par <span class=\"champ\" data-champ=\"orateur\">Camille Martin</span>"));
+    assert!(html.contains(
+        "Présentée par <span class=\"champ\" data-champ=\"orateur\">Camille Martin</span>"
+    ));
     assert!(!html.contains("{{orateur}}"));
     assert!(html.contains("<strong>toutes ses possibilités</strong>"));
     assert!(html.contains("<table>") && html.contains("<th>Logiciel</th>"));
-    assert!(html.contains("<div class=\"li\" style=\"--d:1\">"), "puce imbriquée");
+    assert!(
+        html.contains("<div class=\"li\" style=\"--d:1\">"),
+        "puce imbriquée"
+    );
     assert!(html.contains("<u>souligné</u>"));
     // Les accolades échappées restent visibles, littérales.
     assert!(html.contains("{{client}}"));
@@ -144,7 +154,10 @@ fn odp_structure_opendocument() {
     // `mimetype` en premier, stocké, sans champ extra : lisible à l'octet 38.
     assert_eq!(&odp[..4], b"PK\x03\x04");
     assert_eq!(&odp[30..38], b"mimetype");
-    assert_eq!(&odp[38..85], b"application/vnd.oasis.opendocument.presentation");
+    assert_eq!(
+        &odp[38..85],
+        b"application/vnd.oasis.opendocument.presentation"
+    );
     let noms: Vec<String> = zip_entries(&odp).into_iter().map(|(n, _)| n).collect();
     assert_eq!(
         noms,
@@ -178,14 +191,20 @@ fn odp_une_page_par_diapositive() {
     assert!(content.contains("Camille Martin"), "champ rempli");
     assert!(content.contains("Laisser un temps de silence après la citation."));
     assert!(content.contains("<text:list "), "puces en listes");
-    assert!(content.contains("draw:fill-color=\"#0b2540\""), "fond du thème");
+    assert!(
+        content.contains("draw:fill-color=\"#0b2540\""),
+        "fond du thème"
+    );
     assert!(content.contains("smil:type=\"fade\""), "transition fondu");
     assert!(content.contains("<text:page-number"));
     assert!(content.contains("&lt;script&gt;alert(1)&lt;/script&gt; note secrète"));
     assert!(!content.contains("<script>"));
     let styles = zip_text(&deck.to_odp(), "styles.xml");
     assert!(styles.contains("fo:page-width=\"25.4cm\""));
-    assert!(styles.contains("fo:page-height=\"14.287cm\"") || styles.contains("fo:page-height=\"14.288cm\""));
+    assert!(
+        styles.contains("fo:page-height=\"14.287cm\"")
+            || styles.contains("fo:page-height=\"14.288cm\"")
+    );
     let meta = zip_text(&deck.to_odp(), "meta.xml");
     assert!(meta.contains("<dc:title>Varium — la suite bureautique</dc:title>"));
 }
@@ -231,11 +250,20 @@ fn pdf_structure() {
     let table = std::str::from_utf8(&pdf[xref..]).expect("table ASCII");
     let lignes: Vec<&str> = table.lines().collect();
     let total: usize = lignes[1].split(' ').nth(1).unwrap().parse().unwrap();
-    assert_eq!(lignes.len(), 2 + total + 5, "xref, 0 N, N entrées, trailer, startxref, %%EOF");
+    assert_eq!(
+        lignes.len(),
+        2 + total + 5,
+        "xref, 0 N, N entrées, trailer, startxref, %%EOF"
+    );
     for (k, ligne) in lignes[3..2 + total].iter().enumerate() {
         let pos: usize = ligne[..10].parse().unwrap();
         let attendu = format!("{} 0 obj", k + 1);
-        assert_eq!(&pdf[pos..pos + attendu.len()], attendu.as_bytes(), "objet {}", k + 1);
+        assert_eq!(
+            &pdf[pos..pos + attendu.len()],
+            attendu.as_bytes(),
+            "objet {}",
+            k + 1
+        );
     }
     for police in ["/Helvetica-Bold", "/Times-Italic", "/WinAnsiEncoding"] {
         assert!(t.contains(police));
@@ -318,4 +346,32 @@ fn verificateur_xml_refuse_les_erreurs() {
     assert!(xml_bien_forme("<a>1 < 2</a>").is_err());
     assert!(xml_bien_forme("<a/><b/>").is_err());
     assert!(xml_bien_forme("<a x=\"1\" x=\"2\"/>").is_err());
+}
+
+#[test]
+fn odp_listes_numerotees_et_imbriquees() {
+    let mut deck = Deck::new();
+    deck.slides[0] = Slide {
+        layout: Layout::TitleContent,
+        title: "Listes".into(),
+        body: "3. trois\n4. quatre\n  - puce imbriquée\n    - encore".into(),
+        ..Slide::default()
+    };
+    let content = zip_text(&deck.to_odp(), "content.xml");
+    assert!(xml_bien_forme(&content).is_ok());
+    assert!(content.contains("<text:list-item text:start-value=\"3\">"));
+    assert!(content.contains("<text:list-item text:start-value=\"4\">"));
+    assert!(content.contains("<text:list-level-style-number"));
+    assert!(
+        content.contains("text:bullet-char=\"–\""),
+        "puce du 2e niveau"
+    );
+    // Profondeur 2 : trois listes imbriquées.
+    assert!(
+        content.contains("<text:list-item><text:list><text:list-item><text:list><text:list-item>")
+    );
+    // Les puces du PDF sont dessinées : aucun « ? » de remplacement.
+    let pdf = String::from_utf8_lossy(&deck.to_pdf()).into_owned();
+    assert!(!pdf.contains("<3F>"));
+    assert!(pdf.contains(" c h"), "puce ronde dessinée");
 }

@@ -54,8 +54,12 @@ pub(crate) fn echapper(s: &str) -> String {
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
             // Caractères interdits en XML 1.0 : retirés.
-            '\u{0}'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}' => {
-            }
+            '\u{0}'..='\u{8}'
+            | '\u{B}'
+            | '\u{C}'
+            | '\u{E}'..='\u{1F}'
+            | '\u{FFFE}'
+            | '\u{FFFF}' => {}
             _ => out.push(c),
         }
     }

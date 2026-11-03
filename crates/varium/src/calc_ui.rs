@@ -56,6 +56,8 @@ pub struct CalcApp {
     function_filter: String,
     rename: Option<(usize, String)>,
     dragging_col: Option<(u32, f32)>,
+    /// Identifiant de la grille : elle reçoit le clavier quand elle a le focus.
+    grid_id: Option<egui::Id>,
 }
 
 impl CalcApp {
@@ -81,6 +83,7 @@ impl CalcApp {
             function_filter: String::new(),
             rename: None,
             dragging_col: None,
+            grid_id: None,
         }
     }
 
@@ -135,11 +138,11 @@ impl CalcApp {
     }
 
     fn commit(&mut self) {
-        if let Some(text) = self.edit.take() {
-            if text != self.wb.input(self.sheet, self.cur) {
-                self.snapshot();
-                self.wb.set_input(self.sheet, self.cur, &text);
-            }
+        if let Some(text) = self.edit.take()
+            && text != self.wb.input(self.sheet, self.cur)
+        {
+            self.snapshot();
+            self.wb.set_input(self.sheet, self.cur, &text);
         }
     }
 
@@ -239,7 +242,10 @@ impl CalcApp {
                     path,
                 } => {
                     let lower = name.to_lowercase();
-                    let res = if lower.ends_with(".csv") || lower.ends_with(".tsv") || lower.ends_with(".txt") {
+                    let res = if lower.ends_with(".csv")
+                        || lower.ends_with(".tsv")
+                        || lower.ends_with(".txt")
+                    {
                         let title = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
                         Workbook::from_csv(title, &content).map(|w| (w, None))
                     } else {
@@ -277,7 +283,13 @@ impl CalcApp {
             .title
             .trim()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect();
         let s = s.trim_matches('-').to_string();
         if s.is_empty() { "classeur".into() } else { s }
@@ -324,6 +336,8 @@ impl CalcApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.handle_io(&ctx);
+        // La touche Entrée qui valide une saisie ne doit pas aussi déplacer la sélection.
+        let was_editing = self.edit.is_some();
         if self.sheet >= self.sheet_count() {
             self.sheet = 0;
         }
@@ -368,7 +382,9 @@ impl CalcApp {
             .frame(egui::Frame::NONE)
             .show(ui, |ui| self.grid(ui));
 
-        self.keys(&ctx);
+        if !was_editing {
+            self.keys(&ctx);
+        }
         self.toast_ui(&ctx);
     }
 
@@ -410,17 +426,26 @@ impl CalcApp {
             });
         });
         ui.menu_button("Édition", |ui| {
-            if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("Annuler")).clicked() {
+            if ui
+                .add_enabled(!self.undo.is_empty(), egui::Button::new("Annuler"))
+                .clicked()
+            {
                 self.undo_once();
             }
-            if ui.add_enabled(!self.redo.is_empty(), egui::Button::new("Rétablir")).clicked() {
+            if ui
+                .add_enabled(!self.redo.is_empty(), egui::Button::new("Rétablir"))
+                .clicked()
+            {
                 self.redo_once();
             }
             ui.separator();
             if ui.button("Copier").clicked() {
                 self.copy(&ctx);
             }
-            if ui.add_enabled(self.clip.is_some(), egui::Button::new("Coller")).clicked() {
+            if ui
+                .add_enabled(self.clip.is_some(), egui::Button::new("Coller"))
+                .clicked()
+            {
                 self.paste();
             }
             if ui.button("Effacer le contenu").clicked() {
@@ -480,7 +505,7 @@ impl CalcApp {
                 ("Texte", NumberFormat::Text),
             ] {
                 if ui.button(label).clicked() {
-                    self.update_format(|f| f.number = nf.clone());
+                    self.update_format(|f| f.number = nf);
                 }
             }
             ui.separator();
@@ -503,11 +528,13 @@ impl CalcApp {
         ui.menu_button("Données", |ui| {
             if ui.button("Trier par ordre croissant").clicked() {
                 self.snapshot();
-                self.wb.sort_rows(self.sheet, self.selection(), self.cur.col, true);
+                self.wb
+                    .sort_rows(self.sheet, self.selection(), self.cur.col, true);
             }
             if ui.button("Trier par ordre décroissant").clicked() {
                 self.snapshot();
-                self.wb.sort_rows(self.sheet, self.selection(), self.cur.col, false);
+                self.wb
+                    .sort_rows(self.sheet, self.selection(), self.cur.col, false);
             }
         });
         ui.menu_button("Aide", |ui| {
@@ -539,10 +566,18 @@ impl CalcApp {
                 self.redo_once();
             }
             ui.separator();
-            if ui.selectable_label(fmt.bold, RichText::new("G").strong()).on_hover_text("Gras (Ctrl+B)").clicked() {
+            if ui
+                .selectable_label(fmt.bold, RichText::new("G").strong())
+                .on_hover_text("Gras (Ctrl+B)")
+                .clicked()
+            {
                 self.update_format(|f| f.bold = !fmt.bold);
             }
-            if ui.selectable_label(fmt.italic, RichText::new("I").italics()).on_hover_text("Italique (Ctrl+I)").clicked() {
+            if ui
+                .selectable_label(fmt.italic, RichText::new("I").italics())
+                .on_hover_text("Italique (Ctrl+I)")
+                .clicked()
+            {
                 self.update_format(|f| f.italic = !fmt.italic);
             }
             ui.separator();
@@ -551,7 +586,11 @@ impl CalcApp {
                 ("↔", "Centrer", HAlign::Center),
                 ("➡", "Aligner à droite", HAlign::Right),
             ] {
-                if ui.selectable_label(fmt.align == Some(a), label).on_hover_text(tip).clicked() {
+                if ui
+                    .selectable_label(fmt.align == Some(a), label)
+                    .on_hover_text(tip)
+                    .clicked()
+                {
                     self.update_format(|f| f.align = Some(a));
                 }
             }
@@ -563,27 +602,53 @@ impl CalcApp {
                 ("📅", "Date", NumberFormat::Date),
                 ("123", "Standard", NumberFormat::General),
             ] {
-                if ui.selectable_label(fmt.number == nf, label).on_hover_text(tip).clicked() {
-                    self.update_format(|f| f.number = nf.clone());
+                if ui
+                    .selectable_label(fmt.number == nf, label)
+                    .on_hover_text(tip)
+                    .clicked()
+                {
+                    self.update_format(|f| f.number = nf);
                 }
             }
             ui.separator();
-            if ui.button("A→Z").on_hover_text("Trier la sélection par la colonne active").clicked() {
+            if ui
+                .button("A→Z")
+                .on_hover_text("Trier la sélection par la colonne active")
+                .clicked()
+            {
                 self.snapshot();
-                self.wb.sort_rows(self.sheet, self.selection(), self.cur.col, true);
+                self.wb
+                    .sort_rows(self.sheet, self.selection(), self.cur.col, true);
             }
-            if ui.button("Z→A").on_hover_text("Trier par ordre décroissant").clicked() {
+            if ui
+                .button("Z→A")
+                .on_hover_text("Trier par ordre décroissant")
+                .clicked()
+            {
                 self.snapshot();
-                self.wb.sort_rows(self.sheet, self.selection(), self.cur.col, false);
+                self.wb
+                    .sort_rows(self.sheet, self.selection(), self.cur.col, false);
             }
             ui.separator();
-            if ui.button("Σ Somme").on_hover_text("Insérer une somme sous la sélection").clicked() {
+            if ui
+                .button("Σ Somme")
+                .on_hover_text("Insérer une somme sous la sélection")
+                .clicked()
+            {
                 self.autosum();
             }
-            if ui.button("fx").on_hover_text("Liste des fonctions").clicked() {
+            if ui
+                .button("fx")
+                .on_hover_text("Liste des fonctions")
+                .clicked()
+            {
                 self.functions_open = !self.functions_open;
             }
-            if ui.button("📊 Graphique").on_hover_text("Graphique de la sélection").clicked() {
+            if ui
+                .button("📊 Graphique")
+                .on_hover_text("Graphique de la sélection")
+                .clicked()
+            {
                 self.chart = Some(Chart {
                     kind: ChartKind::Barres,
                     sheet: self.sheet,
@@ -609,18 +674,29 @@ impl CalcApp {
             let col = r.start.col;
             let mut top = r.start.row;
             while top > 0
-                && matches!(self.wb.value(self.sheet, CellRef::new(top - 1, col)), Value::Number(_))
+                && matches!(
+                    self.wb.value(self.sheet, CellRef::new(top - 1, col)),
+                    Value::Number(_)
+                )
             {
                 top -= 1;
             }
             if top == r.start.row {
                 return;
             }
-            (r.start, CellRef::new(top, col), CellRef::new(r.start.row - 1, col))
+            (
+                r.start,
+                CellRef::new(top, col),
+                CellRef::new(r.start.row - 1, col),
+            )
         } else if r.start.row == r.end.row {
             (CellRef::new(r.start.row, r.end.col + 1), r.start, r.end)
         } else {
-            (CellRef::new(r.end.row + 1, r.start.col), r.start, CellRef::new(r.end.row, r.start.col))
+            (
+                CellRef::new(r.end.row + 1, r.start.col),
+                r.start,
+                CellRef::new(r.end.row, r.start.col),
+            )
         };
         self.snapshot();
         let f = format!("=SOMME({}:{})", from.name(), to.name());
@@ -701,7 +777,10 @@ impl CalcApp {
                         self.rename = Some((i, name.clone()));
                     }
                     if ui
-                        .add_enabled(self.wb.sheets.len() > 1, egui::Button::new("Supprimer la feuille"))
+                        .add_enabled(
+                            self.wb.sheets.len() > 1,
+                            egui::Button::new("Supprimer la feuille"),
+                        )
                         .clicked()
                     {
                         remove = Some(i);
@@ -724,7 +803,11 @@ impl CalcApp {
         let (sum, n, filled, min, max) = self.stats();
         let f = |x: f64| varium_core::filters::format_number((x * 1e9).round() / 1e9, None);
         ui.horizontal(|ui| {
-            ui.label(format!("Feuille {} sur {}", self.sheet + 1, self.sheet_count()));
+            ui.label(format!(
+                "Feuille {} sur {}",
+                self.sheet + 1,
+                self.sheet_count()
+            ));
             ui.separator();
             if n > 0 {
                 ui.label(format!("Somme : {}", f(sum)));
@@ -751,24 +834,46 @@ impl CalcApp {
         let total = Vec2::new(x, ROW_H * (rows as f32 + 1.0));
         let dark = ui.visuals().dark_mode;
         let (bg, line, head_bg, ink) = if dark {
-            (Color32::from_gray(28), Color32::from_gray(58), Color32::from_gray(40), Color32::from_gray(225))
+            (
+                Color32::from_gray(28),
+                Color32::from_gray(58),
+                Color32::from_gray(40),
+                Color32::from_gray(225),
+            )
         } else {
-            (Color32::WHITE, Color32::from_gray(218), Color32::from_gray(242), Color32::from_gray(25))
+            (
+                Color32::WHITE,
+                Color32::from_gray(218),
+                Color32::from_gray(242),
+                Color32::from_gray(25),
+            )
         };
-        let accent = if dark { Color32::from_rgb(0x8A, 0xB4, 0xF8) } else { Color32::from_rgb(0x1F, 0x5F, 0xBF) };
+        let accent = if dark {
+            Color32::from_rgb(0x8A, 0xB4, 0xF8)
+        } else {
+            Color32::from_rgb(0x1F, 0x5F, 0xBF)
+        };
 
         egui::ScrollArea::both()
             .id_salt("calc-grid")
             .auto_shrink(false)
             .show_viewport(ui, |ui, viewport| {
                 let (rect, resp) = ui.allocate_exact_size(total, Sense::click_and_drag());
+                self.grid_id = Some(resp.id);
                 let origin = rect.min;
                 let painter = ui.painter_at(ui.clip_rect());
                 painter.rect_filled(ui.clip_rect(), 0.0, bg);
                 let first_row = ((viewport.min.y / ROW_H).floor() as i64 - 1).max(0) as u32;
                 let last_row = ((viewport.max.y / ROW_H).ceil() as u32 + 1).min(rows);
-                let first_col = xs.iter().position(|&cx| cx + 400.0 > viewport.min.x).unwrap_or(0) as u32;
-                let last_col = (xs.iter().position(|&cx| cx > viewport.max.x).unwrap_or(xs.len() - 1) as u32).min(cols);
+                let first_col = xs
+                    .iter()
+                    .position(|&cx| cx + 400.0 > viewport.min.x)
+                    .unwrap_or(0) as u32;
+                let last_col = (xs
+                    .iter()
+                    .position(|&cx| cx > viewport.max.x)
+                    .unwrap_or(xs.len() - 1) as u32)
+                    .min(cols);
                 let sel = self.selection();
 
                 let cell_rect = |r: u32, c: u32| {
@@ -790,8 +895,14 @@ impl CalcApp {
                         if sel_contains(sel, at) && sel.start != sel.end {
                             painter.rect_filled(cr, 0.0, accent.gamma_multiply(0.16));
                         }
-                        painter.line_segment([cr.right_top(), cr.right_bottom()], Stroke::new(1.0, line));
-                        painter.line_segment([cr.left_bottom(), cr.right_bottom()], Stroke::new(1.0, line));
+                        painter.line_segment(
+                            [cr.right_top(), cr.right_bottom()],
+                            Stroke::new(1.0, line),
+                        );
+                        painter.line_segment(
+                            [cr.left_bottom(), cr.right_bottom()],
+                            Stroke::new(1.0, line),
+                        );
                         if self.edit.is_some() && at == self.cur {
                             continue;
                         }
@@ -805,13 +916,24 @@ impl CalcApp {
                             Value::Bool(_) | Value::Error(_) => HAlign::Center,
                             _ => HAlign::Left,
                         });
+                        // Sur un fond coloré, le texte reste lisible quel que soit le thème.
+                        let base_ink = match fmt.fill {
+                            Some([rr, gg, bb]) if (rr as u32 + gg as u32 + bb as u32) > 450 => {
+                                Color32::from_gray(25)
+                            }
+                            Some(_) => Color32::from_gray(240),
+                            None => ink,
+                        };
                         let color = match (&value, fmt.color) {
                             (Value::Error(_), _) => Color32::from_rgb(0xD0, 0x30, 0x2A),
                             (_, Some([rr, gg, bb])) => Color32::from_rgb(rr, gg, bb),
-                            (Value::Number(x), None) if *x < 0.0 => Color32::from_rgb(0xC0, 0x28, 0x20),
-                            _ => ink,
+                            (Value::Number(x), None) if *x < 0.0 => {
+                                Color32::from_rgb(0xC0, 0x28, 0x20)
+                            }
+                            _ => base_ink,
                         };
-                        let family = crate::fonts::family(varium_core::DocFont::Sans, fmt.bold, false);
+                        let family =
+                            crate::fonts::family(varium_core::DocFont::Sans, fmt.bold, false);
                         let mut job = egui::text::LayoutJob::single_section(
                             text,
                             egui::TextFormat {
@@ -834,13 +956,18 @@ impl CalcApp {
                         if matches!(value, Value::Text(_)) && align == HAlign::Left {
                             let mut c2 = c + 1;
                             while c2 < cols.min(c + 6)
-                                && matches!(self.wb.value(self.sheet, CellRef::new(r, c2)), Value::Empty)
+                                && matches!(
+                                    self.wb.value(self.sheet, CellRef::new(r, c2)),
+                                    Value::Empty
+                                )
                             {
                                 clip.max.x = xs[c2 as usize + 1];
                                 c2 += 1;
                             }
                         }
-                        painter.with_clip_rect(clip.intersect(ui.clip_rect())).galley(Pos2::new(x, y), galley, ink);
+                        painter
+                            .with_clip_rect(clip.intersect(ui.clip_rect()))
+                            .galley(Pos2::new(x, y), galley, ink);
                     }
                 }
 
@@ -848,8 +975,14 @@ impl CalcApp {
                 let ar = cell_rect(self.cur.row, self.cur.col);
                 painter.rect_stroke(ar, 0.0, Stroke::new(2.0, accent), egui::StrokeKind::Inside);
                 if sel.start != sel.end {
-                    let sr = cell_rect(sel.start.row, sel.start.col).union(cell_rect(sel.end.row, sel.end.col));
-                    painter.rect_stroke(sr, 0.0, Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+                    let sr = cell_rect(sel.start.row, sel.start.col)
+                        .union(cell_rect(sel.end.row, sel.end.col));
+                    painter.rect_stroke(
+                        sr,
+                        0.0,
+                        Stroke::new(1.5, accent),
+                        egui::StrokeKind::Inside,
+                    );
                 }
 
                 // En-têtes figés (dessinés par-dessus, collés aux bords visibles)
@@ -859,21 +992,63 @@ impl CalcApp {
                 let head_font = FontId::proportional(12.5);
                 for c in first_col..last_col {
                     let cr = cell_rect(0, c);
-                    let hr = Rect::from_min_max(Pos2::new(cr.left(), top), Pos2::new(cr.right(), top + ROW_H));
+                    let hr = Rect::from_min_max(
+                        Pos2::new(cr.left(), top),
+                        Pos2::new(cr.right(), top + ROW_H),
+                    );
                     let on = c >= sel.start.col && c <= sel.end.col;
-                    painter.rect_filled(hr, 0.0, if on { accent.gamma_multiply(0.25) } else { head_bg });
-                    painter.line_segment([hr.right_top(), hr.right_bottom()], Stroke::new(1.0, line));
-                    painter.text(hr.center(), Align2::CENTER_CENTER, varium_calc::col_name(c), head_font.clone(), ink);
+                    painter.rect_filled(
+                        hr,
+                        0.0,
+                        if on {
+                            accent.gamma_multiply(0.25)
+                        } else {
+                            head_bg
+                        },
+                    );
+                    painter
+                        .line_segment([hr.right_top(), hr.right_bottom()], Stroke::new(1.0, line));
+                    painter.text(
+                        hr.center(),
+                        Align2::CENTER_CENTER,
+                        varium_calc::col_name(c),
+                        head_font.clone(),
+                        ink,
+                    );
                 }
                 for r in first_row..last_row {
                     let cr = cell_rect(r, 0);
-                    let hr = Rect::from_min_max(Pos2::new(left, cr.top()), Pos2::new(left + HEAD_W, cr.bottom()));
+                    let hr = Rect::from_min_max(
+                        Pos2::new(left, cr.top()),
+                        Pos2::new(left + HEAD_W, cr.bottom()),
+                    );
                     let on = r >= sel.start.row && r <= sel.end.row;
-                    painter.rect_filled(hr, 0.0, if on { accent.gamma_multiply(0.25) } else { head_bg });
-                    painter.line_segment([hr.left_bottom(), hr.right_bottom()], Stroke::new(1.0, line));
-                    painter.text(hr.center(), Align2::CENTER_CENTER, (r + 1).to_string(), head_font.clone(), ink);
+                    painter.rect_filled(
+                        hr,
+                        0.0,
+                        if on {
+                            accent.gamma_multiply(0.25)
+                        } else {
+                            head_bg
+                        },
+                    );
+                    painter.line_segment(
+                        [hr.left_bottom(), hr.right_bottom()],
+                        Stroke::new(1.0, line),
+                    );
+                    painter.text(
+                        hr.center(),
+                        Align2::CENTER_CENTER,
+                        (r + 1).to_string(),
+                        head_font.clone(),
+                        ink,
+                    );
                 }
-                painter.rect_filled(Rect::from_min_size(Pos2::new(left, top), Vec2::new(HEAD_W, ROW_H)), 0.0, head_bg);
+                painter.rect_filled(
+                    Rect::from_min_size(Pos2::new(left, top), Vec2::new(HEAD_W, ROW_H)),
+                    0.0,
+                    head_bg,
+                );
 
                 // Souris : sélection, édition, largeur des colonnes
                 let to_cell = |p: Pos2| -> Option<CellRef> {
@@ -882,14 +1057,20 @@ impl CalcApp {
                         return None;
                     }
                     let r = (local.y / ROW_H).floor() as i64 - 1;
-                    let c = xs.windows(2).position(|w| local.x >= w[0] && local.x < w[1])?;
+                    let c = xs
+                        .windows(2)
+                        .position(|w| local.x >= w[0] && local.x < w[1])?;
                     (r >= 0).then(|| CellRef::new(r as u32, c as u32))
                 };
                 if let Some(p) = resp.interact_pointer_pos() {
                     // Redimensionner une colonne : glisser son bord dans l'en-tête.
                     if resp.drag_started() && p.y < top + ROW_H {
                         let local_x = p.x - origin.x;
-                        if let Some(c) = xs.iter().position(|&bx| (bx - local_x).abs() < 4.0).filter(|&c| c > 0) {
+                        if let Some(c) = xs
+                            .iter()
+                            .position(|&bx| (bx - local_x).abs() < 4.0)
+                            .filter(|&c| c > 0)
+                        {
                             self.dragging_col = Some(((c - 1) as u32, local_x));
                         }
                     }
@@ -912,7 +1093,10 @@ impl CalcApp {
                     } else if resp.clicked() && p.y < top + ROW_H && p.x >= left + HEAD_W {
                         // Clic sur une lettre de colonne : toute la colonne.
                         let local_x = p.x - origin.x;
-                        if let Some(c) = xs.windows(2).position(|w| local_x >= w[0] && local_x < w[1]) {
+                        if let Some(c) = xs
+                            .windows(2)
+                            .position(|w| local_x >= w[0] && local_x < w[1])
+                        {
                             self.commit();
                             self.anchor = CellRef::new(0, c as u32);
                             self.cur = CellRef::new(used_r.max(1) - 1, c as u32);
@@ -954,14 +1138,22 @@ impl CalcApp {
                         self.focus_edit = false;
                         // curseur à la fin
                         if let Some(mut st) = egui::text_edit::TextEditState::load(ui.ctx(), id) {
-                            let end = egui::text::CCursor::new(egui::text::CharIndex(text.chars().count()));
-                            st.cursor.set_char_range(Some(egui::text_selection::CCursorRange::one(end)));
+                            let end = egui::text::CCursor::new(egui::text::CharIndex(
+                                text.chars().count(),
+                            ));
+                            st.cursor
+                                .set_char_range(Some(egui::text_selection::CCursorRange::one(end)));
                             st.store(ui.ctx(), id);
                         }
                     }
                     if r.lost_focus() {
                         let (enter, tab, esc, shift) = ui.input(|i| {
-                            (i.key_pressed(Key::Enter), i.key_pressed(Key::Tab), i.key_pressed(Key::Escape), i.modifiers.shift)
+                            (
+                                i.key_pressed(Key::Enter),
+                                i.key_pressed(Key::Tab),
+                                i.key_pressed(Key::Escape),
+                                i.modifiers.shift,
+                            )
                         });
                         if esc {
                             self.edit = None;
@@ -978,7 +1170,11 @@ impl CalcApp {
 
                 // Garder la cellule active visible
                 let _ = viewport;
-                if ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))) {
+                if ui.input(|i| {
+                    i.events
+                        .iter()
+                        .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
+                }) {
                     ui.scroll_to_rect(ar.expand2(Vec2::new(HEAD_W, ROW_H)), None);
                 }
             });
@@ -986,7 +1182,9 @@ impl CalcApp {
 
     /// Clavier de la grille (quand aucune saisie n'est en cours).
     fn keys(&mut self, ctx: &egui::Context) {
-        if self.edit.is_some() || ctx.egui_wants_keyboard_input() {
+        // Le clavier va à la grille si elle a le focus, ou si rien d'autre ne l'a.
+        let focused = ctx.memory(|m| m.focused());
+        if self.edit.is_some() || focused.is_some_and(|f| Some(f) != self.grid_id) {
             return;
         }
         let mut events = Vec::new();
@@ -1067,27 +1265,41 @@ impl CalcApp {
                 }
             });
         });
-        ui.add(egui::TextEdit::singleline(&mut self.function_filter).hint_text("Chercher : somme, date, texte…"));
-        ui.label(RichText::new("Cliquez pour insérer dans la cellule active. Les arguments se séparent par « ; ».").small().weak());
+        ui.add(
+            egui::TextEdit::singleline(&mut self.function_filter)
+                .hint_text("Chercher : somme, date, texte…"),
+        );
+        ui.label(
+            RichText::new(
+                "Cliquez pour insérer dans la cellule active. Les arguments se séparent par « ; ».",
+            )
+            .small()
+            .weak(),
+        );
         let q = varium_core::merge::normalize(&self.function_filter);
         let mut insert = None;
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            for f in varium_calc::functions() {
-                let hay = varium_core::merge::normalize(&format!("{} {} {}", f.fr, f.en, f.description));
-                if !q.is_empty() && !hay.contains(&q) {
-                    continue;
-                }
-                ui.horizontal_wrapped(|ui| {
-                    if ui.link(RichText::new(f.fr).monospace().strong()).clicked() {
-                        insert = Some(f.fr);
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                for f in varium_calc::functions() {
+                    let hay = varium_core::merge::normalize(&format!(
+                        "{} {} {}",
+                        f.fr, f.en, f.description
+                    ));
+                    if !q.is_empty() && !hay.contains(&q) {
+                        continue;
                     }
-                    ui.label(RichText::new(format!("({})", f.en)).small().weak());
-                });
-                ui.label(RichText::new(f.syntax).monospace().small());
-                ui.label(RichText::new(f.description).small());
-                ui.add_space(4.0);
-            }
-        });
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.link(RichText::new(f.fr).monospace().strong()).clicked() {
+                            insert = Some(f.fr);
+                        }
+                        ui.label(RichText::new(format!("({})", f.en)).small().weak());
+                    });
+                    ui.label(RichText::new(f.syntax).monospace().small());
+                    ui.label(RichText::new(f.description).small());
+                    ui.add_space(4.0);
+                }
+            });
         if let Some(name) = insert {
             let mut t = self.edit.take().unwrap_or_default();
             if t.is_empty() {
@@ -1127,12 +1339,20 @@ impl CalcApp {
         }
         let chart = self.chart.as_ref().expect("présent");
         let data = chart_data(&self.wb, chart.sheet, chart.range);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), (ui.available_height() - 10.0).max(200.0)), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(
+            Vec2::new(
+                ui.available_width(),
+                (ui.available_height() - 10.0).max(200.0),
+            ),
+            Sense::hover(),
+        );
         draw_chart(ui, rect, chart.kind, &data);
     }
 
     fn toast_ui(&mut self, ctx: &egui::Context) {
-        let Some((msg, at, error)) = self.toast.clone() else { return };
+        let Some((msg, at, error)) = self.toast.clone() else {
+            return;
+        };
         if ctx.input(|i| i.time) - at > 4.0 {
             self.toast = None;
             return;
@@ -1143,7 +1363,11 @@ impl CalcApp {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    let c = if error { Color32::from_rgb(0xD0, 0x30, 0x2A) } else { ui.visuals().text_color() };
+                    let c = if error {
+                        Color32::from_rgb(0xD0, 0x30, 0x2A)
+                    } else {
+                        ui.visuals().text_color()
+                    };
                     ui.label(RichText::new(msg).color(c));
                 });
             });
@@ -1181,11 +1405,25 @@ struct ChartData {
 }
 
 fn chart_data(wb: &Workbook, sheet: usize, r: Range) -> ChartData {
-    let text_at = |row: u32, col: u32| matches!(wb.value(sheet, CellRef::new(row, col)), Value::Text(_));
-    let header = (r.start.col..=r.end.col).any(|c| text_at(r.start.row, c)) && r.end.row > r.start.row;
+    let text_at =
+        |row: u32, col: u32| matches!(wb.value(sheet, CellRef::new(row, col)), Value::Text(_));
+    // Une ligne de titres : du texte au-dessus des colonnes de nombres (la première
+    // colonne peut contenir les étiquettes).
+    let value_cols = if r.end.col > r.start.col {
+        r.start.col + 1
+    } else {
+        r.start.col
+    };
+    let header =
+        (value_cols..=r.end.col).any(|c| text_at(r.start.row, c)) && r.end.row > r.start.row;
     let first_row = if header { r.start.row + 1 } else { r.start.row };
-    let label_col = (first_row..=r.end.row).any(|row| text_at(row, r.start.col)) && r.end.col > r.start.col;
-    let first_col = if label_col { r.start.col + 1 } else { r.start.col };
+    let label_col =
+        (first_row..=r.end.row).any(|row| text_at(row, r.start.col)) && r.end.col > r.start.col;
+    let first_col = if label_col {
+        r.start.col + 1
+    } else {
+        r.start.col
+    };
     let rows: Vec<u32> = (first_row..=r.end.row).take(200).collect();
     let labels = rows
         .iter()
@@ -1200,7 +1438,11 @@ fn chart_data(wb: &Workbook, sheet: usize, r: Range) -> ChartData {
     let series = (first_col..=r.end.col)
         .take(6)
         .map(|c| {
-            let name = if header { wb.display(sheet, CellRef::new(r.start.row, c)) } else { varium_calc::col_name(c) };
+            let name = if header {
+                wb.display(sheet, CellRef::new(r.start.row, c))
+            } else {
+                varium_calc::col_name(c)
+            };
             let vals = rows
                 .iter()
                 .map(|&row| match wb.value(sheet, CellRef::new(row, c)) {
@@ -1221,20 +1463,33 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
     let font = FontId::proportional(11.5);
     p.rect_filled(rect, 6.0, ui.visuals().extreme_bg_color);
     if d.series.is_empty() || d.labels.is_empty() {
-        p.text(rect.center(), Align2::CENTER_CENTER, "Sélectionnez des nombres (avec leurs titres)", font, weak);
+        p.text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            "Sélectionnez des nombres (avec leurs titres)",
+            font,
+            weak,
+        );
         return;
     }
     // Légende
     let mut lx = rect.left() + 10.0;
     for (i, (name, _)) in d.series.iter().enumerate() {
         let c = SERIES[i % SERIES.len()];
-        p.rect_filled(Rect::from_min_size(Pos2::new(lx, rect.top() + 10.0), Vec2::splat(10.0)), 2.0, c);
+        p.rect_filled(
+            Rect::from_min_size(Pos2::new(lx, rect.top() + 10.0), Vec2::splat(10.0)),
+            2.0,
+            c,
+        );
         let g = p.layout_no_wrap(name.clone(), font.clone(), ink);
         let w = g.size().x;
         p.galley(Pos2::new(lx + 14.0, rect.top() + 8.0), g, ink);
         lx += w + 30.0;
     }
-    let plot = Rect::from_min_max(rect.min + Vec2::new(46.0, 34.0), rect.max - Vec2::new(14.0, 34.0));
+    let plot = Rect::from_min_max(
+        rect.min + Vec2::new(46.0, 34.0),
+        rect.max - Vec2::new(14.0, 34.0),
+    );
     if kind == ChartKind::Secteurs {
         let vals: Vec<f64> = d.series[0].1.iter().map(|v| v.max(0.0)).collect();
         let total: f64 = vals.iter().sum();
@@ -1253,11 +1508,25 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
                 pts.push(center + Vec2::new(a.cos(), a.sin()) * radius);
             }
             let c = SERIES[i % SERIES.len()];
-            p.add(egui::Shape::convex_polygon(pts, c, Stroke::new(1.0, ui.visuals().extreme_bg_color)));
+            p.add(egui::Shape::convex_polygon(
+                pts,
+                c,
+                Stroke::new(1.0, ui.visuals().extreme_bg_color),
+            ));
             let mid = a0 + sweep / 2.0;
             if sweep > 0.25 {
-                let label = format!("{} ({:.0} %)", d.labels.get(i).cloned().unwrap_or_default(), v / total * 100.0);
-                p.text(center + Vec2::new(mid.cos(), mid.sin()) * radius * 0.65, Align2::CENTER_CENTER, label, font.clone(), Color32::WHITE);
+                let label = format!(
+                    "{} ({:.0} %)",
+                    d.labels.get(i).cloned().unwrap_or_default(),
+                    v / total * 100.0
+                );
+                p.text(
+                    center + Vec2::new(mid.cos(), mid.sin()) * radius * 0.65,
+                    Align2::CENTER_CENTER,
+                    label,
+                    font.clone(),
+                    Color32::WHITE,
+                );
             }
             a0 += sweep;
         }
@@ -1278,14 +1547,29 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
     for k in 0..=4 {
         let v = lo + (hi - lo) * k as f64 / 4.0;
         let y = y_of(v);
-        p.line_segment([Pos2::new(plot.left(), y), Pos2::new(plot.right(), y)], Stroke::new(1.0, weak.gamma_multiply(0.3)));
-        p.text(Pos2::new(plot.left() - 4.0, y), Align2::RIGHT_CENTER, varium_core::filters::format_number((v * 100.0).round() / 100.0, None), font.clone(), weak);
+        p.line_segment(
+            [Pos2::new(plot.left(), y), Pos2::new(plot.right(), y)],
+            Stroke::new(1.0, weak.gamma_multiply(0.3)),
+        );
+        p.text(
+            Pos2::new(plot.left() - 4.0, y),
+            Align2::RIGHT_CENTER,
+            varium_core::filters::format_number((v * 100.0).round() / 100.0, None),
+            font.clone(),
+            weak,
+        );
     }
     let n = d.labels.len();
     let slot = plot.width() / n as f32;
     for (i, l) in d.labels.iter().enumerate() {
         if n <= 24 || i % (n / 12).max(1) == 0 {
-            p.text(Pos2::new(plot.left() + slot * (i as f32 + 0.5), plot.bottom() + 4.0), Align2::CENTER_TOP, l, font.clone(), weak);
+            p.text(
+                Pos2::new(plot.left() + slot * (i as f32 + 0.5), plot.bottom() + 4.0),
+                Align2::CENTER_TOP,
+                l,
+                font.clone(),
+                weak,
+            );
         }
     }
     let ns = d.series.len();
@@ -1297,7 +1581,14 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
                 for (i, v) in vals.iter().enumerate() {
                     let x0 = plot.left() + slot * i as f32 + slot * 0.1 + bw * si as f32;
                     let (a, b) = (y_of(*v), y_of(0.0f64.max(lo)));
-                    p.rect_filled(Rect::from_min_max(Pos2::new(x0, a.min(b)), Pos2::new(x0 + bw - 1.0, a.max(b))), 2.0, c);
+                    p.rect_filled(
+                        Rect::from_min_max(
+                            Pos2::new(x0, a.min(b)),
+                            Pos2::new(x0 + bw - 1.0, a.max(b)),
+                        ),
+                        2.0,
+                        c,
+                    );
                 }
             }
             _ => {

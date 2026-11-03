@@ -34,7 +34,10 @@ fn aller_retour_json_de_l_exemple() {
     let json = deck.to_json();
     assert!(json.contains("\"format\": \"varium-slides\""));
     assert!(json.contains("\"version\": 1"));
-    assert!(json.contains("\"#0cc807\""), "couleur écrite en hexadécimal");
+    assert!(
+        json.contains("\"#0cc807\""),
+        "couleur écrite en hexadécimal"
+    );
     assert!(json.contains("\"title_content\""));
     let relu = Deck::from_json(&json).expect("relecture");
     assert_eq!(relu, deck);
@@ -82,14 +85,22 @@ fn champs_absents_ou_anciens_prennent_leur_valeur_par_defaut() {
     assert_eq!(deck.values.get("ok").map(String::as_str), Some("true"));
     assert_eq!(deck.values.get("nom").map(String::as_str), Some("Zoé"));
     assert!(!deck.values.contains_key("liste") && !deck.values.contains_key("rien"));
-    assert_eq!(deck.slides.len(), 4, "l'élément qui n'est pas un objet est ignoré");
+    assert_eq!(
+        deck.slides.len(),
+        4,
+        "l'élément qui n'est pas un objet est ignoré"
+    );
     assert_eq!(deck.slides[0].layout, Layout::TitleContent);
     assert_eq!(deck.slides[0].transition, Transition::Aucune);
     assert_eq!(deck.slides[0].background, None);
     assert_eq!(deck.slides[1].layout, Layout::TwoColumns);
     assert_eq!(deck.slides[1].transition, Transition::Glissement);
     assert_eq!(deck.slides[1].background, Some([170, 187, 204]));
-    assert_eq!(deck.slides[2].layout, Layout::TitleContent, "valeur inconnue");
+    assert_eq!(
+        deck.slides[2].layout,
+        Layout::TitleContent,
+        "valeur inconnue"
+    );
     assert_eq!(deck.slides[2].notes, "");
     assert_eq!(deck.slides[2].background, None);
     assert_eq!(deck.slides[3].background, Some([255, 0, 255]));
@@ -140,7 +151,11 @@ fn ajouter_une_diapositive() {
     let i = deck.add_slide(0, Layout::Quote);
     assert_eq!(i, 1);
     assert_eq!(deck.slides[1].layout, Layout::Quote);
-    assert_eq!(deck.slides[1].transition, Transition::Zoom, "reprend la voisine");
+    assert_eq!(
+        deck.slides[1].transition,
+        Transition::Zoom,
+        "reprend la voisine"
+    );
     assert_eq!(deck.slides[1].title, "");
     // Position au-delà de la fin : ajout à la fin.
     let j = deck.add_slide(usize::MAX, Layout::Blank);
@@ -180,7 +195,11 @@ fn supprimer_garde_toujours_une_diapositive() {
     deck.slides[0].layout = Layout::Section;
     deck.remove(0);
     assert_eq!(deck.slides.len(), 1);
-    assert_eq!(deck.slides[0], Slide::new(Layout::Section), "vidée, pas supprimée");
+    assert_eq!(
+        deck.slides[0],
+        Slide::new(Layout::Section),
+        "vidée, pas supprimée"
+    );
     let mut vide = Deck {
         slides: Vec::new(),
         ..Deck::new()
@@ -197,7 +216,11 @@ fn deplacer_une_diapositive() {
     deck.move_slide(3, 0);
     assert_eq!(titres(&deck), ["D3", "D1", "D2", "D0"]);
     deck.move_slide(1, 100);
-    assert_eq!(titres(&deck), ["D3", "D2", "D0", "D1"], "destination bornée");
+    assert_eq!(
+        titres(&deck),
+        ["D3", "D2", "D0", "D1"],
+        "destination bornée"
+    );
     deck.move_slide(100, 0);
     assert_eq!(titres(&deck), ["D1", "D3", "D2", "D0"], "origine bornée");
     deck.move_slide(2, 2);
@@ -307,7 +330,11 @@ fn zones_dans_la_diapositive_et_sans_chevauchement() {
         }
         for (i, (na, a)) in zones.iter().enumerate() {
             for (nb, z) in &zones[i + 1..] {
-                assert!(!a.overlaps(z), "{na} et {nb} se chevauchent ({})", l.label());
+                assert!(
+                    !a.overlaps(z),
+                    "{na} et {nb} se chevauchent ({})",
+                    l.label()
+                );
             }
             if b.footer {
                 assert!(
@@ -317,7 +344,11 @@ fn zones_dans_la_diapositive_et_sans_chevauchement() {
                 );
             }
         }
-        assert!(title_size(l) > body_size(l), "titre plus grand ({})", l.label());
+        assert!(
+            title_size(l) > body_size(l),
+            "titre plus grand ({})",
+            l.label()
+        );
         for t in [title_size(l), body_size(l), subtitle_size(l)] {
             assert!(t > 0.01 && t < 0.2);
         }
@@ -376,6 +407,9 @@ fn fond_propre_et_palette() {
     let p = deck.slide_palette(1);
     assert_eq!(p.background, [10, 10, 10]);
     assert_ne!(p.text, clair.text, "texte éclairci sur fond noir");
-    assert_eq!(deck.slide_palette(999), deck.slides.last().unwrap().palette(Theme::Clair));
+    assert_eq!(
+        deck.slide_palette(999),
+        deck.slides.last().unwrap().palette(Theme::Clair)
+    );
     assert!(Theme::Elegant.palette().serif_titles && !Theme::Clair.palette().serif_titles);
 }

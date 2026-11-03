@@ -54,7 +54,10 @@ pub(crate) fn from_json(s: &str) -> Result<Deck, String> {
             return Err("Ce fichier est un document Varium, pas une présentation".into());
         }
         Some(autre) => {
-            let nom = autre.as_str().map(str::to_string).unwrap_or(autre.to_string());
+            let nom = autre
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or(autre.to_string());
             return Err(format!(
                 "Format inconnu : « {} »",
                 crate::texte::tronquer(&nom, 40)

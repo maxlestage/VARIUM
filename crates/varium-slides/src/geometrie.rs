@@ -166,8 +166,8 @@ pub fn boxes(layout: Layout) -> SlideLayoutBoxes {
 /// Taille des titres, en fraction de la hauteur de la diapositive.
 pub fn title_size(layout: Layout) -> f32 {
     match layout {
-        Layout::Title => 0.092,
-        Layout::Section => 0.082,
+        Layout::Title => 0.1,
+        Layout::Section => 0.085,
         _ => 0.062,
     }
 }

@@ -77,8 +77,8 @@ mod theme;
 
 pub use fichier::{FORMAT, VERSION};
 pub use geometrie::{
-    Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, SlideLayoutBoxes, TITLE_LINE_HEIGHT, boxes,
-    body_size, footer_frame, number_frame, subtitle_size, title_size,
+    Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, SlideLayoutBoxes, TITLE_LINE_HEIGHT, body_size,
+    boxes, footer_frame, number_frame, subtitle_size, title_size,
 };
 pub use texte::{MISSING_COLOR, hex_color, parse_color, text_lines};
 pub use theme::{Palette, Theme};

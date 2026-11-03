@@ -9,14 +9,17 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use varium_core::{Align, Para, Run, Style, Table};
 use varium_core::zip::Zip;
+use varium_core::{Align, Para, Run, Style, Table};
 
 use crate::geometrie::{
     Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, TITLE_LINE_HEIGHT, footer_frame, number_frame,
 };
+use crate::pdf::{Police, colonnes};
 use crate::texte::{MISSING_COLOR, echapper, hex_color};
-use crate::{Deck, Layout, Palette, Rendu, Slide, Transition, body_size, subtitle_size, title_size};
+use crate::{
+    Deck, Layout, Palette, Rendu, Slide, Transition, body_size, subtitle_size, title_size,
+};
 
 const NS: &str = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" office:version="1.3""#;
 
@@ -27,7 +30,11 @@ const LARGEUR: f32 = 720.0;
 
 /// Points vers centimètres ODF.
 fn cm(pt: f32) -> String {
-    let v = if pt.is_finite() { pt * 2.54 / 72.0 } else { 0.0 };
+    let v = if pt.is_finite() {
+        pt * 2.54 / 72.0
+    } else {
+        0.0
+    };
     let s = format!("{v:.3}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s == "-0" {
@@ -119,7 +126,12 @@ struct Styles {
 }
 
 impl Styles {
-    fn style(&mut self, prefixe: &'static str, cle: String, xml: impl FnOnce(&str) -> String) -> String {
+    fn style(
+        &mut self,
+        prefixe: &'static str,
+        cle: String,
+        xml: impl FnOnce(&str) -> String,
+    ) -> String {
         let cle = format!("{prefixe}|{cle}");
         if let Some(n) = self.noms.get(&cle) {
             return n.clone();
@@ -257,7 +269,11 @@ impl Styles {
 
     /// Style d'un cadre de texte : sans fond ni bordure, ancré, ajusté au contenu.
     fn cadre(&mut self, famille: &'static str, ancre: Anchor) -> String {
-        let prefixe = if famille == "presentation" { "pr" } else { "gr" };
+        let prefixe = if famille == "presentation" {
+            "pr"
+        } else {
+            "gr"
+        };
         self.style(prefixe, format!("{ancre:?}"), |nom| {
             let v = match ancre {
                 Anchor::Top => "top",
@@ -376,43 +392,68 @@ fn runs_xml(runs: &[Run], styles: &mut Styles) -> String {
     out
 }
 
+/// Un tableau en paragraphes à tabulations (une zone de texte d'Impress ne peut pas
+/// contenir de vrai tableau). Les colonnes sont placées d'après leur contenu, avec
+/// les métriques du PDF ; un tableau trop large est écrit plus petit.
 fn table_xml(t: &Table, hab: &Habillage, styles: &mut Styles) -> String {
     let cols = t.columns().max(1);
-    let taille = hab.taille * 0.85;
-    let pas = hab.largeur / cols as f32;
+    let police = Police {
+        serif: hab.serif,
+        gras: hab.gras,
+        italique: hab.italique,
+    };
+    let largeur = hab.largeur.max(1.0);
+    let mut taille = hab.taille * 0.85;
+    let (_, naturelle) = colonnes(t, police, taille, 0.75 * taille, largeur);
+    if naturelle > largeur {
+        taille *= (largeur / naturelle).max(0.6);
+    }
+    let px = 0.75 * taille;
+    let (largeurs, _) = colonnes(t, police, taille, px, largeur);
+    // Le texte de la première colonne commence au bord : tout est décalé de `px`.
+    let mut debuts = Vec::with_capacity(cols);
+    let mut x = -px;
+    for w in &largeurs {
+        debuts.push(x);
+        x += w;
+    }
+    let taquet = |c: usize| match t.align(c) {
+        Align::Center => Some((debuts[c] + largeurs[c] / 2.0, "center")),
+        Align::Right => Some((debuts[c] + largeurs[c] - px, "right")),
+        _ if c > 0 => Some((debuts[c] + px, "left")),
+        _ => None,
+    };
+    let taquets: Vec<(f32, &'static str)> = (0..cols).filter_map(taquet).collect();
+    let premiere_decalee = taquet(0).is_some();
     let mut s = String::new();
     for (i, row) in t.rows.iter().enumerate() {
         let entete = i == 0 && t.header;
-        let taquets = (1..cols)
-            .map(|c| {
-                let (p, ty) = match t.align(c) {
-                    Align::Center => (pas * (c as f32 + 0.5), "center"),
-                    Align::Right => (pas * (c as f32 + 1.0) - 2.0, "right"),
-                    _ => (pas * c as f32, "left"),
-                };
-                (p, ty)
-            })
-            .collect();
         let ps = PStyle {
             taille,
             gras: entete,
             couleur: if entete { hab.pal.title } else { hab.pal.text },
             align: Align::Left,
-            marge_bas: if entete { 0.3 * taille } else { 0.2 * taille },
-            taquets,
+            marge_bas: if entete { 0.35 * taille } else { 0.25 * taille },
+            interligne: interligne(1.25),
+            taquets: taquets.clone(),
             ..hab.pstyle()
         };
         let nom = styles.paragraphe(&ps);
         let cellules: Vec<String> = (0..cols)
             .map(|c| {
                 row.get(c)
-                    .map(|r| runs_xml(r, styles).replace("<text:tab/>", " "))
+                    .map(|r| {
+                        runs_xml(r, styles)
+                            .replace("<text:tab/>", " ")
+                            .replace("<text:line-break/>", " ")
+                    })
                     .unwrap_or_default()
             })
             .collect();
         let _ = write!(
             s,
-            "<text:p text:style-name=\"{nom}\">{}</text:p>",
+            "<text:p text:style-name=\"{nom}\">{}{}</text:p>",
+            if premiere_decalee { "<text:tab/>" } else { "" },
             cellules.join("<text:tab/>")
         );
     }
@@ -437,7 +478,11 @@ fn paras_xml(paras: &[Para], hab: &Habillage, styles: &mut Styles) -> String {
                         ..base.clone()
                     }
                 };
-                let _ = write!(s, "<text:p text:style-name=\"{}\"/>", styles.paragraphe(&ps));
+                let _ = write!(
+                    s,
+                    "<text:p text:style-name=\"{}\"/>",
+                    styles.paragraphe(&ps)
+                );
             }
             Para::Text { align, runs } => {
                 let ps = PStyle {
@@ -550,7 +595,11 @@ fn paras_xml(paras: &[Para], hab: &Habillage, styles: &mut Styles) -> String {
     }
     if s.is_empty() {
         // Un cadre de texte contient toujours au moins un paragraphe.
-        let _ = write!(s, "<text:p text:style-name=\"{}\"/>", styles.paragraphe(&base));
+        let _ = write!(
+            s,
+            "<text:p text:style-name=\"{}\"/>",
+            styles.paragraphe(&base)
+        );
     }
     s
 }
@@ -611,7 +660,11 @@ fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f3
         "<draw:page draw:name=\"page{}\" draw:style-name=\"{dp}\" draw:master-page-name=\"Varium\">",
         i + 1
     );
-    let align = if b.centered { Align::Center } else { Align::Left };
+    let align = if b.centered {
+        Align::Center
+    } else {
+        Align::Left
+    };
     let grand = matches!(s.layout, Layout::Title | Layout::Section);
     let modele = Habillage {
         taille: 12.0,
@@ -652,7 +705,16 @@ fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f3
             ..modele
         };
         let contenu = paras_xml(&r.title, &hab, styles);
-        cadre(&mut out, styles, Some("title"), f, b.title_anchor, &contenu, pw, ph);
+        cadre(
+            &mut out,
+            styles,
+            Some("title"),
+            f,
+            b.title_anchor,
+            &contenu,
+            pw,
+            ph,
+        );
     }
     if let Some(f) = b.subtitle {
         let citation = s.layout == Layout::Quote;
@@ -670,7 +732,16 @@ fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f3
             ..modele
         };
         let contenu = paras_xml(&r.subtitle, &hab, styles);
-        cadre(&mut out, styles, Some("subtitle"), f, b.subtitle_anchor, &contenu, pw, ph);
+        cadre(
+            &mut out,
+            styles,
+            Some("subtitle"),
+            f,
+            b.subtitle_anchor,
+            &contenu,
+            pw,
+            ph,
+        );
     }
     let citation = s.layout == Layout::Quote;
     for (f, paras) in [(b.body, &r.body), (b.body2, &r.body2)] {
@@ -703,7 +774,16 @@ fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f3
             "<text:p text:style-name=\"{nom}\">{}</text:p>",
             runs_xml(&r.footer, styles)
         );
-        cadre(&mut out, styles, None, footer_frame(), Anchor::Middle, &contenu, pw, ph);
+        cadre(
+            &mut out,
+            styles,
+            None,
+            footer_frame(),
+            Anchor::Middle,
+            &contenu,
+            pw,
+            ph,
+        );
     }
     if let Some(n) = r.number {
         let ps = PStyle {
@@ -715,7 +795,16 @@ fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f3
         let contenu = format!(
             "<text:p text:style-name=\"{nom}\"><text:page-number text:select-page=\"current\">{n}</text:page-number></text:p>"
         );
-        cadre(&mut out, styles, None, number_frame(), Anchor::Middle, &contenu, pw, ph);
+        cadre(
+            &mut out,
+            styles,
+            None,
+            number_frame(),
+            Anchor::Middle,
+            &contenu,
+            pw,
+            ph,
+        );
     }
     // Notes de l'orateur : texte noir sur la page de notes (A4 portrait).
     let notes_pal = Palette {
@@ -735,10 +824,11 @@ fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f3
         ..modele
     };
     let notes = paras_xml(&r.notes, &hab, styles);
+    let cadre_notes = styles.cadre("presentation", Anchor::Top);
     let rapport = ph / pw;
     let _ = write!(
         out,
-        "<presentation:notes draw:style-name=\"{dp}\"><draw:page-thumbnail draw:layer=\"layout\" svg:width=\"{}\" svg:height=\"{}\" svg:x=\"{}\" svg:y=\"{}\" draw:page-number=\"{}\" presentation:class=\"page\"/><draw:frame draw:layer=\"layout\" svg:width=\"{}\" svg:height=\"{}\" svg:x=\"{}\" svg:y=\"{}\" presentation:class=\"notes\" presentation:placeholder=\"false\"><draw:text-box>{notes}</draw:text-box></draw:frame></presentation:notes>",
+        "<presentation:notes draw:style-name=\"{dp}\"><draw:page-thumbnail draw:layer=\"layout\" svg:width=\"{}\" svg:height=\"{}\" svg:x=\"{}\" svg:y=\"{}\" draw:page-number=\"{}\" presentation:class=\"page\"/><draw:frame presentation:style-name=\"{cadre_notes}\" draw:layer=\"layout\" svg:width=\"{}\" svg:height=\"{}\" svg:x=\"{}\" svg:y=\"{}\" presentation:class=\"notes\"><draw:text-box>{notes}</draw:text-box></draw:frame></presentation:notes>",
         cm(476.0),
         cm(476.0 * rapport),
         cm(59.5),
@@ -788,7 +878,10 @@ pub(crate) fn odp(deck: &Deck) -> Vec<u8> {
 
     let mut zip = Zip::new();
     // `mimetype` doit être le premier fichier, stocké sans compression.
-    zip.add("mimetype", b"application/vnd.oasis.opendocument.presentation");
+    zip.add(
+        "mimetype",
+        b"application/vnd.oasis.opendocument.presentation",
+    );
     zip.add("content.xml", content.as_bytes());
     zip.add("styles.xml", styles_xml.as_bytes());
     zip.add("meta.xml", meta.as_bytes());
@@ -803,7 +896,10 @@ mod tests {
     #[test]
     fn espaces_odf() {
         assert_eq!(odf_text("a  b"), "a <text:s text:c=\"1\"/>b");
-        assert_eq!(odf_text(" a\nb"), "<text:s text:c=\"1\"/>a<text:line-break/>b");
+        assert_eq!(
+            odf_text(" a\nb"),
+            "<text:s text:c=\"1\"/>a<text:line-break/>b"
+        );
         assert_eq!(odf_text("<&>"), "&lt;&amp;&gt;");
     }
 
@@ -818,8 +914,20 @@ mod tests {
     #[test]
     fn styles_sans_doublon() {
         let mut s = Styles::default();
-        let a = s.caracteres(Style { bold: true, ..Style::default() }, false);
-        let b = s.caracteres(Style { bold: true, ..Style::default() }, false);
+        let a = s.caracteres(
+            Style {
+                bold: true,
+                ..Style::default()
+            },
+            false,
+        );
+        let b = s.caracteres(
+            Style {
+                bold: true,
+                ..Style::default()
+            },
+            false,
+        );
         assert_eq!(a, b);
         assert_eq!(s.caracteres(Style::default(), false), None);
     }
