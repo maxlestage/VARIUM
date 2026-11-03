@@ -119,7 +119,13 @@ struct Parser<'a, F: Fn(&str) -> Option<f64>> {
     toks: &'a [Tok],
     pos: usize,
     lookup: F,
+    /// Profondeur d'imbrication courante (parenthèses, signes, appels).
+    depth: usize,
 }
+
+/// Profondeur maximale d'imbrication : au-delà, la formule est refusée
+/// plutôt que de risquer un dépassement de pile.
+const PROFONDEUR_MAX: usize = 100;
 
 impl<F: Fn(&str) -> Option<f64>> Parser<'_, F> {
     fn peek(&self) -> Option<&Tok> {
@@ -163,6 +169,16 @@ impl<F: Fn(&str) -> Option<f64>> Parser<'_, F> {
 
     // unary := ('-'|'+') unary | postfix
     fn unary(&mut self) -> Result<f64, String> {
+        if self.depth >= PROFONDEUR_MAX {
+            return Err("formule trop imbriquée".into());
+        }
+        self.depth += 1;
+        let r = self.unary_interne();
+        self.depth -= 1;
+        r
+    }
+
+    fn unary_interne(&mut self) -> Result<f64, String> {
         match self.peek() {
             Some(Tok::Op('-')) => {
                 self.pos += 1;
@@ -190,7 +206,13 @@ impl<F: Fn(&str) -> Option<f64>> Parser<'_, F> {
         match self.next() {
             Some(Tok::Num(n)) => Ok(n),
             Some(Tok::LParen) => {
-                let v = self.expr()?;
+                if self.depth >= PROFONDEUR_MAX {
+                    return Err("formule trop imbriquée".into());
+                }
+                self.depth += 1;
+                let v = self.expr();
+                self.depth -= 1;
+                let v = v?;
                 match self.next() {
                     Some(Tok::RParen) => Ok(v),
                     _ => Err("parenthèse fermante attendue".into()),
@@ -202,7 +224,13 @@ impl<F: Fn(&str) -> Option<f64>> Parser<'_, F> {
                     let mut args = Vec::new();
                     if !matches!(self.peek(), Some(Tok::RParen)) {
                         loop {
-                            args.push(self.expr()?);
+                            if self.depth >= PROFONDEUR_MAX {
+                                return Err("formule trop imbriquée".into());
+                            }
+                            self.depth += 1;
+                            let a = self.expr();
+                            self.depth -= 1;
+                            args.push(a?);
                             match self.next() {
                                 Some(Tok::Semi) => continue,
                                 Some(Tok::RParen) => break,
@@ -265,6 +293,7 @@ pub fn eval(formula: &str, lookup: impl Fn(&str) -> Option<f64>) -> Result<f64, 
         toks: &toks,
         pos: 0,
         lookup,
+        depth: 0,
     };
     let v = p.expr()?;
     if p.pos != toks.len() {
@@ -287,6 +316,15 @@ mod tests {
             "total_ht" => Some(100.0),
             _ => None,
         })
+    }
+
+    #[test]
+    fn imbrication_excessive_refusee() {
+        let f = format!("{}1{}", "(".repeat(5000), ")".repeat(5000));
+        assert_eq!(ev(&f), Err("formule trop imbriquée".into()));
+        let f = format!("{}1", "-".repeat(5000));
+        assert!(ev(&f).is_err());
+        assert_eq!(ev("((((1+2))))*2"), Ok(6.0));
     }
 
     #[test]
