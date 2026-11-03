@@ -72,8 +72,9 @@ const APPLIS: [(&str, &str); 3] = [
     ("🎞️", "Présentation"),
 ];
 
-/// Les icônes des cartes de [`Textes::langues`] : typographie, révision, formats.
-const ICONES_LANGUES: [&str; 3] = ["«»", "✔️", "📅"];
+/// Les icônes des cartes de [`Textes::langues`] : typographie, révision, formats,
+/// orthographe.
+const ICONES_LANGUES: [&str; 4] = ["«»", "✔️", "📅", "📖"];
 
 /// Les icônes des cartes de [`Textes::fonctions`].
 const ICONES_FONCTIONS: [&str; 12] = [
