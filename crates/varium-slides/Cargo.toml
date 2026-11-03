@@ -10,3 +10,5 @@ repository.workspace = true
 varium-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+quick-xml = "0.42.0"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }

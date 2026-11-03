@@ -1751,6 +1751,8 @@ dependencies = [
  "num-traits",
  "png 0.18.1",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2973,6 +2975,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3473,6 +3484,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash 0.2.0",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
 name = "spirv"
 version = "0.4.0+sdk-1.4.341.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3881,11 +3902,13 @@ dependencies = [
  "egui",
  "egui_extras",
  "env_logger",
+ "image",
  "jiff",
  "log",
  "muda",
  "rfd",
  "serde",
+ "spellbook",
  "varium-calc",
  "varium-core",
  "varium-slides",
@@ -3896,6 +3919,7 @@ dependencies = [
 name = "varium-calc"
 version = "0.4.0"
 dependencies = [
+ "quick-xml 0.42.0",
  "serde",
  "serde_json",
  "varium-core",
@@ -3905,6 +3929,7 @@ dependencies = [
 name = "varium-core"
 version = "0.4.0"
 dependencies = [
+ "miniz_oxide 0.8.9",
  "serde",
  "serde_json",
 ]
@@ -3913,6 +3938,8 @@ dependencies = [
 name = "varium-slides"
 version = "0.4.0"
 dependencies = [
+ "image",
+ "quick-xml 0.42.0",
  "serde",
  "serde_json",
  "varium-core",
@@ -4146,7 +4173,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "338e30461b3a2b67d70eb30a6d89f8e0c93a833e07d2ae89085cd070c4a00ac0"
 dependencies = [
  "proc-macro2",
- "quick-xml",
+ "quick-xml 0.41.0",
  "quote",
 ]
 
