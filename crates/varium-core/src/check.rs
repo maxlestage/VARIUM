@@ -680,6 +680,14 @@ mod tests {
     }
 
     #[test]
+    fn commandes_ignorees() {
+        let src = "# Rapport\n\n\\sommaire\n\n## Contexte\n\nLe texte.\n\n\\newpage\n";
+        for lang in Lang::ALL {
+            assert!(check(src, lang).is_empty(), "{lang:?}");
+        }
+    }
+
+    #[test]
     fn francais() {
         assert_eq!(fixed("Bonjour! Ça va?", Lang::Fr), "Bonjour ! Ça va ?");
         assert!(check("https://exemple.fr et 10:30", Lang::Fr).is_empty());

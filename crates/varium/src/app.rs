@@ -3504,6 +3504,7 @@ const SYNTAX: &[(&str, &str)] = &[
     ("| a | b |", "tableau ; |---|---:| sous l'en-tête"),
     ("---", "ligne horizontale"),
     ("\\newpage", "saut de page (Ctrl+Entrée)"),
+    ("\\sommaire", "table des matières (liste des titres)"),
     ("$x^2$   $$ … $$", "formules LaTeX, en ligne ou centrées"),
     ("\\{{x}}  \\*  \\$", "caractères littéraux"),
 ];
