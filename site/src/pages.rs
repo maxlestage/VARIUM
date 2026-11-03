@@ -56,7 +56,7 @@ const FONCTIONS: [(&str, &str, &str); 13] = [
     (
         "📤",
         "Exports LibreOffice et Word",
-        "PDF, Word (DOCX), LibreOffice (ODT), RTF pour Pages et TextEdit, EPUB, HTML, LaTeX et texte : la mise en page suit.",
+        "PDF natif (sans navigateur), Word (DOCX), LibreOffice (ODT), RTF pour Pages et TextEdit, EPUB, HTML, LaTeX et texte : la mise en page suit.",
     ),
     (
         "🔁",
