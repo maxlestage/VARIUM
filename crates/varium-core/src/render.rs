@@ -193,7 +193,8 @@ impl Piece {
 }
 
 pub fn render_pieces(src: &str, values: &Values) -> Vec<Piece> {
-    parse::parse(src)
+    let src = crate::conditions::resolve(src, values);
+    parse::parse(&src)
         .into_iter()
         .map(|s| match s {
             Segment::Text(t) => Piece::Text(t),

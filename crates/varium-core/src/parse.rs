@@ -5,6 +5,8 @@
 //! - `{{montant | money}}` : variable + filtres chaînés
 //! - `{{date | date:full}}`, `{{t | default:"Madame, Monsieur"}}` : filtre avec argument
 //! - `\{{nom}}` : accolades littérales, non interprétées
+//! - `{{si …}}`, `{{sinon}}`, `{{fin}}` : texte conditionnel (voir `conditions`) ; `sinon` et
+//!   `fin` sont des mots réservés, on ne peut pas les employer comme noms de champ
 
 /// Un filtre appliqué à une variable, ex. `money:usd`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +90,9 @@ fn try_token(src: &str, start: usize) -> Option<(String, Vec<Filter>, usize)> {
         let formula = formula.trim();
         return (!formula.is_empty()).then(|| (format!("= {formula}"), filters, close + 2));
     }
-    is_valid_name(name).then(|| (name.to_string(), filters, close + 2))
+    // `{{sinon}}` et `{{fin}}` sont des directives du texte conditionnel, pas des champs.
+    let reserve = matches!(name.to_lowercase().as_str(), "sinon" | "fin");
+    (is_valid_name(name) && !reserve).then(|| (name.to_string(), filters, close + 2))
 }
 
 /// Découpe la source en segments. Les textes adjacents sont fusionnés.
@@ -145,20 +149,27 @@ pub struct VarInfo {
 /// utilisées dans un champ calculé `{{= a * b}}` sont comptées ; le champ lui-même,
 /// qui n'a pas de valeur à saisir, ne l'est pas.
 pub fn variables(src: &str) -> Vec<VarInfo> {
-    let mut out: Vec<VarInfo> = Vec::new();
-    let mut add = |name: String| match out.iter_mut().find(|i| i.name == name) {
-        Some(i) => i.count += 1,
-        None => out.push(VarInfo { name, count: 1 }),
-    };
+    // (position, nom) : variables du texte et champs testés par `{{si …}}`, dans l'ordre.
+    let mut found: Vec<(usize, String)> = crate::conditions::tested_names(src);
     for seg in parse(src) {
         if let Segment::Var(v) = seg {
             match &v.formula {
-                Some(f) => crate::calc::identifiers(f)
-                    .into_iter()
-                    .filter(|n| is_valid_name(n))
-                    .for_each(&mut add),
-                None => add(v.name),
+                Some(f) => found.extend(
+                    crate::calc::identifiers(f)
+                        .into_iter()
+                        .filter(|n| is_valid_name(n))
+                        .map(|n| (v.range.start, n)),
+                ),
+                None => found.push((v.range.start, v.name)),
             }
+        }
+    }
+    found.sort_by_key(|(p, _)| *p);
+    let mut out: Vec<VarInfo> = Vec::new();
+    for (_, name) in found {
+        match out.iter_mut().find(|i| i.name == name) {
+            Some(i) => i.count += 1,
+            None => out.push(VarInfo { name, count: 1 }),
         }
     }
     out

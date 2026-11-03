@@ -379,6 +379,14 @@ pub fn highlight(
             }
         }
     }
+    // Directives {{si}} / {{sinon}} / {{fin}}
+    for r in varium_core::conditions::directive_ranges(src) {
+        for i in r {
+            attrs[i].color = pal.formula;
+            attrs[i].bg = pal.var_bg;
+            protected[i] = true;
+        }
+    }
     // Formules $…$
     let bytes = src.as_bytes();
     let mut in_math = false;
