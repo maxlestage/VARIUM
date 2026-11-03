@@ -220,3 +220,117 @@ fn projet_aller_retour() {
     assert_eq!(back.values(), v);
     assert!(Project::from_json("{\"format\":\"autre\"}").is_err());
 }
+
+#[test]
+fn champs_calcules() {
+    let mut v = vals(&[("q", "3"), ("p", "12,5"), ("vide", "")]);
+    assert_eq!(render("{{= q * p}}", &v, Missing::Keep), "37,5");
+    assert_eq!(
+        render("{{= q * p | money}}", &v, Missing::Keep),
+        "37,50\u{a0}€"
+    );
+    assert_eq!(render("{{=q*p|number:1}}", &v, Missing::Keep), "37,5");
+    // un montant dans la formule donne un montant
+    v.types.insert("p".into(), VarType::Money);
+    assert_eq!(render("{{= q * p}}", &v, Missing::Keep), "37,50\u{a0}€");
+    // une valeur manquante laisse le champ visible
+    assert_eq!(
+        render("{{= q * vide}}", &v, Missing::Keep),
+        "{{= q * vide}}"
+    );
+    assert_eq!(
+        render("{{= q * vide | default:\"?\"}}", &v, Missing::Keep),
+        "?"
+    );
+    // les variables d'une formule apparaissent pour la saisie, pas la formule
+    let names: Vec<_> = variables("{{= q * p}} et {{q}}")
+        .into_iter()
+        .map(|i| (i.name, i.count))
+        .collect();
+    assert_eq!(names, [("q".to_string(), 2), ("p".to_string(), 1)]);
+    // renommer touche aussi les formules
+    assert_eq!(
+        rename_variable("{{= q * p}}", "q", "quantité").unwrap(),
+        "{{= quantité * p}}"
+    );
+}
+
+#[test]
+fn projets_v1_toujours_lisibles() {
+    let p = varium_core::Project::from_json(
+        r#"{"format":"varium","version":1,"title":"T","source":"{{a}}","values":{"a":"1"}}"#,
+    )
+    .unwrap();
+    assert_eq!(p.page, varium_core::PageSetup::default());
+    let back = varium_core::Project::from_json(&p.to_json()).unwrap();
+    assert_eq!(back, p);
+}
+
+#[test]
+fn exports_bureautique() {
+    use varium_core::{PageSetup, docx, odt};
+    let v = vals(&[("nom", "Dupont & fils")]);
+    let page = PageSetup {
+        page_numbers: true,
+        header: "**{{nom}}**".into(),
+        ..PageSetup::default()
+    };
+    let docs = [export::prepare(
+        "# Titre\n**Gras** {{nom}}\n| a | b |\n|---|---|\n| 1 | 2 |",
+        &v,
+        &page,
+    )];
+
+    let odt = odt::odt("Essai", &docs, &page);
+    assert_eq!(&odt[..2], b"PK");
+    assert_eq!(&odt[30..38], b"mimetype");
+    let text = String::from_utf8_lossy(&odt);
+    assert!(text.contains("application/vnd.oasis.opendocument.text"));
+    assert!(text.contains("Dupont &amp; fils"));
+    assert!(text.contains("<text:page-number"));
+    assert!(text.contains("<table:table "));
+
+    let docx = docx::docx("Essai", &docs, &page);
+    let text = String::from_utf8_lossy(&docx);
+    assert!(text.contains("word/document.xml"));
+    assert!(text.contains("w:instr=\"PAGE\""));
+    assert!(text.contains("<w:tbl>"));
+
+    let html = export::html("Essai", &docs, &page);
+    assert!(html.contains("<h1>Titre</h1>"));
+    assert!(html.contains("<strong>Gras</strong>"));
+    assert!(html.contains("counter(pages)"));
+    assert!(html.contains("<th>a</th>"));
+    let tex = export::latex("Essai", &docs, &page);
+    assert!(tex.contains("\\section*{Titre}"));
+    assert!(tex.contains("\\textbf{Gras}"));
+}
+
+#[test]
+fn publipostage() {
+    use varium_core::merge::parse_csv;
+    let sheet = parse_csv("Prénom;Ville\nMarc;Lyon\nLéa;Nantes").unwrap();
+    let vars: Vec<String> = variables("Bonjour {{prénom}} de {{ville}}")
+        .into_iter()
+        .map(|v| v.name)
+        .collect();
+    let out: Vec<String> = (0..sheet.rows.len())
+        .map(|i| {
+            render(
+                "Bonjour {{prénom}} de {{ville}}",
+                &sheet.values_for(i, &Values::default(), &vars),
+                Missing::Keep,
+            )
+        })
+        .collect();
+    assert_eq!(out, ["Bonjour Marc de Lyon", "Bonjour Léa de Nantes"]);
+}
+
+#[test]
+fn valeurs_sur_plusieurs_lignes() {
+    let v = vals(&[("adresse", "12 rue des Lilas\n69003 Lyon")]);
+    let page = varium_core::PageSetup::default();
+    let docs = [export::prepare("{{adresse}}", &v, &page)];
+    assert!(export::html("T", &docs, &page).contains("white-space: pre-wrap"));
+    assert!(export::latex("T", &docs, &page).contains("12 rue des Lilas\\\\\n69003 Lyon"));
+}

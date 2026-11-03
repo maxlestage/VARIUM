@@ -22,6 +22,8 @@ pub struct VarRef {
     pub raw: String,
     /// Plage en octets dans la source.
     pub range: std::ops::Range<usize>,
+    /// Champ calculé `{{= a * b}}` : la formule (sans le `=`). `name` vaut alors `= formule`.
+    pub formula: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +80,10 @@ fn try_token(src: &str, start: usize) -> Option<(String, Vec<Filter>, usize)> {
         Some((n, f)) => (n.trim(), parse_filters(f)),
         None => (inner.trim(), Vec::new()),
     };
+    if let Some(formula) = name.strip_prefix('=') {
+        let formula = formula.trim();
+        return (!formula.is_empty()).then(|| (format!("= {formula}"), filters, close + 2));
+    }
     is_valid_name(name).then(|| (name.to_string(), filters, close + 2))
 }
 
@@ -102,11 +108,13 @@ pub fn parse(src: &str) -> Vec<Segment> {
                     if !text.is_empty() {
                         out.push(Segment::Text(std::mem::take(&mut text)));
                     }
+                    let formula = name.strip_prefix("= ").map(str::to_string);
                     out.push(Segment::Var(VarRef {
                         name,
                         filters,
                         raw: src[pos..end].to_string(),
                         range: pos..end,
+                        formula,
                     }));
                 }
                 last = end;
@@ -129,18 +137,39 @@ pub struct VarInfo {
     pub count: usize,
 }
 
-/// Variables de la source, dans l'ordre de première apparition.
+/// Variables de la source, dans l'ordre de première apparition. Les variables
+/// utilisées dans un champ calculé `{{= a * b}}` sont comptées ; le champ lui-même,
+/// qui n'a pas de valeur à saisir, ne l'est pas.
 pub fn variables(src: &str) -> Vec<VarInfo> {
     let mut out: Vec<VarInfo> = Vec::new();
+    let mut add = |name: String| match out.iter_mut().find(|i| i.name == name) {
+        Some(i) => i.count += 1,
+        None => out.push(VarInfo { name, count: 1 }),
+    };
     for seg in parse(src) {
         if let Segment::Var(v) = seg {
-            match out.iter_mut().find(|i| i.name == v.name) {
-                Some(i) => i.count += 1,
-                None => out.push(VarInfo {
-                    name: v.name,
-                    count: 1,
-                }),
+            match &v.formula {
+                Some(f) => crate::calc::identifiers(f)
+                    .into_iter()
+                    .filter(|n| is_valid_name(n))
+                    .for_each(&mut add),
+                None => add(v.name),
             }
+        }
+    }
+    out
+}
+
+/// Les champs calculés de la source (`= formule`), sans doublon.
+pub fn formulas(src: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for seg in parse(src) {
+        if let Segment::Var(VarRef {
+            formula: Some(f), ..
+        }) = seg
+            && !out.contains(&f)
+        {
+            out.push(f);
         }
     }
     out
@@ -170,8 +199,12 @@ pub fn rename_variable(src: &str, old: &str, new: &str) -> Result<String, String
     if !is_valid_name(new) {
         return Err(format!("Nom de variable invalide : « {new} »"));
     }
-    Ok(rewrite(src, |v| {
-        (v.name == old).then(|| v.raw.replacen(old, new, 1))
+    Ok(rewrite(src, |v| match &v.formula {
+        Some(f) => {
+            let renamed = crate::calc::rename_in(f, old, new);
+            (renamed != *f).then(|| v.raw.replacen(f.as_str(), &renamed, 1))
+        }
+        None => (v.name == old).then(|| v.raw.replacen(old, new, 1)),
     }))
 }
 
