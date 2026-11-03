@@ -235,7 +235,12 @@ impl Object {
         }
         match self.fill {
             Some(fond) => {
-                let candidats = [palette.title, palette.background, [255, 255, 255], [0, 0, 0]];
+                let candidats = [
+                    palette.title,
+                    palette.background,
+                    [255, 255, 255],
+                    [0, 0, 0],
+                ];
                 candidats
                     .into_iter()
                     .find(|c| contraste(*c, fond) >= 4.5)
@@ -252,11 +257,7 @@ impl Object {
 /// Pointe d'une flèche allant de `a` à `b` (en points), pour un trait d'épaisseur
 /// `epaisseur` : le point où s'arrête le trait, puis les trois sommets du
 /// triangle (pointe, côté gauche, côté droit).
-pub fn arrow_head(
-    a: (f32, f32),
-    b: (f32, f32),
-    epaisseur: f32,
-) -> ((f32, f32), [(f32, f32); 3]) {
+pub fn arrow_head(a: (f32, f32), b: (f32, f32), epaisseur: f32) -> ((f32, f32), [(f32, f32); 3]) {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let long = (dx * dx + dy * dy).sqrt();
     let taille = (epaisseur * 3.5).max(8.0).min(long.max(0.001) * 0.6);

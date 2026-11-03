@@ -1585,7 +1585,7 @@ impl CalcApp {
             .unwrap_or_default();
         let selection = self.selection();
         egui::Window::new("Mise en forme conditionnelle")
-            .id(egui::Id::new("calc-cond-dialog"))
+            .id(egui::Id::unique("calc-cond-dialog"))
             .open(&mut open)
             .resizable(true)
             .default_width(560.0)
@@ -2101,7 +2101,7 @@ fn paint_cond_preview(ui: &egui::Ui, r: Rect, cf: &CondFormat) {
             let mut job = egui::text::LayoutJob::single_section(
                 "AaBb 123".to_string(),
                 egui::TextFormat {
-                    font_id: FontId::new(13.0, family),
+                    font_id: FontId::new((r.height() * 0.6).clamp(8.0, 13.0), family),
                     color: ink,
                     italics: s.italic,
                     ..Default::default()
@@ -2408,16 +2408,20 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
             let sweep = (*v / total) as f32 * std::f32::consts::TAU;
             let steps = ((sweep / 0.05).ceil() as usize).max(2);
             let c = series_color(i, dark);
+            // Un maillage par part : pas de jointures visibles entre les morceaux.
+            let mut mesh = egui::Mesh::default();
             for s in 0..steps {
                 let a = a0 + sweep * s as f32 / steps as f32;
                 let b = a0 + sweep * (s + 1) as f32 / steps as f32;
-                let pts = if inner > 0.0 {
-                    vec![at(a, inner), at(a, radius), at(b, radius), at(b, inner)]
-                } else {
-                    vec![center, at(a, radius), at(b, radius)]
-                };
-                p.add(egui::Shape::convex_polygon(pts, c, Stroke::NONE));
+                let i = mesh.vertices.len() as u32;
+                mesh.colored_vertex(at(a, inner), c);
+                mesh.colored_vertex(at(a, radius), c);
+                mesh.colored_vertex(at(b, radius), c);
+                mesh.colored_vertex(at(b, inner), c);
+                mesh.add_triangle(i, i + 1, i + 2);
+                mesh.add_triangle(i, i + 2, i + 3);
             }
+            p.add(egui::Shape::mesh(mesh));
             // Séparation des parts
             p.line_segment([at(a0, inner), at(a0, radius)], Stroke::new(1.5, surface));
             let mid = a0 + sweep / 2.0;

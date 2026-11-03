@@ -1224,8 +1224,11 @@ fn images_pdf(deck: &Deck, premier: usize) -> (Vec<Vec<u8>>, BTreeMap<String, us
         };
         if let (Some(c @ (1 | 3)), Ok((w, h))) = (
             composantes,
-            image::ImageReader::with_format(std::io::Cursor::new(&m.data[..]), image::ImageFormat::Jpeg)
-                .into_dimensions(),
+            image::ImageReader::with_format(
+                std::io::Cursor::new(&m.data[..]),
+                image::ImageFormat::Jpeg,
+            )
+            .into_dimensions(),
         ) {
             let espace = if c == 1 { "/DeviceGray" } else { "/DeviceRGB" };
             objs.push(flux(
@@ -1274,13 +1277,7 @@ fn images_pdf(deck: &Deck, premier: usize) -> (Vec<Vec<u8>>, BTreeMap<String, us
     (objs, nums)
 }
 
-fn page(
-    r: &Rendu,
-    s: &Slide,
-    images: &BTreeMap<String, usize>,
-    pw: f32,
-    ph: f32,
-) -> String {
+fn page(r: &Rendu, s: &Slide, images: &BTreeMap<String, usize>, pw: f32, ph: f32) -> String {
     let pal = r.palette;
     let b = &r.boxes;
     let mut out = String::new();

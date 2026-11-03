@@ -287,7 +287,11 @@ pub(crate) fn html(deck: &Deck) -> String {
                 out,
                 ".m-{}{{background-image:url(\"data:{};base64,{}\")}}",
                 classe_media(id),
-                if m.mime == "image/jpeg" { "image/jpeg" } else { "image/png" },
+                if m.mime == "image/jpeg" {
+                    "image/jpeg"
+                } else {
+                    "image/png"
+                },
                 crate::objets::base64(&m.data)
             );
         }
@@ -349,10 +353,19 @@ fn objet_html(out: &mut String, o: &Object, texte: &[Para], p: &Palette, deck: &
     }
     let (pw, ph) = (720.0, 720.0 / deck.aspect.ratio());
     let (w, h) = (f.w * pw, f.h * ph);
-    let sw = if o.stroke.is_some() { o.stroke_width } else { 0.0 };
+    let sw = if o.stroke.is_some() {
+        o.stroke_width
+    } else {
+        0.0
+    };
     // Marge autour du cadre : le trait et la pointe d'une flèche ne sont pas rognés.
     let m = sw * 4.0 + 10.0;
-    let cadre = Frame::new(f.x - m / pw, f.y - m / ph, f.w + 2.0 * m / pw, f.h + 2.0 * m / ph);
+    let cadre = Frame::new(
+        f.x - m / pw,
+        f.y - m / ph,
+        f.w + 2.0 * m / pw,
+        f.h + 2.0 * m / ph,
+    );
     let trait_ = match o.stroke {
         Some(c) if sw > 0.0 => format!(
             " stroke=\"{}\" stroke-width=\"{}\"",

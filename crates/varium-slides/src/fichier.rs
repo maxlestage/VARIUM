@@ -210,9 +210,7 @@ pub(crate) fn objets<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Object>, D::
 }
 
 /// Médias : un objet `identifiant → image` ; une image illisible est ignorée.
-pub(crate) fn medias<'de, D: Deserializer<'de>>(
-    d: D,
-) -> Result<BTreeMap<String, Media>, D::Error> {
+pub(crate) fn medias<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, Media>, D::Error> {
     let Value::Object(obj) = Value::deserialize(d)? else {
         return Ok(BTreeMap::new());
     };

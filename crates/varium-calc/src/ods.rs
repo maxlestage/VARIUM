@@ -611,8 +611,18 @@ fn settings_xml(wb: &Workbook, names: &[String]) -> String {
         );
         item(&mut x, "CursorPositionX", "int", 0);
         item(&mut x, "CursorPositionY", "int", 0);
-        item(&mut x, "HorizontalSplitMode", "short", if cols > 0 { 2 } else { 0 });
-        item(&mut x, "VerticalSplitMode", "short", if rows > 0 { 2 } else { 0 });
+        item(
+            &mut x,
+            "HorizontalSplitMode",
+            "short",
+            if cols > 0 { 2 } else { 0 },
+        );
+        item(
+            &mut x,
+            "VerticalSplitMode",
+            "short",
+            if rows > 0 { 2 } else { 0 },
+        );
         item(&mut x, "HorizontalSplitPosition", "int", cols);
         item(&mut x, "VerticalSplitPosition", "int", rows);
         let active = match (rows > 0, cols > 0) {
@@ -636,7 +646,9 @@ fn settings_xml(wb: &Workbook, names: &[String]) -> String {
             esc(first)
         );
     }
-    x.push_str("</config:config-item-map-entry></config:config-item-map-indexed></config:config-item-set>");
+    x.push_str(
+        "</config:config-item-map-entry></config:config-item-map-indexed></config:config-item-set>",
+    );
     x.push_str("</office:settings></office:document-settings>");
     x
 }

@@ -299,9 +299,7 @@ pub(crate) fn expression_rule(f: &str) -> Option<crate::cond::CondRule> {
     let f = f.to_ascii_lowercase().replace(' ', "");
     if f.starts_with("len(trim(") && f.ends_with(")=0") || f.starts_with("isblank(") {
         Some(CondRule::Empty)
-    } else if f.starts_with("len(trim(") && f.ends_with(")>0")
-        || f.starts_with("not(isblank(")
-    {
+    } else if f.starts_with("len(trim(") && f.ends_with(")>0") || f.starts_with("not(isblank(") {
         Some(CondRule::NotEmpty)
     } else if f.starts_with("iserror(") {
         Some(CondRule::Error)
@@ -331,9 +329,7 @@ pub(crate) fn parse_rgb(s: &str) -> Option<[u8; 3]> {
 /// Longueur ODF (`2.5cm`, `1in`, `12pt`, `30mm`, `40px`) en points d'écran.
 pub(crate) fn length_px(s: &str) -> Option<f32> {
     let s = s.trim();
-    let split = s
-        .find(|c: char| c.is_ascii_alphabetic())
-        .unwrap_or(s.len());
+    let split = s.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(s.len());
     let v: f64 = s[..split].trim().parse().ok()?;
     let px = match &s[split..] {
         "cm" => v / 2.54 * 96.0,
@@ -363,7 +359,10 @@ mod tests {
         assert_eq!(number_format_from_code("0.0%"), Percent(1));
         assert_eq!(number_format_from_code("#,##0.00\\ \"€\""), Currency(2));
         assert_eq!(number_format_from_code("[$€-40C]#,##0.00"), Currency(2));
-        assert_eq!(number_format_from_code("#,##0.00 [$€-1];[RED]-#,##0.00 [$€-1]"), Currency(2));
+        assert_eq!(
+            number_format_from_code("#,##0.00 [$€-1];[RED]-#,##0.00 [$€-1]"),
+            Currency(2)
+        );
         assert_eq!(number_format_from_code("dd/mm/yyyy"), Date);
         assert_eq!(number_format_from_code("DD/MM/YYYY"), Date);
         assert_eq!(number_format_from_code("mmm-yy"), Date);

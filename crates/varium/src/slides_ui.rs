@@ -46,8 +46,11 @@ pub struct SlidesApp {
     drag: Option<Drag>,
     textures: Textures,
     /// Images choisies dans le dialogue « Insertion → Image… » : (nom, octets).
-    picked: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    picked: Picked,
 }
+
+/// Fichiers choisis dans un dialogue : (nom, octets).
+type Picked = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 
 /// Mode présentateur : chronomètre, taille des notes, plein écran du public.
 struct Presenter {
@@ -66,7 +69,7 @@ impl Presenter {
 }
 
 /// Ce que l'on fait d'un objet en le tirant.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Grip {
     Move,
     /// Poignée de redimensionnement : 0 en haut à gauche, puis dans le sens des
@@ -1246,7 +1249,7 @@ impl SlidesApp {
             .num_columns(4)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                let mut pc = |ui: &mut egui::Ui, label: &str, v: &mut f32| {
+                let pc = |ui: &mut egui::Ui, label: &str, v: &mut f32| {
                     ui.label(label);
                     let mut x = *v * 100.0;
                     if ui
@@ -1746,7 +1749,7 @@ impl SlidesApp {
             return;
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
-        egui::Area::new(egui::Id::new("slides-toast"))
+        egui::Area::new(egui::Id::unique("slides-toast"))
             .anchor(Align2::CENTER_BOTTOM, [0.0, -40.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {

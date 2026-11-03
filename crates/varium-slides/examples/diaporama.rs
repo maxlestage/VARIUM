@@ -48,7 +48,12 @@ fn illustrer(deck: &mut Deck) -> Result<(), Box<dyn std::error::Error>> {
         .position(|s| s.title.starts_with("Démonstration"))
         .unwrap_or(0);
     let img = image::RgbaImage::from_fn(320, 180, |x, y| {
-        image::Rgba([(x * 255 / 320) as u8, (y * 255 / 180) as u8, 180, (40 + x * 215 / 320) as u8])
+        image::Rgba([
+            (x * 255 / 320) as u8,
+            (y * 255 / 180) as u8,
+            180,
+            (40 + x * 215 / 320) as u8,
+        ])
     });
     let mut png = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)?;
