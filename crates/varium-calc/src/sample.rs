@@ -1,8 +1,8 @@
 //! Classeur d'exemple : un budget mensuel et une facture, reliés par une
 //! référence entre feuilles.
 
-use crate::format::{CellFormat, HAlign, NumberFormat};
 use crate::cond::{CompareOp, CondFormat, CondRule, CondStyle};
+use crate::format::{CellFormat, HAlign, NumberFormat};
 use crate::refs::{CellRef, Range};
 use crate::workbook::Workbook;
 

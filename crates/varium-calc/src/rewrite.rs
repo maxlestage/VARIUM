@@ -522,10 +522,11 @@ fn odf_ref(inner: &str) -> String {
     let body = addrs.join(":");
     // Colonnes entières : [.A:.A].
     let body = if addrs.len() == 2
-        && addrs
-            .iter()
-            .all(|a| a.trim_start_matches('$').chars().all(|c| c.is_ascii_alphabetic()))
-    {
+        && addrs.iter().all(|a| {
+            a.trim_start_matches('$')
+                .chars()
+                .all(|c| c.is_ascii_alphabetic())
+        }) {
         expand_whole_columns(&body)
     } else {
         body
@@ -689,7 +690,10 @@ mod tests {
         );
         assert_eq!(from_xlsx_formula("SUM(A:A)"), "=SOMME(A$1:A$1048576)");
         assert_eq!(from_xlsx_formula("#DIV/0!"), "=#DIV/0!");
-        assert_eq!(from_xlsx_formula("VLOOKUP(1,A1:B3,2,0)"), "=RECHERCHEV(1;A1:B3;2;0)");
+        assert_eq!(
+            from_xlsx_formula("VLOOKUP(1,A1:B3,2,0)"),
+            "=RECHERCHEV(1;A1:B3;2;0)"
+        );
         assert_eq!(from_odf_formula("of:=SUM([.A1:.A3])"), "=SOMME(A1:A3)");
         assert_eq!(
             from_odf_formula("of:=[$'Feuille 2'.$B$2]*TRUE()"),
@@ -699,7 +703,10 @@ mod tests {
             from_odf_formula("of:=IF([.A1];1.5;\"[x]\")"),
             "=SI(A1;1,5;\"[x]\")"
         );
-        assert_eq!(from_odf_formula("of:=[$Feuille2.A1:.B2]"), "=Feuille2!A1:B2");
+        assert_eq!(
+            from_odf_formula("of:=[$Feuille2.A1:.B2]"),
+            "=Feuille2!A1:B2"
+        );
         assert_eq!(from_odf_formula("of:=[.#REF!]+1"), "=#REF!+1");
         assert_eq!(from_odf_formula("msoxl:=SUM(A1,A2)"), "=SOMME(A1;A2)");
         // Aller-retour avec les exports.
@@ -712,7 +719,11 @@ mod tests {
             assert_eq!(from_xlsx_formula(&to_xlsx_formula(f)), f, "xlsx {f}");
             let odf = to_odf_formula(f);
             let back = from_odf_formula(&odf);
-            assert_eq!(back.replace("VRAI()", "VRAI").replace("FAUX()", "FAUX"), f, "ods {f}");
+            assert_eq!(
+                back.replace("VRAI()", "VRAI").replace("FAUX()", "FAUX"),
+                f,
+                "ods {f}"
+            );
         }
     }
 
