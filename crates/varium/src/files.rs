@@ -1,5 +1,6 @@
 //! Logique pure des fichiers façon Writer : titre de fenêtre, documents récents.
 
+use crate::tr::tr;
 use std::path::{Path, PathBuf};
 
 /// Nombre de documents récents conservés.
@@ -17,7 +18,7 @@ pub fn window_title(title: &str, path: Option<&Path>, dirty: bool) -> String {
         s.push_str("• ");
     }
     match (title.is_empty(), name) {
-        (true, None) => s.push_str("Sans titre"),
+        (true, None) => s.push_str(tr("Sans titre")),
         (true, Some(n)) => s.push_str(&n),
         (false, None) => s.push_str(title),
         (false, Some(n)) => s.push_str(&format!("{title} — {n}")),
