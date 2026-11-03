@@ -18,27 +18,29 @@ pub struct Rendered {
 
 /// Met en forme la source avec ses valeurs, en-tête et pied de page compris.
 pub fn prepare(src: &str, values: &Values, page: &PageSetup) -> Rendered {
-    let mut paras = doc::document(src, values);
-    let mut header = doc::inline(&page.header, values);
-    let mut footer = doc::inline(&page.footer, values);
-    if page.typographie {
-        crate::typo::apply(&mut paras);
-        for runs in [&mut header, &mut footer] {
-            let mut p = [doc::Para::Quote {
-                runs: std::mem::take(runs),
-            }];
-            crate::typo::apply(&mut p);
-            let [doc::Para::Quote { runs: r }] = p else {
-                unreachable!()
-            };
-            *runs = r;
+    // Dates, nombres et montants dans la langue du document.
+    crate::lang::with_lang(page.langue, || {
+        let mut paras = doc::document(src, values);
+        let mut header = doc::inline(&page.header, values);
+        let mut footer = doc::inline(&page.footer, values);
+        if page.typographie {
+            crate::typo::apply(&mut paras, page.langue);
+            for runs in [&mut header, &mut footer] {
+                let mut p = [doc::Para::Quote {
+                    runs: std::mem::take(runs),
+                }];
+                crate::typo::apply(&mut p, page.langue);
+                if let [doc::Para::Quote { runs: r }] = p {
+                    *runs = r;
+                }
+            }
         }
-    }
-    Rendered {
-        paras,
-        header,
-        footer,
-    }
+        Rendered {
+            paras,
+            header,
+            footer,
+        }
+    })
 }
 
 pub(crate) fn xml_escape(s: &str) -> String {
@@ -238,10 +240,11 @@ pub fn html(title: &str, docs: &[Rendered], page: &PageSetup) -> String {
         "portrait"
     };
     let paper = page.paper.css();
+    let lang = page.langue.code();
     let (w, h) = (num(w), num(h));
     format!(
         r#"<!doctype html>
-<html lang="fr">
+<html lang="{lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

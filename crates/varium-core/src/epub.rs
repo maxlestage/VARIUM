@@ -58,7 +58,7 @@ fn table(t: &Table) -> String {
     s
 }
 
-fn chapter(title: &str, d: &Rendered) -> String {
+fn chapter(title: &str, d: &Rendered, lang: &str) -> String {
     let mut body = String::new();
     for p in &d.paras {
         body.push_str(&match p {
@@ -91,7 +91,7 @@ fn chapter(title: &str, d: &Rendered) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="fr" lang="fr">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="{lang}" lang="{lang}">
 <head><meta charset="utf-8"/><title>{}</title><link rel="stylesheet" type="text/css" href="style.css"/></head>
 <body>
 {body}</body>
@@ -103,6 +103,7 @@ fn chapter(title: &str, d: &Rendered) -> String {
 
 /// Le fichier `.epub` (une archive ZIP).
 pub fn epub(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
+    let lang = page.langue.code();
     let t = xml_escape(if title.trim().is_empty() {
         "Document Varium"
     } else {
@@ -126,7 +127,7 @@ pub fn epub(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
             } else {
                 format!("{title} ({})", i + 1)
             };
-            chapter(&name, d)
+            chapter(&name, d, page.langue.code())
         })
         .collect();
     let manifest: String = (0..chapters.len())
@@ -151,8 +152,8 @@ pub fn epub(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
         .collect();
     let opf = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id" xml:lang="fr">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">{id}</dc:identifier><dc:title>{t}</dc:title><dc:language>fr</dc:language><dc:creator>Varium</dc:creator><meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id" xml:lang="{lang}">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">{id}</dc:identifier><dc:title>{t}</dc:title><dc:language>{lang}</dc:language><dc:creator>Varium</dc:creator><meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata>
 <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="style.css" media-type="text/css"/>{manifest}</manifest>
 <spine>{spine}</spine>
 </package>
@@ -161,7 +162,7 @@ pub fn epub(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
     let nav = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="fr" lang="fr">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="{lang}" lang="{lang}">
 <head><meta charset="utf-8"/><title>{t}</title></head>
 <body><nav epub:type="toc"><h1>Sommaire</h1><ol>{nav_items}</ol></nav></body>
 </html>

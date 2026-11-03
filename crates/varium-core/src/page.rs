@@ -107,8 +107,10 @@ pub struct PageSetup {
     pub footer: String,
     /// « Page 1 sur 3 » en bas de chaque page.
     pub page_numbers: bool,
-    /// Typographie française automatique (« », ’, …, espaces fines).
+    /// Typographie automatique selon la langue (« », ’, …, espaces fines).
     pub typographie: bool,
+    /// Langue du document : dates, nombres, typographie, vérification.
+    pub langue: crate::lang::Lang,
 }
 
 impl Default for PageSetup {
@@ -128,6 +130,7 @@ impl Default for PageSetup {
             footer: String::new(),
             page_numbers: false,
             typographie: true,
+            langue: crate::lang::Lang::Fr,
         }
     }
 }

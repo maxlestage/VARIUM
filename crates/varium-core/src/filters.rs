@@ -1,4 +1,5 @@
-//! Filtres de mise en forme (conventions françaises).
+//! Filtres de mise en forme. Les nombres, montants et dates suivent la langue du
+//! document (`crate::lang`), le français par défaut.
 
 use crate::parse::Filter;
 
@@ -6,24 +7,6 @@ use crate::parse::Filter;
 pub const THIN_NBSP: char = '\u{202F}';
 /// Espace insécable (avant le symbole monétaire).
 pub const NBSP: char = '\u{00A0}';
-
-const MONTHS: [&str; 12] = [
-    "janvier",
-    "février",
-    "mars",
-    "avril",
-    "mai",
-    "juin",
-    "juillet",
-    "août",
-    "septembre",
-    "octobre",
-    "novembre",
-    "décembre",
-];
-const WEEKDAYS: [&str; 7] = [
-    "dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi",
-];
 
 /// Liste des filtres connus, pour l'aide de l'interface.
 pub const KNOWN: &[(&str, &str)] = &[
@@ -121,16 +104,18 @@ pub fn format_number(n: f64, digits: Option<usize>) -> String {
         Some((i, f)) => (i.to_string(), Some(f.to_string())),
         None => (s, None),
     };
+    let lang = crate::lang::current();
+    let group = lang.group();
     let mut grouped = String::new();
     let len = int.len();
     for (i, c) in int.chars().enumerate() {
         if i > 0 && (len - i) % 3 == 0 {
-            grouped.push(THIN_NBSP);
+            grouped.push(group);
         }
         grouped.push(c);
     }
     let neg = n < 0.0
-        && (grouped.chars().any(|c| c != '0' && c != THIN_NBSP)
+        && (grouped.chars().any(|c| c.is_ascii_digit() && c != '0')
             || frac.as_deref().is_some_and(|f| f.chars().any(|c| c != '0')));
     let mut out = String::new();
     if neg {
@@ -138,14 +123,44 @@ pub fn format_number(n: f64, digits: Option<usize>) -> String {
     }
     out.push_str(&grouped);
     if let Some(f) = frac {
-        out.push(',');
+        out.push(lang.decimal());
         out.push_str(&f);
     }
     out
 }
 
 pub fn format_money(n: f64, currency: &str) -> String {
+    use crate::lang::Lang;
     let code = currency.to_uppercase();
+    let lang = crate::lang::current();
+    if lang != Lang::Fr {
+        let (symbol, digits) = match code.as_str() {
+            "EUR" => ("€", 2),
+            "USD" => ("$", 2),
+            "GBP" => ("£", 2),
+            "CHF" => ("CHF", 2),
+            "CAD" => ("CA$", 2),
+            "JPY" => ("¥", 0),
+            other => (other, 2),
+        };
+        let amount = format_number(n.abs(), Some(digits));
+        let sign = if n < 0.0 && amount.chars().any(|c| c.is_ascii_digit() && c != '0') {
+            "-"
+        } else {
+            ""
+        };
+        // En anglais, le symbole précède le montant ; ailleurs il le suit.
+        return if lang == Lang::En {
+            let sep = if symbol.chars().count() > 1 && symbol.chars().all(char::is_alphabetic) {
+                "\u{a0}"
+            } else {
+                ""
+            };
+            format!("{sign}{symbol}{sep}{amount}")
+        } else {
+            format!("{sign}{amount}{NBSP}{symbol}")
+        };
+    }
     let (symbol, digits) = match code.as_str() {
         "EUR" => ("€", 2),
         "USD" => ("$US", 2),
@@ -187,18 +202,66 @@ fn weekday(y: i32, m: u32, d: u32) -> usize {
 }
 
 pub fn format_date((y, m, d): (i32, u32, u32), style: &str) -> String {
-    let day = if d == 1 {
-        "1er".to_string()
-    } else {
-        d.to_string()
+    use crate::lang::Lang;
+    let lang = crate::lang::current();
+    let (Some(month), Some(wd)) = (
+        lang.months().get((m as usize).wrapping_sub(1)).copied(),
+        lang.weekdays().get(weekday(y, m, d)).copied(),
+    ) else {
+        return format!("{y:04}-{m:02}-{d:02}");
     };
-    match style {
-        "short" => format!("{d:02}/{m:02}/{y}"),
-        "full" => format!(
-            "{} {day} {} {y}",
-            WEEKDAYS[weekday(y, m, d)],
-            MONTHS[m as usize - 1]
-        ),
-        _ => format!("{day} {} {y}", MONTHS[m as usize - 1]),
+    if style == "short" {
+        return match lang {
+            Lang::De => format!("{d:02}.{m:02}.{y}"),
+            _ => format!("{d:02}/{m:02}/{y}"),
+        };
+    }
+    let full = style == "full";
+    match lang {
+        Lang::Fr => {
+            let day = if d == 1 {
+                "1er".to_string()
+            } else {
+                d.to_string()
+            };
+            if full {
+                format!("{wd} {day} {month} {y}")
+            } else {
+                format!("{day} {month} {y}")
+            }
+        }
+        Lang::En => {
+            if full {
+                format!("{wd} {d} {month} {y}")
+            } else {
+                format!("{d} {month} {y}")
+            }
+        }
+        Lang::Es | Lang::Pt => {
+            if full {
+                format!("{wd}, {d} de {month} de {y}")
+            } else {
+                format!("{d} de {month} de {y}")
+            }
+        }
+        Lang::De => {
+            if full {
+                format!("{wd}, {d}. {month} {y}")
+            } else {
+                format!("{d}. {month} {y}")
+            }
+        }
+        Lang::It => {
+            let day = if d == 1 {
+                "1º".to_string()
+            } else {
+                d.to_string()
+            };
+            if full {
+                format!("{wd} {day} {month} {y}")
+            } else {
+                format!("{day} {month} {y}")
+            }
+        }
     }
 }

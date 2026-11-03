@@ -13,12 +13,14 @@
 //! ```
 
 pub mod calc;
+pub mod check;
 pub mod conditions;
 pub mod doc;
 pub mod docx;
 pub mod epub;
 pub mod export;
 pub mod filters;
+pub mod lang;
 pub mod merge;
 pub mod odt;
 pub mod page;
@@ -42,4 +44,5 @@ pub use render::{
 };
 
 pub use doc::{Align, Para, Run, Stats, Style, Table, document, stats};
+pub use lang::Lang;
 pub use page::{DocFont, PageSetup, Paper};

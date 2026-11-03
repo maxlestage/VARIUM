@@ -10,6 +10,10 @@ pub enum OpenKind {
     Document,
     /// Un tableau CSV pour le publipostage.
     Data,
+    /// Un classeur (`.varium-calc.json` ou CSV).
+    Workbook,
+    /// Une présentation (`.varium-slides.json`).
+    Deck,
 }
 
 pub enum Event {
@@ -58,6 +62,12 @@ impl Io {
             OpenKind::Data => rfd::AsyncFileDialog::new()
                 .set_title("Choisir les données du publipostage")
                 .add_filter("Tableau CSV", DATA_EXTENSIONS),
+            OpenKind::Workbook => rfd::AsyncFileDialog::new()
+                .set_title("Ouvrir un classeur")
+                .add_filter("Classeur Varium ou CSV", &["json", "csv", "tsv", "txt"]),
+            OpenKind::Deck => rfd::AsyncFileDialog::new()
+                .set_title("Ouvrir une présentation")
+                .add_filter("Présentation Varium", &["json"]),
         };
         spawn(async move {
             let Some(file) = dialog.pick_file().await else {
@@ -110,6 +120,18 @@ impl Io {
         });
     }
 
+    /// Réécrit un fichier déjà connu (Enregistrer), sans dialogue.
+    pub fn write_to(&self, ctx: &egui::Context, path: PathBuf, content: Vec<u8>) {
+        let ev = match write_atomic(&path, &content) {
+            Ok(()) => Event::Saved {
+                path,
+                project: true,
+            },
+            Err(e) => Event::Error(format!("Écriture impossible : {e}")),
+        };
+        Self::push(&self.inbox, ctx, ev);
+    }
+
     /// Ouvre le document HTML dans le navigateur et lance l'impression
     /// (« Enregistrer au format PDF » dans la fenêtre d'impression).
     pub fn print(&self, ctx: &egui::Context, file_name: String, html: String) {
@@ -146,7 +168,7 @@ fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -
             path,
         },
         // Les CSV d'Excel sont souvent en Windows-1252 : on les convertit.
-        Err(e) if kind == OpenKind::Data => Event::Opened {
+        Err(e) if matches!(kind, OpenKind::Data | OpenKind::Workbook) => Event::Opened {
             kind,
             name,
             content: e.into_bytes().iter().map(|&b| cp1252(b)).collect(),
