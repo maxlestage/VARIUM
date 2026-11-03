@@ -17,13 +17,13 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Indicateur de modifications non enregistrées dans le titre — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
 - [x] Confirmation avant fermeture / ouverture d'un autre document — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
 - [x] Documents récents — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
-- [ ] Sauvegarde de secours automatique sur disque (fichier .varium-secours à côté du document, restauration au démarrage)
+- [x] Sauvegarde de secours automatique sur disque (`.nom.varium-secours` à côté du document, ou dossier de données ; restauration proposée à l'ouverture/au démarrage ; secours.rs) — « Sauvegarde de secours automatique »
 - [ ] Test d'intégration de l'état « modifié » de l'application (logique is_dirty/guard hors egui)
 - [ ] Restaurer le fichier courant au redémarrage (le chemin n'est pas conservé)
 
 ## 3. Distribution
-- [ ] Workflow de release (binaires Linux, macOS, Windows à chaque tag)
-- [ ] Page /installer/ du site avec les liens de téléchargement
+- [x] Workflow de release (binaires Linux, macOS, Windows à chaque tag) — « Binaires à télécharger pour Windows, macOS et Linux (version 0.2.0) »
+- [x] Page /installer/ du site avec les liens de téléchargement — idem
 
 ## 4. Export PDF natif (en-tête, pied de page, numéros de page)
 

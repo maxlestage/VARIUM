@@ -14,6 +14,7 @@ use crate::editor::{self, LineStyle, Palette, Sel};
 use crate::files;
 use crate::io::{self, Event, Io, OpenKind};
 use crate::pageview::{self, View};
+use crate::secours;
 use crate::templates;
 
 const STORAGE_KEY: &str = "varium.project";
@@ -214,6 +215,12 @@ enum Dialog {
     About,
     /// Modifications non enregistrées : que faire avant de continuer ?
     Confirm(Pending),
+    /// Une sauvegarde de secours existe (arrêt brutal ?) : la restaurer ?
+    Restore {
+        project: Box<Project>,
+        secours: std::path::PathBuf,
+        document: Option<std::path::PathBuf>,
+    },
 }
 
 /// Action différée jusqu'à la réponse à « Enregistrer les modifications ? ».
@@ -286,6 +293,9 @@ pub struct VariumApp {
     after_save: Option<Pending>,
     last_window_title: String,
     allow_close: bool,
+    /// Fichier de secours actuellement écrit (effacé dès que le document est propre).
+    backup_file: Option<std::path::PathBuf>,
+    last_backup: f64,
 }
 
 fn today() -> String {
@@ -345,9 +355,13 @@ impl VariumApp {
             after_save: None,
             last_window_title: String::new(),
             allow_close: false,
+            backup_file: None,
+            last_backup: f64::NEG_INFINITY,
         };
         app.restore(app.history.current.clone());
         app.saved = app.snapshot();
+        // Document sans fichier interrompu par un plantage ?
+        app.propose_secours(None);
         app
     }
 
@@ -384,6 +398,72 @@ impl VariumApp {
         self.merge = None;
         self.path = None;
         self.saved = self.snapshot();
+    }
+
+    /// Propose de restaurer la sauvegarde de secours de `document` (ou du
+    /// document sans fichier) si elle est plus récente et différente.
+    fn propose_secours(&mut self, document: Option<&std::path::Path>) {
+        let fichier = secours::chemin(document, &secours::dossier_donnees());
+        if !secours::plus_recente(&fichier, document) {
+            return;
+        }
+        match secours::lire(&fichier) {
+            Some(p)
+                if p.source != self.source
+                    || p.title != self.title
+                    || p.values() != self.values =>
+            {
+                self.dialog = Some(Dialog::Restore {
+                    project: Box::new(p),
+                    secours: fichier,
+                    document: document.map(std::path::Path::to_path_buf),
+                });
+            }
+            _ => secours::effacer(&fichier),
+        }
+    }
+
+    /// Remplace le contenu par la sauvegarde ; le document reste « modifié ».
+    fn restaurer(&mut self, p: Project, document: Option<std::path::PathBuf>) {
+        let saved = self.saved.clone();
+        self.load(p);
+        self.saved = if document.is_some() {
+            saved
+        } else {
+            Snapshot {
+                title: String::new(),
+                source: String::new(),
+                values: Values::default(),
+                page: PageSetup::default(),
+            }
+        };
+        self.path = document;
+    }
+
+    /// Sauvegarde de secours : écrite régulièrement tant que le document est
+    /// modifié, effacée dès qu'il est propre.
+    fn tick_secours(&mut self, ctx: &egui::Context, now: f64) {
+        if matches!(self.dialog, Some(Dialog::Restore { .. })) {
+            return;
+        }
+        if !self.is_dirty() {
+            if let Some(f) = self.backup_file.take() {
+                secours::effacer(&f);
+            }
+            return;
+        }
+        let voulu = secours::chemin(self.path.as_deref(), &secours::dossier_donnees());
+        let change = self.backup_file.as_ref() != Some(&voulu);
+        if change || secours::echeance(now, self.last_backup) {
+            if change && let Some(old) = self.backup_file.take() {
+                secours::effacer(&old);
+            }
+            if secours::ecrire(&voulu, &self.project()).is_ok() {
+                self.backup_file = Some(voulu);
+            }
+            self.last_backup = now;
+        }
+        ctx.request_repaint_after(secours::INTERVALLE);
     }
 
     /// Des modifications ne sont-elles pas enregistrées ?
@@ -426,6 +506,9 @@ impl VariumApp {
                 }
             }
             Pending::Quit => {
+                if let Some(f) = self.backup_file.take() {
+                    secours::effacer(&f);
+                }
                 self.allow_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -789,6 +872,7 @@ impl VariumApp {
                                 self.load(p);
                                 if let Some(path) = path {
                                     files::push_recent(&mut self.prefs.recent, &path);
+                                    self.propose_secours(Some(&path));
                                     self.path = Some(path);
                                 }
                                 self.notify(ctx, format!("« {name} » ouvert"), false);
@@ -1920,6 +2004,34 @@ impl VariumApp {
                         }
                     });
                 }
+                Dialog::Restore {
+                    project,
+                    secours,
+                    document,
+                } => {
+                    ui.heading("Restaurer la sauvegarde de secours ?");
+                    ui.label(format!(
+                        "Varium s'est arrêté sans que « {} » soit enregistré. Une sauvegarde automatique plus récente existe.",
+                        if project.title.trim().is_empty() {
+                            "le document"
+                        } else {
+                            project.title.trim()
+                        }
+                    ));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Restaurer").clicked() {
+                            keep = false;
+                            let p = (**project).clone();
+                            self.restaurer(p, document.clone());
+                            secours::effacer(secours);
+                        }
+                        if ui.button("Ignorer").clicked() {
+                            keep = false;
+                            secours::effacer(secours);
+                        }
+                    });
+                }
                 Dialog::About => {
                     ui.heading("Varium");
                     ui.label(RichText::new("Un document. Toutes ses possibilités.").italics());
@@ -2473,6 +2585,7 @@ impl eframe::App for VariumApp {
         }
         let now = ctx.input(|i| i.time);
         self.track(now);
+        self.tick_secours(&ctx, now);
         self.toast(&ctx, if mobile { 70.0 } else { 34.0 });
     }
 
