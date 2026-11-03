@@ -149,7 +149,7 @@ pub struct Appli {
     /// Le genre de logiciel : « Traitement de texte ».
     pub genre: &'static str,
     pub texte: &'static str,
-    pub points: [&'static str; 4],
+    pub points: [&'static str; 5],
 }
 
 /// Un système de la page d'installation (son nom et son fichier sont dans `pages.rs`).
@@ -203,7 +203,7 @@ pub struct Textes {
     pub langues_titre: &'static str,
     pub langues_intro: &'static str,
     /// Typographie, révision, formats.
-    pub langues: [Item; 3],
+    pub langues: [Item; 4],
     pub langues_note: &'static str,
     pub fonctions_titre: &'static str,
     pub fonctions_intro: &'static str,
