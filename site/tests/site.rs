@@ -254,3 +254,27 @@ async fn l_export_statique() {
     assert!(lire("robots.txt").contains("https://maxlestage.github.io/VARIUM/sitemap.xml"));
     assert!(lire("syntaxe/index.html").contains("http://localhost:3000/api/rendu"));
 }
+
+#[tokio::test]
+async fn la_page_installer_propose_les_trois_systemes() {
+    let html = app_with(Options::new())
+        .test()
+        .await
+        .get("/installer/")
+        .await
+        .text();
+    for fichier in [
+        "varium-windows-x86_64.zip",
+        "varium-macos.zip",
+        "varium-linux-x86_64.tar.gz",
+    ] {
+        let lien =
+            format!("https://github.com/maxlestage/VARIUM/releases/latest/download/{fichier}");
+        assert!(html.contains(&lien), "{fichier}");
+        // Le workflow de publication produit bien ce fichier.
+        assert!(
+            include_str!("../../.github/workflows/release.yml").contains(fichier),
+            "{fichier}"
+        );
+    }
+}
