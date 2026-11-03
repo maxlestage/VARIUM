@@ -2110,7 +2110,7 @@ impl VariumApp {
                 ui.label(
                     RichText::new(trf!(
                         "Aucun dictionnaire {lang} sur cet ordinateur.",
-                        lang = labels::lang(lang).to_lowercase()
+                        lang = labels::lang_inline(lang)
                     ))
                     .color(warn(ui)),
                 );
@@ -3079,7 +3079,9 @@ impl VariumApp {
                                         ui.label(RichText::new(t.icon).size(22.0));
                                         ui.vertical(|ui| {
                                             ui.label(RichText::new(tr(t.name)).strong());
-                                            ui.label(RichText::new(tr(t.description)).small().weak());
+                                            ui.label(
+                                                RichText::new(tr(t.description)).small().weak(),
+                                            );
                                         });
                                     });
                                 })
@@ -3109,7 +3111,10 @@ impl VariumApp {
             let ctx = ui.ctx().clone();
             self.notify(
                 &ctx,
-                trf!("Modèle « {name} » ouvert", name = tr(templates::ALL[i].name)),
+                trf!(
+                    "Modèle « {name} » ouvert",
+                    name = tr(templates::ALL[i].name)
+                ),
                 false,
             );
             return false;

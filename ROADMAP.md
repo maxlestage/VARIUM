@@ -38,7 +38,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Notes de bas de page
 - [ ] Retraits, couleurs/surlignage, interligne par paragraphe
 - [ ] Import .odt / .docx simples
-- [ ] Détection des doubles espaces / correcteur orthographique
+- [x] Détection des doubles espaces / correcteur orthographique
 
 ## 6. Performance : cache de rendu et de pagination pour les longs documents
 
@@ -62,8 +62,11 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Langue du document : formats, typographie, révision, aide par langue
 - [x] Site traduit (fr, en, es, de, it, pt)
 - [x] Révision de l'écriture par langue (espaces, ponctuation, majuscules, accords a/an, ¿ ¡) — version 0.4.0
-- [ ] Classeur : mise en forme conditionnelle, figer les volets, import XLSX/ODS, plus de types de graphiques
-- [ ] Présentation : images, formes, mode présentateur sur deuxième écran, import ODP/PPTX
-- [ ] Dictionnaires orthographiques (Hunspell) par langue
-- [ ] Interface traduite (les menus restent en français)
-- [ ] Menus natifs macOS pour le Classeur et la Présentation
+- [x] Classeur : mise en forme conditionnelle, figer les volets, import XLSX/ODS, plus de types de graphiques — version 0.5.0
+- [x] Présentation : images, formes, mode présentateur sur deuxième écran, import ODP/PPTX — version 0.5.0
+- [x] Dictionnaires orthographiques (Hunspell) par langue : installés, importés ou téléchargés — version 0.5.0
+- [x] Interface traduite en six langues (choix automatique ou manuel, sans redémarrer) — version 0.5.0
+- [x] Menus natifs macOS pour le Classeur et la Présentation (à valider sur un vrai Mac) — version 0.5.0
+- [ ] Classeur : couleurs de thème à l'import XLSX, hauteur de ligne variable
+- [ ] Présentation : rotations, dégradés et tableaux à l'import PPTX
+- [ ] Messages du moteur (remarques de révision, erreurs de formule) traduits

@@ -819,7 +819,7 @@ impl Dicos {
                     self.messages.push((
                         trf!(
                             "Dictionnaire {lang} téléchargé",
-                            lang = crate::labels::lang(lang).to_lowercase()
+                            lang = crate::labels::lang_inline(lang)
                         ),
                         false,
                     ));
