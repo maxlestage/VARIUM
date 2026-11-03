@@ -7,11 +7,11 @@ Varium est un éditeur de documents à variables, écrit entièrement en Rust av
 `{{montant}}` dans un document, on change une valeur une seule fois, et toutes ses
 occurrences sont mises à jour sans toucher aux autres champs.
 
-La même application tourne **sur le bureau** (Linux, macOS, Windows) et **dans le
-navigateur** (WebAssembly).
+Varium est une **application de bureau** (Linux, macOS, Windows). Il n'y a pas de
+version en ligne : vos documents restent sur votre ordinateur.
 
-- **Application web** : <https://maxlestage.github.io/VARIUM/app/>
 - **Site de présentation** : <https://maxlestage.github.io/VARIUM/>
+- **Installer** : `cargo install --git https://github.com/maxlestage/VARIUM varium --locked`, puis `varium`
 
 ## Fonctionnalités
 
@@ -53,26 +53,20 @@ navigateur** (WebAssembly).
 - **Exports** : ODT (LibreOffice Writer), DOCX (Word), PDF par l'impression, HTML,
   LaTeX, texte, modèle brut, projet `.varium.json`.
 - **Formules LaTeX** : `$…$` en ligne, `$$…$$` centrées.
-- **Sauvegarde automatique** (fichier local sur le bureau, stockage du navigateur sur le
-  web) et **version téléphone** avec des onglets Texte, Champs et Pages.
+- **Sauvegarde automatique** (fichier local sur le bureau, stockage de l'application) et **fenêtre étroite** avec des onglets Texte, Champs et Pages.
 
 ## Organisation (workspace Cargo)
 
 | Paquet | Rôle |
 |---|---|
 | [`crates/varium-core`](crates/varium-core) | Moteur pur, sans interface : analyse, champs calculés, mise en forme, mise en page, exports (HTML, LaTeX, texte, ODT, DOCX), publipostage CSV, format de projet. |
-| [`crates/varium`](crates/varium) | Application egui/eframe : binaire de bureau et site WebAssembly (Trunk). |
+| [`crates/varium`](crates/varium) | Application de bureau egui/eframe. |
 
 ## Démarrer
 
 ```sh
 # Application de bureau
 cargo run -p varium --release
-
-# Application web (http://127.0.0.1:8080)
-rustup target add wasm32-unknown-unknown
-cargo install trunk --locked
-cd crates/varium && trunk serve --release
 
 # Tests et vérifications
 cargo test --workspace
@@ -86,7 +80,7 @@ Sous Linux, la version de bureau a besoin des bibliothèques système habituelle
 
 Chaque push sur une branche lance la CI (`.github/workflows/ci.yml`). Quand tout est vert,
 la branche est **fusionnée automatiquement dans `master`**, puis `master` est déployé : le
-site de présentation et l'application web sur GitHub Pages, et le serveur du site sur
+site de présentation sur GitHub Pages, et le serveur du site sur
 Heroku quand il est configuré. Les branches nommées `wip/...` ne sont jamais fusionnées :
 c'est la place des travaux en cours.
 
@@ -103,15 +97,6 @@ Déploiement du serveur (Heroku, Docker) : voir
 [`site/README.md`](site/README.md#déployer-le-serveur).
 
 [![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/varium)
-
-## Application web
-
-L'application web est publiée sur GitHub Pages : **<https://maxlestage.github.io/VARIUM/app/>**.
-
-À chaque push sur `master`, le workflow `.github/workflows/pages.yml` exporte le site de
-présentation à la racine de GitHub Pages, construit l'application avec Trunk
-(`--public-url /VARIUM/app/`) et la publie dans `app/`. Il faut l'activer une seule fois :
-*Settings → Pages → Source : GitHub Actions*.
 
 ## Syntaxe
 

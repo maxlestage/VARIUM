@@ -3800,14 +3800,10 @@ dependencies = [
  "egui_extras",
  "env_logger",
  "jiff",
- "js-sys",
  "log",
  "rfd",
  "serde",
  "varium-core",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]
