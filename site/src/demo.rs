@@ -3,6 +3,9 @@
 //! Le formulaire envoie la source et une valeur par variable ; le serveur détecte les
 //! variables, applique les filtres et renvoie le document rendu. Aucun JavaScript :
 //! la page fonctionne partout, et la Content-Security-Policy n'autorise aucun script.
+//!
+//! La page existe dans chaque langue (`/{langue}/essayer/`) ; le courrier d'exemple
+//! reste en français, comme les formats que le moteur lui applique.
 
 use std::collections::BTreeMap;
 
@@ -10,6 +13,8 @@ use paquets::prelude::*;
 use paquets::serde::{Deserialize, Serialize};
 use varium_core::{Align, Para, Piece, Run, Values, VarType, parse, render, render_pieces, tex};
 
+use crate::i18n::{Langue, Textes, remplir};
+use crate::routes::Rubrique;
 use crate::{Options, layout};
 
 /// Taille maximale d'une source, en caractères.
@@ -67,6 +72,22 @@ fn type_id(t: VarType) -> &'static str {
     }
 }
 
+/// Le nom d'un type dans la langue de `t`.
+pub fn libelle_type(t: &Textes, ty: VarType) -> &'static str {
+    let i = VarType::ALL.iter().position(|x| *x == ty).unwrap_or(0);
+    t.types[i]
+}
+
+/// Le message d'une saisie invalide, dans la langue de `t` (le moteur vérifie).
+fn erreur_saisie(t: &Textes, ty: VarType, valeur: &str) -> Option<&'static str> {
+    ty.validate(valeur)?;
+    Some(match ty {
+        VarType::Date => t.erreurs[0],
+        VarType::Email => t.erreurs[2],
+        _ => t.erreurs[1],
+    })
+}
+
 fn type_depuis(id: &str) -> VarType {
     VarType::ALL
         .into_iter()
@@ -94,7 +115,7 @@ pub fn source_coloree(src: &str) -> Element {
 
 /// Un morceau de texte mis en forme : valeurs surlignées, champs sans valeur signalés,
 /// formules converties en Unicode.
-fn morceau_doc(r: Run) -> Node {
+fn morceau_doc(r: Run, t: &Textes) -> Node {
     let st = r.style();
     let mut n: Node = match r {
         Run::Text { text: t, .. } => text(t),
@@ -105,7 +126,7 @@ fn morceau_doc(r: Run) -> Node {
             .into(),
         Run::Missing { name, raw, .. } => span()
             .class("manquante")
-            .attr("title", format!("« {name} » n'a pas encore de valeur"))
+            .attr("title", remplir(t.sans_valeur, &[&name]))
             .text(raw)
             .into(),
         Run::Math { tex: t, .. } => span()
@@ -129,8 +150,8 @@ fn morceau_doc(r: Run) -> Node {
     n
 }
 
-fn morceaux(runs: Vec<Run>) -> Vec<Node> {
-    runs.into_iter().map(morceau_doc).collect()
+fn morceaux(runs: Vec<Run>, t: &Textes) -> Vec<Node> {
+    runs.into_iter().map(|r| morceau_doc(r, t)).collect()
 }
 
 fn classe(a: Align) -> &'static str {
@@ -142,17 +163,17 @@ fn classe(a: Align) -> &'static str {
     }
 }
 
-fn paragraphe(para: Para) -> Node {
+fn paragraphe(para: Para, t: &Textes) -> Node {
     match para {
         Para::Text { runs, .. } if runs.is_empty() => p().class("vide").child(br()).into(),
-        Para::Text { align, runs } => p().class(classe(align)).children(morceaux(runs)).into(),
+        Para::Text { align, runs } => p().class(classe(align)).children(morceaux(runs, t)).into(),
         Para::Heading { level, runs } => {
             let titre = match level {
                 1 => h3(),
                 2 => h4(),
                 _ => h5(),
             };
-            titre.class("titre").children(morceaux(runs)).into()
+            titre.class("titre").children(morceaux(runs, t)).into()
         }
         Para::Item {
             number,
@@ -166,39 +187,40 @@ fn paragraphe(para: Para) -> Node {
             p().class("li")
                 .style(format!("margin-left:{}em", 1.4 * f32::from(depth)))
                 .child(span().class("puce").text(puce))
-                .children(morceaux(runs))
+                .children(morceaux(runs, t))
                 .into()
         }
-        Para::Quote { runs } => blockquote().children(morceaux(runs)).into(),
-        Para::Math { tex: t } => p()
+        Para::Quote { runs } => blockquote().children(morceaux(runs, t)).into(),
+        Para::Math { tex: formule } => p()
             .class("math bloc")
-            .attr("title", t.clone())
-            .text(tex::to_unicode(t.trim()))
+            .attr("title", formule.clone())
+            .text(tex::to_unicode(formule.trim()))
             .into(),
-        Para::Table(t) => {
-            let colonnes = t.columns();
+        Para::Table(tableau) => {
+            let colonnes = tableau.columns();
             table()
-                .children(t.rows.iter().enumerate().map(|(i, ligne)| {
+                .children(tableau.rows.iter().enumerate().map(|(i, ligne)| {
                     tr().children((0..colonnes).map(|c| {
-                        let cellule = if i == 0 && t.header { th() } else { td() };
+                        let cellule = if i == 0 && tableau.header { th() } else { td() };
                         cellule
-                            .class(classe(t.align(c)))
-                            .children(morceaux(ligne.get(c).cloned().unwrap_or_default()))
+                            .class(classe(tableau.align(c)))
+                            .children(morceaux(ligne.get(c).cloned().unwrap_or_default(), t))
                     }))
                 }))
                 .into()
         }
         Para::Rule => hr().into(),
-        Para::PageBreak => p().class("saut").text("saut de page").into(),
+        Para::PageBreak => p().class("saut").text(t.saut_de_page).into(),
     }
 }
 
-/// Le document mis en forme par le moteur de Varium (titres, gras, listes, tableaux…).
-pub fn document(src: &str, valeurs: &Values) -> Element {
+/// Le document mis en forme par le moteur de Varium (titres, gras, listes, tableaux…),
+/// les bulles d'aide dans la langue de `t`.
+pub fn document(src: &str, valeurs: &Values, t: &Textes) -> Element {
     div().class("document").children(
         varium_core::document(src, valeurs)
             .into_iter()
-            .map(paragraphe),
+            .map(|para| paragraphe(para, t)),
     )
 }
 
@@ -206,10 +228,10 @@ pub fn document(src: &str, valeurs: &Values) -> Element {
 // Page et formulaire
 // ---------------------------------------------------------------------------------
 
-fn champ(nom: &str, valeurs: &Values) -> Element {
+fn champ(nom: &str, valeurs: &Values, t: &Textes) -> Element {
     let ty = valeurs.ty(nom);
     let valeur = valeurs.get(nom).to_string();
-    let erreur = ty.validate(&valeur);
+    let erreur = erreur_saisie(t, ty, &valeur);
     let saisie = if ty == VarType::Long {
         textarea()
             .attr("name", format!("val.{nom}"))
@@ -228,7 +250,7 @@ fn champ(nom: &str, valeurs: &Values) -> Element {
             .attr(
                 "placeholder",
                 if ty == VarType::Date {
-                    "AAAA-MM-JJ"
+                    t.format_date
                 } else {
                     ""
                 },
@@ -236,10 +258,12 @@ fn champ(nom: &str, valeurs: &Values) -> Element {
     };
     let choix = select()
         .attr("name", format!("type.{nom}"))
-        .attr("aria-label", format!("Type de {nom}"))
-        .children(VarType::ALL.into_iter().map(|t| {
-            let o = option().attr("value", type_id(t)).text(t.label());
-            if t == ty {
+        .attr("aria-label", remplir(t.type_de, &[nom]))
+        .children(VarType::ALL.into_iter().map(|autre| {
+            let o = option()
+                .attr("value", type_id(autre))
+                .text(libelle_type(t, autre));
+            if autre == ty {
                 o.attr("selected", "selected")
             } else {
                 o
@@ -275,22 +299,20 @@ fn renseignee(nom: &str, valeurs: &Values) -> bool {
         .any(|p| matches!(p, Piece::Missing { .. }))
 }
 
-/// Le formulaire de la démo, envoyé au serveur.
-fn formulaire(o: &Options, src: &str, valeurs: &Values) -> Element {
+/// Le formulaire de la démo, envoyé au serveur, à la page de la même langue.
+fn formulaire(o: &Options, langue: Langue, src: &str, valeurs: &Values) -> Element {
+    let t = langue.textes();
     let vars = varium_core::variables(src);
+    let ici = o.lien(&Rubrique::Essayer.chemin(langue));
     form()
         .attr("method", "post")
-        .attr("action", o.lien("/essayer/"))
+        .attr("action", ici.clone())
         .class("stack")
         .child(
             label()
                 .attr("for", "source")
-                .child(strong().text("Modèle"))
-                .child(
-                    span()
-                        .class("muted")
-                        .text(" · écrivez {{une_variable}} n'importe où"),
-                ),
+                .child(strong().text(t.modele))
+                .child(span().class("muted").text(format!(" · {}", t.modele_aide))),
         )
         .child(
             textarea()
@@ -301,61 +323,51 @@ fn formulaire(o: &Options, src: &str, valeurs: &Values) -> Element {
                 .class("mono")
                 .text(src.to_string()),
         )
-        .child(h3().text(format!("Variables ({})", vars.len())))
+        .child(h3().text(remplir(t.variables, &[&vars.len().to_string()])))
         .child(if vars.is_empty() {
-            p().class("muted").text(
-                "Aucune variable pour l'instant : ajoutez {{prénom}} au modèle puis mettez à jour.",
-            )
+            p().class("muted").text(t.aucune_variable)
         } else {
             div()
                 .class("champs")
-                .children(vars.iter().map(|v| champ(&v.name, valeurs)))
+                .children(vars.iter().map(|v| champ(&v.name, valeurs, t)))
         })
         .child(
             div()
                 .class("row")
-                .child(
-                    button()
-                        .attr("type", "submit")
-                        .text("Mettre à jour le document"),
-                )
-                .child(
-                    a().class("button ghost")
-                        .href(o.lien("/essayer/"))
-                        .text("Réinitialiser"),
-                ),
+                .child(button().attr("type", "submit").text(t.mettre_a_jour))
+                .child(a().class("button ghost").href(ici).text(t.reinitialiser)),
         )
 }
 
 /// Le modèle en lecture seule, pour l'export statique : la source colorée et la valeur
 /// de chaque variable.
-fn modele_lu(src: &str, valeurs: &Values) -> Element {
+fn modele_lu(src: &str, valeurs: &Values, t: &Textes) -> Element {
     let vars = varium_core::variables(src);
     div()
         .class("stack")
         .child(
             div()
                 .class("row entre")
-                .child(strong().text("Modèle"))
-                .child(span().class("muted").text("lecture seule")),
+                .child(strong().text(t.modele))
+                .child(span().class("muted").text(t.lecture_seule)),
         )
-        .child(source_coloree(src))
-        .child(h3().text(format!("Variables ({})", vars.len())))
+        .child(source_coloree(src).attr("lang", "fr"))
+        .child(h3().text(remplir(t.variables, &[&vars.len().to_string()])))
         .child(
             table()
                 .child(
                     thead().child(
-                        tr().child(th().text("Variable"))
-                            .child(th().text("Type"))
-                            .child(th().text("Valeur")),
+                        tr().child(th().text(t.variables_colonnes[0]))
+                            .child(th().text(t.variables_colonnes[1]))
+                            .child(th().text(t.variables_colonnes[2])),
                     ),
                 )
                 .child(tbody().children(vars.iter().map(|v| {
                     let valeur = valeurs.get(&v.name);
                     tr().child(td().child(code().text(format!("{{{{{}}}}}", v.name))))
-                        .child(td().text(valeurs.ty(&v.name).label()))
+                        .child(td().text(libelle_type(t, valeurs.ty(&v.name))))
                         .child(td().child(if valeur.is_empty() {
-                            span().class("manquante").text("à remplir")
+                            span().class("manquante").text(t.a_remplir)
                         } else {
                             span().text(valeur.to_string())
                         }))
@@ -364,60 +376,73 @@ fn modele_lu(src: &str, valeurs: &Values) -> Element {
 }
 
 /// Le document rendu, avec ses compteurs et le texte brut.
-fn resultat(src: &str, valeurs: &Values) -> Element {
+fn resultat(src: &str, valeurs: &Values, langue: Langue) -> Element {
+    let t = langue.textes();
     let (vars, total, manquantes) = compte(src, valeurs);
+    // « 1 variable · 3 occurrences · 0 à remplir », au singulier ou au pluriel.
+    let accorde = |n: usize, singulier: &str, pluriel: &str| {
+        remplir(
+            if langue.pluriel(n) {
+                pluriel
+            } else {
+                singulier
+            },
+            &[&n.to_string()],
+        )
+    };
+    let compteurs = format!(
+        "{} · {} · {}",
+        accorde(vars.len(), t.compteur[0], t.compteur[1]),
+        accorde(total, t.compteur[2], t.compteur[3]),
+        remplir(t.a_remplir_n, &[&manquantes.to_string()]),
+    );
     div()
         .class("stack")
         .child(
             div()
                 .class("row entre")
-                .child(strong().text("Document"))
-                .child(span().class("muted").text(format!(
-                    "{} variable{} · {} occurrence{} · {} à remplir",
-                    vars.len(),
-                    if vars.len() > 1 { "s" } else { "" },
-                    total,
-                    if total > 1 { "s" } else { "" },
-                    manquantes
-                ))),
+                .child(strong().text(t.document))
+                .child(span().class("muted").text(compteurs)),
         )
-        .child(document(src, valeurs))
+        .child(document(src, valeurs, t).attr("lang", "fr"))
         .child(
             details()
-                .child(summary().text("Texte brut"))
+                .child(summary().text(t.texte_brut))
                 .child(pre().child(code().text(render(src, valeurs, varium_core::Missing::Keep)))),
         )
 }
 
-fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Page {
+fn vue(req: &Request, langue: Langue, src: &str, valeurs: &Values, alerte: Option<String>) -> Page {
     let o = Options::de(req);
+    let t = langue.textes();
+    let statique = o.est_statique();
     // Un hôte statique ne reçoit pas de formulaire : l'exemple est montré tel quel, et
-    // l'éditeur complet est l'application web.
-    let (explication, gauche, description) = if o.est_statique() {
-        (
-            "Le courrier d'exemple de Varium : le modèle et ses valeurs à gauche, le document calculé par le vrai moteur (varium-core) à droite.",
-            modele_lu(src, valeurs),
-            "Un modèle avec des {{variables}}, leurs valeurs et le document rendu par Varium. L'éditeur complet s'installe sur votre ordinateur.",
-        )
+    // l'éditeur complet est l'application de bureau.
+    let gauche = if statique {
+        modele_lu(src, valeurs, t)
     } else {
-        (
-            "Modifiez le modèle ou les valeurs puis mettez le document à jour. Le rendu est calculé par le vrai moteur de Varium (varium-core), sur le serveur.",
-            formulaire(o, src, valeurs),
-            "Écrivez un modèle avec des {{variables}}, donnez-leur une valeur et voyez le document se mettre à jour : la démo en ligne de Varium.",
-        )
+        formulaire(o, langue, src, valeurs)
     };
-    let application = o.est_statique().then(|| {
+    let application = statique.then(|| {
         div()
             .class("card ouvrir")
             .child(
-                p().child(strong().text("Pour écrire vos propres modèles, installez Varium."))
-                    .child(text(" L'éditeur complet est une application de bureau pour Linux, macOS et Windows : mise en page, champs calculés, publipostage, exports ODT, DOCX et PDF. Vos documents restent sur votre ordinateur.")),
+                p().child(strong().text(t.essayer_installer.titre))
+                    .child(text(format!(" {}", t.essayer_installer.texte))),
             )
             .child(
                 div()
                     .class("row")
-                    .child(a().class("button").href(o.lien_application()).text("Installer Varium"))
-                    .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
+                    .child(
+                        a().class("button")
+                            .href(o.lien_application(langue))
+                            .text(t.installer_varium),
+                    )
+                    .child(
+                        a().class("button ghost")
+                            .href(o.lien(&Rubrique::Syntaxe.chemin(langue)))
+                            .text(t.lire_syntaxe),
+                    ),
             )
     });
 
@@ -425,8 +450,11 @@ fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Pa
         .child(
             section()
                 .class("intro")
-                .child(h1().text("Essayer Varium"))
-                .child(p().class("muted").text(explication)),
+                .child(h1().text(t.essayer_titre))
+                .child(
+                    p().class("muted")
+                        .text(t.essayer_explication[usize::from(statique)]),
+                ),
         )
         .child(application)
         .child(alerte.map(|m| p().class("alerte").text(m)))
@@ -434,19 +462,26 @@ fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Pa
             div()
                 .class("demo")
                 .child(div().class("card").child(gauche))
-                .child(div().class("card").child(resultat(src, valeurs))),
+                .child(div().class("card").child(resultat(src, valeurs, langue))),
         );
 
-    layout::page(req, "Essayer", description, "/essayer/", contenu.into())
+    layout::page(
+        req,
+        langue,
+        Some(Rubrique::Essayer),
+        Rubrique::Essayer.nom(langue),
+        t.essayer_description[usize::from(statique)],
+        contenu.into(),
+    )
 }
 
-/// `GET /essayer` : la démo, ouverte sur le courrier d'exemple.
-pub async fn page(req: Request) -> Page {
-    vue(&req, EXEMPLE, &valeurs_exemple(), None)
+/// `GET /{langue}/essayer/` : la démo, ouverte sur le courrier d'exemple.
+pub async fn page(req: Request, langue: Langue) -> Page {
+    vue(&req, langue, EXEMPLE, &valeurs_exemple(), None)
 }
 
-/// `POST /essayer` : le formulaire renvoyé, rendu de nouveau.
-pub async fn soumettre(req: Request) -> Result<Page> {
+/// `POST /{langue}/essayer/` : le formulaire renvoyé, rendu de nouveau.
+pub async fn soumettre(req: Request, langue: Langue) -> Result<Page> {
     let champs: BTreeMap<String, String> = req.form().await?;
     let mut src = champs
         .get("source")
@@ -456,7 +491,7 @@ pub async fn soumettre(req: Request) -> Result<Page> {
     let mut alerte = None;
     if src.chars().count() > LIMITE {
         src = src.chars().take(LIMITE).collect();
-        alerte = Some(format!("Le modèle a été tronqué à {LIMITE} caractères."));
+        alerte = Some(remplir(langue.textes().tronque, &[&LIMITE.to_string()]));
     }
     let mut valeurs = Values::default();
     for (cle, valeur) in &champs {
@@ -466,7 +501,7 @@ pub async fn soumettre(req: Request) -> Result<Page> {
             valeurs.types.insert(nom.to_string(), type_depuis(valeur));
         }
     }
-    Ok(vue(&req, &src, &valeurs, alerte))
+    Ok(vue(&req, langue, &src, &valeurs, alerte))
 }
 
 // ---------------------------------------------------------------------------------

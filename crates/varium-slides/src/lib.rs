@@ -376,7 +376,7 @@ impl Deck {
                 Layout::TitleContent,
                 "Pourquoi Varium ?",
                 "",
-                "- Un document, **toutes ses possibilités** : les champs `\\{{…}}` se remplissent une seule fois\n- Les mises en forme de LibreOffice, sans la complexité\n  - *gras*, *italique*, __souligné__, listes et tableaux\n  - typographie française automatique\n- Des fichiers ouverts : ODT, ODS, ODP, PDF, HTML\n- Libre, rapide et entièrement hors ligne",
+                "- Un document, **toutes ses possibilités** : chaque champ {{…}} se remplit une seule fois\n- Les mises en forme de LibreOffice, sans la complexité\n  - *gras*, *italique*, __souligné__, listes et tableaux\n  - typographie française automatique\n- Des fichiers ouverts : ODT, ODS, ODP, PDF, HTML\n- Libre, rapide et entièrement hors ligne",
                 "Insister sur le gain de temps : un contrat type rempli en **trente secondes**.",
             ),
             diapo(
@@ -392,7 +392,7 @@ impl Deck {
                     Layout::TwoColumns,
                     "Documents et classeurs",
                     "",
-                    "### Texte\n- Champs `\\{{client}}`, `\\{{montant | money}}`\n- Texte conditionnel\n- Publipostage en un clic",
+                    "### Texte\n- Champs \\{{client}} et \\{{montant | money}}\n- Texte conditionnel\n- Publipostage en un clic",
                     "Montrer un devis rempli depuis un classeur.",
                 )
             },
@@ -400,7 +400,7 @@ impl Deck {
                 Layout::TitleContent,
                 "Un format, tous les exports",
                 "",
-                "| Logiciel | Format natif | Exports |\n|---|:---:|---|\n| Texte | `.varium.json` | ODT, DOCX, PDF, EPUB |\n| Classeur | `.varium-calc.json` | ODS, XLSX, CSV |\n| Présentation | `.varium-slides.json` | ODP, PDF, HTML |\n\nChaque export s'ouvre dans **LibreOffice** et Microsoft Office.",
+                "| Logiciel | Pour | Exports |\n|---|---|---|\n| Texte | courriers, contrats, devis | ODT, DOCX, PDF, EPUB, RTF |\n| Classeur | budgets, listes, calculs | ODS, XLSX, CSV |\n| Présentation | diaporamas, supports | ODP, PDF, HTML |\n\nChaque fichier s’ouvre dans **LibreOffice** comme dans Microsoft Office.",
                 "Rappeler que le PDF est produit sans aucune dépendance.",
             ),
             diapo(

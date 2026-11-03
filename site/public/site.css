@@ -60,12 +60,57 @@ body {
   text-decoration: none;
 }
 
-.entete nav { display: flex; gap: 1rem; flex: 1; flex-wrap: wrap; }
+.entete nav { display: flex; gap: .25rem 1rem; flex: 1; flex-wrap: wrap; }
 .entete nav a { color: var(--muted); text-decoration: none; font-weight: 500; }
 .entete nav a:hover, .entete nav a.actif { color: var(--fg); }
 .entete nav a.actif { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: .35em; text-decoration-thickness: 2px; }
 .entete .actions { display: flex; gap: .5rem; align-items: center; }
-.button.petit { padding: .35rem .9rem; font-size: .9rem; }
+.button.petit { padding: .35rem .9rem; font-size: .9rem; white-space: nowrap; }
+
+/* Le sélecteur de langue : un <details>, sans JavaScript. */
+.langues { position: relative; }
+.langues summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .3rem .65rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+}
+.langues summary::-webkit-details-marker { display: none; }
+.langues summary::after { content: "▾"; color: var(--muted); font-size: .8em; }
+.langues summary:hover, .langues[open] summary { border-color: var(--accent); }
+.langues .code { display: none; }
+.langues ul {
+  position: absolute;
+  right: 0;
+  top: calc(100% + .4rem);
+  z-index: 20;
+  min-width: 11rem;
+  margin: 0;
+  padding: .35rem;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / .18);
+}
+.langues li a {
+  display: block;
+  padding: .4rem .75rem;
+  border-radius: 8px;
+  color: var(--fg);
+  text-decoration: none;
+}
+.langues li a:hover { background: var(--var-bg); }
+.langues li a.actif { font-weight: 600; color: var(--accent); }
+.langues li a.actif::after { content: " ✓"; }
 
 .contenu {
   max-width: var(--largeur);
@@ -124,6 +169,27 @@ body {
   .apercu { grid-template-columns: 1fr; }
   .fleche { transform: rotate(90deg); justify-self: center; }
 }
+
+h1, h2, h3 { overflow-wrap: break-word; }
+
+.apercu-bloc > .center { margin-top: .75rem; }
+.grid + .petit { margin-top: 1rem; }
+.paquets td:first-child code, .fonctions-classeur code { white-space: nowrap; }
+
+.applis { align-items: stretch; }
+.appli .icone { font-size: 2rem; }
+.appli h3 { margin: .4rem 0 0; font-size: 1.45rem; }
+.appli .genre {
+  margin: .1rem 0 .6rem;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.appli > p.muted { margin: 0; }
+.appli .points { margin: .8rem 0 0; padding-left: 1.1rem; font-size: .95rem; }
+.appli .points li { margin: .3rem 0; }
 
 .fonction .icone { font-size: 1.6rem; }
 .fonction h3 { margin: .5rem 0 .25rem; }
@@ -256,6 +322,7 @@ details summary { cursor: pointer; color: var(--muted); }
   font-size: .9rem;
 }
 .pastilles { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+.pastilles.centre { margin: 1.5rem 0; }
 .pastilles li {
   background: var(--var-bg);
   color: var(--var-fg);
@@ -265,14 +332,67 @@ details summary { cursor: pointer; color: var(--muted); }
 }
 table { display: block; overflow-x: auto; }
 @media (min-width: 640px) { table { display: table; } }
+/* Sur un téléphone, les longs mots (Nachkommastellen, {{date_courrier}}) se coupent
+   plutôt que d'élargir le tableau. */
+@media (max-width: 639px) {
+  th, td { overflow-wrap: anywhere; hyphens: auto; padding-left: .5em; padding-right: .5em; }
+}
 
 @media (max-width: 560px) {
   .entete { gap: .5rem 1rem; }
   .entete nav { order: 3; flex-basis: 100%; justify-content: space-between; }
   .entete .actions { margin-left: auto; }
+  /* Le code de la langue suffit : DE ▾. */
+  .langues .nom { display: none; }
+  .langues .code { display: inline; }
 }
-/* Le lien vers GitHub reste dans le pied de page. */
-@media (max-width: 420px) { .entete .actions .ghost { display: none; } }
+/* Le lien vers GitHub reste dans le pied de page ; le reste se serre pour tenir sur
+   une ligne, même en allemand (« Varium installieren »). */
+@media (max-width: 420px) {
+  .entete { gap: .5rem; }
+  .entete .actions { gap: .4rem; }
+  .entete .actions .ghost { display: none; }
+  .marque { font-size: 1.05rem; gap: .4rem; }
+  .marque img { width: 24px; height: 24px; }
+  .langues summary { padding: .25rem .5rem; gap: .25rem; }
+  .langues summary::after { display: none; }
+  .button.petit { padding: .3rem .7rem; font-size: .85rem; }
+  .entete nav { gap: .2rem .75rem; font-size: .92rem; }
+}
+/* Très petits écrans : « Installer » reste dans la navigation. */
+@media (max-width: 370px) {
+  .entete .actions .installer { display: none; }
+  .entete nav { gap: .2rem .5rem; font-size: .88rem; }
+}
+
+/* ---- Choix de la langue (racine de l'export, anciennes adresses, 404) ---------- */
+
+.aiguillage h1 { margin-bottom: .5rem; }
+.aiguillage > p > span { white-space: nowrap; }
+.langues-liste {
+  list-style: none;
+  padding: 0;
+  margin: 2rem auto 0;
+  max-width: 34rem;
+  display: grid;
+  gap: .6rem;
+  text-align: left;
+}
+.langues-liste a {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: .2rem 1rem;
+  padding: .85rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--fg);
+  text-decoration: none;
+}
+.langues-liste a:hover { border-color: var(--accent); }
+.langues-liste .muted { font-size: .95rem; }
 
 /* ---- Document mis en forme (titres, listes, tableaux…) -------------------------- */
 

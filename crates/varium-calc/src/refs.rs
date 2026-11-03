@@ -273,7 +273,10 @@ mod tests {
         assert_eq!(CellRef::parse("A"), None);
         assert_eq!(CellRef::parse("12"), None);
         assert_eq!(CellRef::parse("A1048577"), None);
-        assert_eq!(CellRef::parse("A1048576"), Some(CellRef::new(MAX_ROWS - 1, 0)));
+        assert_eq!(
+            CellRef::parse("A1048576"),
+            Some(CellRef::new(MAX_ROWS - 1, 0))
+        );
         assert_eq!(CellRef::parse("AAAA1"), None);
         assert_eq!(CellRef::parse("A1B"), None);
         assert_eq!(CellRef::parse("é1"), None);

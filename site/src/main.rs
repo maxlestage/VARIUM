@@ -4,11 +4,11 @@
 //! `cargo run -- export <dossier>` : le site en fichiers statiques (`dist` par défaut),
 //! pour GitHub Pages. `BASE_PATH` (`/VARIUM`) préfixe chaque lien, `SITE_URL`
 //! (`https://maxlestage.github.io/VARIUM`) fait les URL absolues, `APP_URL` est
-//! la page où obtenir Varium (`{BASE_PATH}/installer/` par défaut).
+//! la page où obtenir Varium (`{BASE_PATH}/{langue}/installer/` par défaut).
 
 use std::path::PathBuf;
 
-use varium_site::Options;
+use varium_site::{Langue, Options};
 
 fn main() -> std::io::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -18,7 +18,7 @@ fn main() -> std::io::Result<()> {
             let dossier = PathBuf::from(args.next().unwrap_or_else(|| "dist".into()));
             let options = Options::depuis_env();
             let base = options.chemin_base().to_string();
-            let application = options.lien_application();
+            let application = options.lien_application(Langue::Fr);
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;

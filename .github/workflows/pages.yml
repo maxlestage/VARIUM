@@ -1,6 +1,7 @@
 # Publie sur GitHub Pages le site de présentation (site/, exporté en fichiers statiques) :
-# https://maxlestage.github.io/VARIUM/. Varium n'a pas de version en ligne : c'est une
-# application de bureau, installée depuis la page /installer/.
+# https://maxlestage.github.io/VARIUM/, en six langues (/fr/, /en/, /es/, /de/, /it/, /pt/ ;
+# la racine choisit la langue du navigateur). Varium n'a pas de version en ligne : c'est une
+# application de bureau, installée depuis la page /{langue}/installer/.
 #
 # Lancé à chaque push sur master, et par la CI après chaque fusion automatique.
 

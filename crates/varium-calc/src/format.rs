@@ -100,7 +100,8 @@ pub fn format_general(n: f64) -> String {
         0
     };
     let decimals = (15 - int_digits).clamp(0, 10) as usize;
-    let s = format!("{n:.decimals$}");
+    let rounded = round_decimal(n, decimals as i32, f64::round);
+    let s = format!("{rounded:.decimals$}");
     let s = trim_zeros(&s);
     let s = if s == "-0" { "0" } else { s };
     s.replace('.', ",")
@@ -119,13 +120,32 @@ pub(crate) fn format_fixed(n: f64, decimals: usize, grouping: bool) -> String {
     format_fixed_min(n, decimals, grouping, 1)
 }
 
+/// Arrondi décimal des tableurs, sans les erreurs binaires (2,675 → 2,68) :
+/// le nombre est ramené à 15 chiffres significatifs avant d'être arrondi par
+/// `mode` (`f64::round` : au plus proche, 0,5 en s'éloignant de zéro).
+pub(crate) fn round_decimal(x: f64, digits: i32, mode: fn(f64) -> f64) -> f64 {
+    if digits > 15 || !x.is_finite() {
+        return x;
+    }
+    let digits = digits.max(-308);
+    let scale = 10f64.powi(digits.abs());
+    let v = if digits >= 0 { x * scale } else { x / scale };
+    if !v.is_finite() {
+        return x;
+    }
+    let v = format!("{v:.14e}").parse::<f64>().unwrap_or(v);
+    let r = mode(v.abs()).copysign(v);
+    if digits >= 0 { r / scale } else { r * scale }
+}
+
 /// Comme [`format_fixed`], avec un nombre minimal de chiffres entiers (0 permis).
 fn format_fixed_min(n: f64, decimals: usize, grouping: bool, min_int: usize) -> String {
     if !n.is_finite() {
         return CalcError::Num.code().to_string();
     }
     let decimals = decimals.min(MAX_DECIMALS);
-    let s = format!("{:.decimals$}", n.abs());
+    let rounded = round_decimal(n.abs(), decimals as i32, f64::round);
+    let s = format!("{rounded:.decimals$}");
     let (int, frac) = s.split_once('.').unwrap_or((&s, ""));
     let int = int.trim_start_matches('0');
     let int = if int.len() < min_int {
@@ -416,7 +436,10 @@ pub(crate) fn parse_literal(input: &str) -> (Value, Option<NumberFormat>) {
     {
         let n = n / 100.0;
         if n.is_finite() {
-            return (Value::Number(n), Some(NumberFormat::Percent(dec.min(15) as u8)));
+            return (
+                Value::Number(n),
+                Some(NumberFormat::Percent(dec.min(15) as u8)),
+            );
         }
     }
     let money = t
@@ -674,9 +697,7 @@ pub(crate) fn pattern_to_english(pattern: &str) -> String {
         }
     }
     // Une espace avant `%` ou en fin de motif n'est pas un séparateur de milliers.
-    out.replace(",%", " %")
-        .trim_end_matches(',')
-        .to_string()
+    out.replace(",%", " %").trim_end_matches(',').to_string()
 }
 
 #[cfg(test)]
@@ -711,9 +732,16 @@ mod tests {
             format_number(1234.5, NumberFormat::Currency(2)),
             "1\u{202F}234,50\u{A0}€"
         );
-        assert_eq!(format_number(0.125, NumberFormat::Percent(1)), "12,5\u{A0}%");
+        assert_eq!(
+            format_number(0.125, NumberFormat::Percent(1)),
+            "12,5\u{A0}%"
+        );
         assert_eq!(format_number(0.125, NumberFormat::Percent(0)), "13\u{A0}%");
         assert_eq!(format_number(999.0, NumberFormat::Number(0)), "999");
+        assert_eq!(format_number(2.675, NumberFormat::Number(2)), "2,68");
+        assert_eq!(format_number(0.5, NumberFormat::Number(0)), "1");
+        assert_eq!(format_number(-2.5, NumberFormat::Number(0)), "-3");
+        assert!(format_number(1e300, NumberFormat::Number(2)).len() > 300);
     }
 
     #[test]
@@ -739,7 +767,7 @@ mod tests {
         assert_eq!(parse_date("15/3/26"), Some(46096.0));
         assert_eq!(parse_date("2026-03-15"), Some(46096.0));
         assert_eq!(parse_date("29/02/2025"), None);
-        assert_eq!(parse_date("29/02/2024").is_some(), true);
+        assert!(parse_date("29/02/2024").is_some());
         assert_eq!(parse_date("32/01/2026"), None);
         assert_eq!(parse_date("1/2"), None);
         assert_eq!(parse_date("aa/bb/cccc"), None);
@@ -785,7 +813,10 @@ mod tests {
         );
         assert_eq!(parse_literal("vrai"), (Value::Bool(true), None));
         assert_eq!(parse_literal("'12"), (Value::Text("12".into()), None));
-        assert_eq!(parse_literal("Bonjour"), (Value::Text("Bonjour".into()), None));
+        assert_eq!(
+            parse_literal("Bonjour"),
+            (Value::Text("Bonjour".into()), None)
+        );
         assert_eq!(parse_literal(""), (Value::Empty, None));
     }
 
@@ -802,7 +833,10 @@ mod tests {
         assert_eq!(text_format(12.5, "0,00 €"), "12,50 €");
         assert_eq!(text_format(46096.0, "jj/mm/aaaa"), "15/03/2026");
         assert_eq!(text_format(46096.0, "dd/mm/yyyy"), "15/03/2026");
-        assert_eq!(text_format(46096.0, "jjjj j mmmm aaaa"), "dimanche 15 mars 2026");
+        assert_eq!(
+            text_format(46096.0, "jjjj j mmmm aaaa"),
+            "dimanche 15 mars 2026"
+        );
         assert_eq!(text_format(46096.0, "mmm aa"), "mars 26");
         assert_eq!(text_format(3.5, "Standard"), "3,5");
     }
