@@ -69,6 +69,8 @@ enum Act {
     ToggleFields,
     ToggleToolbar,
     ToggleStatus,
+    FullScreen,
+    Focus,
     Layout(Layout),
 }
 
@@ -76,6 +78,8 @@ enum Act {
 enum Format {
     Odt,
     Docx,
+    Epub,
+    Rtf,
     Html,
     Latex,
     Text,
@@ -91,6 +95,7 @@ const CMD_SHIFT: Modifiers = Modifiers::COMMAND.plus(Modifiers::SHIFT);
 /// Raccourcis de LibreOffice Writer (les plus spécifiques d'abord).
 const SHORTCUTS: &[(KeyboardShortcut, Act)] = &[
     (sc(CMD_SHIFT, Key::Z), Act::Redo),
+    (sc(CMD_SHIFT, Key::F), Act::Focus),
     (sc(CMD_SHIFT, Key::N), Act::Templates),
     (sc(CMD_SHIFT, Key::S), Act::SaveAs),
     (sc(CMD_SHIFT, Key::V), Act::InsertField),
@@ -104,6 +109,7 @@ const SHORTCUTS: &[(KeyboardShortcut, Act)] = &[
     (sc(CMD, Key::P), Act::Print),
     (sc(CMD, Key::Z), Act::Undo),
     (sc(CMD, Key::Y), Act::Redo),
+    (sc(CMD.plus(Modifiers::ALT), Key::F), Act::Replace),
     (sc(CMD, Key::F), Act::Find),
     (sc(CMD, Key::H), Act::Replace),
     (sc(CMD, Key::B), Act::Wrap("**")),
@@ -122,6 +128,7 @@ const SHORTCUTS: &[(KeyboardShortcut, Act)] = &[
         Act::Style(LineStyle::Numbered),
     ),
     (sc(Modifiers::NONE, Key::F1), Act::Syntax),
+    (sc(Modifiers::NONE, Key::F11), Act::FullScreen),
 ];
 
 fn shortcut_for(act: Act) -> Option<KeyboardShortcut> {
@@ -149,9 +156,19 @@ enum Tab {
     Page,
 }
 
+/// Les onglets de l'inspecteur, à la manière de Pages.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
+enum Inspector {
+    Format,
+    Document,
+    Fields,
+    Outline,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct Prefs {
+    inspector: Inspector,
     layout: Layout,
     /// `None` : la page occupe la largeur disponible.
     zoom: Option<f32>,
@@ -166,6 +183,7 @@ struct Prefs {
 impl Default for Prefs {
     fn default() -> Self {
         Self {
+            inspector: Inspector::Fields,
             layout: Layout::Split,
             zoom: None,
             highlight: true,
@@ -292,6 +310,11 @@ pub struct VariumApp {
     /// À exécuter quand l'enregistrement demandé par la confirmation aboutit.
     after_save: Option<Pending>,
     last_window_title: String,
+    /// Dernière action lancée (menu natif ou raccourci) et son heure, pour ne pas la doubler.
+    last_act: Option<(Act, f64)>,
+    /// Barre de menus native (macOS).
+    #[cfg(target_os = "macos")]
+    native: Option<native::NativeMenu>,
     allow_close: bool,
     /// Fichier de secours actuellement écrit (effacé dès que le document est propre).
     backup_file: Option<std::path::PathBuf>,
@@ -305,10 +328,11 @@ fn today() -> String {
 impl VariumApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::fonts::install(&cc.egui_ctx);
-        let project = cc
+        let stored = cc
             .storage
-            .and_then(|s| eframe::get_value::<Project>(s, STORAGE_KEY))
-            .unwrap_or_else(templates::first);
+            .and_then(|s| eframe::get_value::<Project>(s, STORAGE_KEY));
+        let first_launch = stored.is_none();
+        let project = stored.unwrap_or_else(templates::first);
         let prefs = cc
             .storage
             .and_then(|s| eframe::get_value::<Prefs>(s, PREFS_KEY))
@@ -354,14 +378,35 @@ impl VariumApp {
             saving: None,
             after_save: None,
             last_window_title: String::new(),
+            last_act: None,
+            #[cfg(target_os = "macos")]
+            native: None,
             allow_close: false,
             backup_file: None,
             last_backup: f64::NEG_INFINITY,
         };
         app.restore(app.history.current.clone());
         app.saved = app.snapshot();
+        #[cfg(target_os = "macos")]
+        {
+            app.native = native::NativeMenu::install();
+        }
         // Document sans fichier interrompu par un plantage ?
         app.propose_secours(None);
+        // Un fichier donné au lancement (« Ouvrir avec », glisser sur l'icône, terminal).
+        if let Some(path) = std::env::args_os().nth(1).map(std::path::PathBuf::from)
+            && path.is_file()
+        {
+            let kind = if path.extension().is_some_and(|e| e == "csv" || e == "tsv") {
+                OpenKind::Data
+            } else {
+                OpenKind::Document
+            };
+            app.io.open_path(&cc.egui_ctx, kind, &path);
+        } else if first_launch && app.dialog.is_none() {
+            // Comme Pages : on commence par choisir un modèle.
+            app.dialog = Some(Dialog::Templates);
+        }
         app
     }
 
@@ -693,6 +738,30 @@ impl VariumApp {
         self.insert(&text, None);
     }
 
+    /// Ajoute une action, sauf si la même vient d'arriver par l'autre chemin
+    /// (raccourci reçu à la fois par le menu natif et par egui).
+    fn push_once(&mut self, act: Act, now: f64) {
+        if let Some((last, t)) = self.last_act
+            && last == act
+            && now - t < 0.4
+        {
+            return;
+        }
+        self.last_act = Some((act, now));
+        self.queue.push(act);
+    }
+
+    fn has_native_menu(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            self.native.is_some()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    }
+
     fn run(&mut self, ctx: &egui::Context, act: Act) {
         match act {
             Act::New => self.guard(ctx, Pending::New),
@@ -784,6 +853,17 @@ impl VariumApp {
             Act::ToggleFields => self.prefs.fields_panel = !self.prefs.fields_panel,
             Act::ToggleToolbar => self.prefs.toolbar = !self.prefs.toolbar,
             Act::ToggleStatus => self.prefs.status_bar = !self.prefs.status_bar,
+            Act::FullScreen => {
+                let on = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!on));
+            }
+            Act::Focus => {
+                // Mode concentration : rien que la page et le texte.
+                let on = self.prefs.toolbar || self.prefs.fields_panel || self.prefs.status_bar;
+                self.prefs.toolbar = !on;
+                self.prefs.fields_panel = !on;
+                self.prefs.status_bar = !on;
+            }
             Act::Layout(l) => self.prefs.layout = l,
         }
     }
@@ -805,6 +885,16 @@ impl VariumApp {
                 format!("{stem}.docx"),
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 docx::docx(&self.title, &docs, &self.page),
+            ),
+            Format::Epub => (
+                format!("{stem}.epub"),
+                "application/epub+zip",
+                varium_core::epub::epub(&self.title, &docs, &self.page),
+            ),
+            Format::Rtf => (
+                format!("{stem}.rtf"),
+                "application/rtf",
+                varium_core::rtf::rtf(&docs, &self.page).into_bytes(),
             ),
             Format::Html => (
                 format!("{stem}.html"),
@@ -958,6 +1048,12 @@ impl VariumApp {
                     Act::Export(Format::Odt),
                 );
                 self.item(ui, "Word (.docx)", Act::Export(Format::Docx));
+                self.item(
+                    ui,
+                    "Texte enrichi (.rtf) — Pages, TextEdit",
+                    Act::Export(Format::Rtf),
+                );
+                self.item(ui, "Livre numérique (.epub)", Act::Export(Format::Epub));
                 self.item(ui, "Page web (.html)", Act::Export(Format::Html));
                 self.item(ui, "LaTeX (.tex)", Act::Export(Format::Latex));
                 self.item(ui, "Texte brut (.txt)", Act::Export(Format::Text));
@@ -1008,6 +1104,9 @@ impl VariumApp {
             );
             self.check(ui, "Barre d'outils", self.prefs.toolbar, Act::ToggleToolbar);
             self.check(ui, "Barre d'état", self.prefs.status_bar, Act::ToggleStatus);
+            ui.separator();
+            self.item(ui, "Mode concentration", Act::Focus);
+            self.item(ui, "Plein écran", Act::FullScreen);
             self.check(
                 ui,
                 "Trame de fond des champs",
@@ -1242,6 +1341,14 @@ impl VariumApp {
                     self.find.open,
                 );
             }
+            if !mobile && self.has_native_menu() {
+                sep(ui);
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.title)
+                        .hint_text("Titre du document")
+                        .desired_width(200.0),
+                );
+            }
         });
     }
 
@@ -1431,6 +1538,229 @@ impl VariumApp {
     }
 
     // ---------------- Champs ----------------
+
+    /// L'inspecteur : Format, Document, Champs et Plan, comme la barre latérale de Pages.
+    fn inspector(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let w = (ui.available_width() - 6.0) / 4.0;
+            for (tab, label) in [
+                (Inspector::Format, "Format"),
+                (Inspector::Document, "Document"),
+                (Inspector::Fields, "Champs"),
+                (Inspector::Outline, "Plan"),
+            ] {
+                let b = egui::Button::selectable(self.prefs.inspector == tab, label)
+                    .min_size(Vec2::new(w, 26.0));
+                if ui.add(b).clicked() {
+                    self.prefs.inspector = tab;
+                }
+            }
+        });
+        ui.separator();
+        match self.prefs.inspector {
+            Inspector::Fields => self.fields_pane(ui),
+            Inspector::Format => {
+                egui::ScrollArea::vertical()
+                    .id_salt("insp-format")
+                    .auto_shrink(false)
+                    .show(ui, |ui| self.format_tab(ui));
+            }
+            Inspector::Document => {
+                egui::ScrollArea::vertical()
+                    .id_salt("insp-doc")
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("Mise en page").strong());
+                        page_form(ui, &mut self.page, "insp-page");
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Document").strong());
+                        let eff = self.effective();
+                        let st = stats(&varium_core::document(&self.source, &eff));
+                        egui::Grid::new("insp-stats").num_columns(2).show(ui, |ui| {
+                            for (k, v) in [
+                                ("Pages", self.pages.to_string()),
+                                ("Mots", st.words.to_string()),
+                                ("Caractères", st.chars.to_string()),
+                                ("Paragraphes", st.paragraphs.to_string()),
+                            ] {
+                                ui.label(RichText::new(k).weak());
+                                ui.label(v);
+                                ui.end_row();
+                            }
+                        });
+                    });
+            }
+            Inspector::Outline => self.outline_tab(ui),
+        }
+    }
+
+    fn format_tab(&mut self, ui: &mut egui::Ui) {
+        let style = editor::line_style_at(&self.source, self.sel.1);
+        ui.label(RichText::new("Style de paragraphe").strong());
+        for st in [
+            LineStyle::Heading(1),
+            LineStyle::Heading(2),
+            LineStyle::Heading(3),
+            LineStyle::Body,
+            LineStyle::Quote,
+            LineStyle::Bullet,
+            LineStyle::Numbered,
+        ] {
+            let (size, strong) = match st {
+                LineStyle::Heading(1) => (20.0, true),
+                LineStyle::Heading(2) => (17.0, true),
+                LineStyle::Heading(_) => (15.0, true),
+                _ => (14.0, false),
+            };
+            let mut t = RichText::new(st.label()).size(size);
+            if strong {
+                t = t.strong();
+            }
+            if st == LineStyle::Quote {
+                t = t.italics();
+            }
+            let on = style == st
+                || (st == LineStyle::Body && matches!(style, LineStyle::Center | LineStyle::Right));
+            if ui
+                .add(egui::Button::selectable(on, t).min_size(Vec2::new(ui.available_width(), 0.0)))
+                .clicked()
+            {
+                self.queue.push(Act::Style(st));
+            }
+        }
+        ui.add_space(8.0);
+        ui.label(RichText::new("Police").strong());
+        ui.horizontal(|ui| {
+            self.tool(ui, Icon::Bold, "Gras", Act::Wrap("**"), false);
+            self.tool(ui, Icon::Italic, "Italique", Act::Wrap("*"), false);
+            self.tool(ui, Icon::Underline, "Souligné", Act::Wrap("__"), false);
+            self.tool(ui, Icon::Strike, "Barré", Act::Wrap("~~"), false);
+        });
+        egui::ComboBox::from_id_salt("insp-font")
+            .selected_text(self.page.font.label())
+            .show_ui(ui, |ui| {
+                for f in [DocFont::Serif, DocFont::Sans] {
+                    ui.selectable_value(&mut self.page.font, f, f.label());
+                }
+            });
+        ui.add(
+            egui::DragValue::new(&mut self.page.font_size)
+                .range(8.0..=24.0)
+                .speed(0.5)
+                .custom_formatter(|v, _| format!("{} pt", fr(v))),
+        );
+        ui.add_space(8.0);
+        ui.label(RichText::new("Alignement").strong());
+        ui.horizontal(|ui| {
+            let side = !matches!(style, LineStyle::Center | LineStyle::Right);
+            self.tool(
+                ui,
+                Icon::AlignLeft,
+                "À gauche",
+                Act::Style(LineStyle::Body),
+                side,
+            );
+            self.tool(
+                ui,
+                Icon::AlignCenter,
+                "Centré",
+                Act::Style(LineStyle::Center),
+                style == LineStyle::Center,
+            );
+            self.tool(
+                ui,
+                Icon::AlignRight,
+                "À droite",
+                Act::Style(LineStyle::Right),
+                style == LineStyle::Right,
+            );
+            ui.checkbox(&mut self.page.justify, "Justifier");
+        });
+        ui.add_space(8.0);
+        ui.label(RichText::new("Espacement").strong());
+        ui.horizontal(|ui| {
+            for (v, l) in [(1.0, "1"), (1.15, "1,15"), (1.5, "1,5"), (2.0, "2")] {
+                if ui
+                    .selectable_label((self.page.line_spacing - v).abs() < 0.01, l)
+                    .clicked()
+                {
+                    self.page.line_spacing = v;
+                }
+            }
+        });
+        ui.add_space(8.0);
+        ui.label(RichText::new("Insérer").strong());
+        ui.horizontal_wrapped(|ui| {
+            for (label, act) in [
+                ("{ } Champ", Act::InsertField),
+                ("= Champ calculé", Act::InsertFormula),
+                ("📅 Date du jour", Act::InsertToday),
+                ("▦ Tableau", Act::InsertTable),
+                ("⤓ Saut de page", Act::InsertPageBreak),
+                ("— Ligne", Act::InsertRule),
+            ] {
+                if ui.button(label).clicked() {
+                    self.queue.push(act);
+                }
+            }
+        });
+        ui.add_space(8.0);
+        ui.checkbox(
+            &mut self.page.typographie,
+            "Typographie française automatique",
+        )
+        .on_hover_text(
+            "« guillemets », apostrophe ’, points de suspension …, espaces fines avant ; : ! ?",
+        );
+    }
+
+    fn outline_tab(&mut self, ui: &mut egui::Ui) {
+        let plan = editor::outline(&self.source);
+        let eff = self.effective();
+        ui.label(
+            RichText::new(format!(
+                "{} page(s) · {} titre(s)",
+                self.pages.max(1),
+                plan.len()
+            ))
+            .weak(),
+        );
+        ui.add_space(4.0);
+        if plan.is_empty() {
+            ui.label(
+                RichText::new("Pas encore de titre. Choisissez « Titre 1 » dans l'onglet Format, ou écrivez # au début d'une ligne.")
+                    .weak(),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .id_salt("insp-outline")
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                for h in plan {
+                    ui.horizontal(|ui| {
+                        ui.add_space(14.0 * f32::from(h.level.saturating_sub(1)));
+                        // Le titre tel qu'il s'affiche, champs remplis.
+                        let shown =
+                            varium_core::doc::plain(&varium_core::doc::inline(&h.title, &eff));
+                        let t = if h.level == 1 {
+                            RichText::new(shown).strong()
+                        } else {
+                            RichText::new(shown)
+                        };
+                        if ui.link(t).on_hover_text("Aller à ce titre").clicked() {
+                            self.sel = h.sel;
+                            self.pending_sel = Some(h.sel);
+                            self.tab = Tab::Text;
+                            if self.prefs.layout == Layout::Page {
+                                self.prefs.layout = Layout::Split;
+                            }
+                        }
+                    });
+                }
+            });
+    }
 
     fn fields_pane(&mut self, ui: &mut egui::Ui) {
         let vars = varium_core::variables(&self.source);
@@ -2118,97 +2448,7 @@ impl VariumApp {
 
     fn page_dialog(&mut self, ui: &mut egui::Ui) -> bool {
         ui.heading("Mise en page");
-        let p = &mut self.page;
-        egui::Grid::new("page")
-            .num_columns(2)
-            .spacing([12.0, 6.0])
-            .show(ui, |ui| {
-                ui.label("Format");
-                egui::ComboBox::from_id_salt("paper")
-                    .selected_text(p.paper.label())
-                    .show_ui(ui, |ui| {
-                        for x in Paper::ALL {
-                            ui.selectable_value(&mut p.paper, x, x.label());
-                        }
-                    });
-                ui.end_row();
-                ui.label("Orientation");
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut p.landscape, false, "Portrait");
-                    ui.selectable_value(&mut p.landscape, true, "Paysage");
-                });
-                ui.end_row();
-                ui.label("Marges (mm)");
-                ui.horizontal_wrapped(|ui| {
-                    for (l, v) in [
-                        ("haut", &mut p.margin_top),
-                        ("bas", &mut p.margin_bottom),
-                        ("gauche", &mut p.margin_left),
-                        ("droite", &mut p.margin_right),
-                    ] {
-                        ui.label(RichText::new(l).small());
-                        ui.add(
-                            egui::DragValue::new(v)
-                                .range(0.0..=60.0)
-                                .speed(0.5)
-                                .custom_formatter(|v, _| fr(v)),
-                        );
-                    }
-                });
-                ui.end_row();
-                ui.label("Police");
-                egui::ComboBox::from_id_salt("font")
-                    .selected_text(p.font.label())
-                    .show_ui(ui, |ui| {
-                        for f in [DocFont::Serif, DocFont::Sans] {
-                            ui.selectable_value(&mut p.font, f, f.label());
-                        }
-                    });
-                ui.end_row();
-                ui.label("Taille");
-                ui.add(
-                    egui::DragValue::new(&mut p.font_size)
-                        .range(8.0..=24.0)
-                        .speed(0.5)
-                        .custom_formatter(|v, _| format!("{} pt", fr(v))),
-                );
-                ui.end_row();
-                ui.label("Interligne");
-                ui.horizontal(|ui| {
-                    for (v, l) in [
-                        (1.0, "simple"),
-                        (1.15, "1,15"),
-                        (1.5, "1,5"),
-                        (2.0, "double"),
-                    ] {
-                        if ui
-                            .selectable_label((p.line_spacing - v).abs() < 0.01, l)
-                            .clicked()
-                        {
-                            p.line_spacing = v;
-                        }
-                    }
-                });
-                ui.end_row();
-                ui.label("Texte");
-                ui.checkbox(&mut p.justify, "Justifié");
-                ui.end_row();
-                ui.label("En-tête");
-                ui.add(
-                    egui::TextEdit::singleline(&mut p.header)
-                        .hint_text("ex. {{entreprise}} — Confidentiel"),
-                );
-                ui.end_row();
-                ui.label("Pied de page");
-                ui.add(
-                    egui::TextEdit::singleline(&mut p.footer)
-                        .hint_text("ex. **{{entreprise}}** · SIRET {{siret}}"),
-                );
-                ui.end_row();
-                ui.label("");
-                ui.checkbox(&mut p.page_numbers, "Numéros de page « Page 1 sur 3 »");
-                ui.end_row();
-            });
+        page_form(ui, &mut self.page, "page");
         ui.add_space(6.0);
         let mut keep = true;
         ui.horizontal(|ui| {
@@ -2363,11 +2603,14 @@ impl VariumApp {
     // ---------------- Dispositions ----------------
 
     fn desktop(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("menu").show(ui, |ui| {
-            ui.add_space(2.0);
-            self.menu_bar(ui);
-            ui.add_space(1.0);
-        });
+        // Sur macOS, les menus sont dans la barre de l'écran : pas de barre dans la fenêtre.
+        if !self.has_native_menu() {
+            egui::Panel::top("menu").show(ui, |ui| {
+                ui.add_space(2.0);
+                self.menu_bar(ui);
+                ui.add_space(1.0);
+            });
+        }
         if self.prefs.toolbar {
             egui::Panel::top("toolbar").show(ui, |ui| {
                 ui.add_space(3.0);
@@ -2395,10 +2638,11 @@ impl VariumApp {
         if self.prefs.fields_panel {
             egui::Panel::right("fields")
                 .resizable(true)
+                .size_range(240.0..=420.0)
                 .default_size((width * 0.24).clamp(250.0, 360.0))
                 .show(ui, |ui| {
                     ui.add_space(6.0);
-                    self.fields_pane(ui);
+                    self.inspector(ui);
                 });
         }
         match self.prefs.layout {
@@ -2547,11 +2791,19 @@ impl eframe::App for VariumApp {
         }
 
         // Raccourcis (avant les widgets, pour que l'éditeur ne les reçoive pas)
+        let now = ctx.input(|i| i.time);
         if self.dialog.is_none() {
             for (s, act) in SHORTCUTS {
                 if ctx.input_mut(|i| i.consume_shortcut(s)) {
-                    self.queue.push(*act);
+                    self.push_once(*act, now);
                 }
+            }
+        }
+        // Menus natifs de macOS
+        #[cfg(target_os = "macos")]
+        if let Some(menu) = &self.native {
+            for act in menu.poll() {
+                self.push_once(act, now);
             }
         }
 
@@ -2597,6 +2849,104 @@ impl eframe::App for VariumApp {
     fn auto_save_interval(&self) -> std::time::Duration {
         std::time::Duration::from_secs(5)
     }
+}
+
+/// Le formulaire de mise en page (dialogue « Page… » et onglet Document de l'inspecteur).
+fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
+    egui::Grid::new(id)
+        .num_columns(2)
+        .spacing([12.0, 6.0])
+        .show(ui, |ui| {
+            ui.label("Format");
+            egui::ComboBox::from_id_salt((id, "paper"))
+                .selected_text(p.paper.label())
+                .show_ui(ui, |ui| {
+                    for x in Paper::ALL {
+                        ui.selectable_value(&mut p.paper, x, x.label());
+                    }
+                });
+            ui.end_row();
+            ui.label("Orientation");
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut p.landscape, false, "Portrait");
+                ui.selectable_value(&mut p.landscape, true, "Paysage");
+            });
+            ui.end_row();
+            ui.label("Marges (mm)");
+            ui.horizontal_wrapped(|ui| {
+                for (l, v) in [
+                    ("haut", &mut p.margin_top),
+                    ("bas", &mut p.margin_bottom),
+                    ("gauche", &mut p.margin_left),
+                    ("droite", &mut p.margin_right),
+                ] {
+                    ui.label(RichText::new(l).small());
+                    ui.add(
+                        egui::DragValue::new(v)
+                            .range(0.0..=60.0)
+                            .speed(0.5)
+                            .custom_formatter(|v, _| fr(v)),
+                    );
+                }
+            });
+            ui.end_row();
+            ui.label("Police");
+            egui::ComboBox::from_id_salt((id, "font"))
+                .selected_text(p.font.label())
+                .show_ui(ui, |ui| {
+                    for f in [DocFont::Serif, DocFont::Sans] {
+                        ui.selectable_value(&mut p.font, f, f.label());
+                    }
+                });
+            ui.end_row();
+            ui.label("Taille");
+            ui.add(
+                egui::DragValue::new(&mut p.font_size)
+                    .range(8.0..=24.0)
+                    .speed(0.5)
+                    .custom_formatter(|v, _| format!("{} pt", fr(v))),
+            );
+            ui.end_row();
+            ui.label("Interligne");
+            ui.horizontal(|ui| {
+                for (v, l) in [
+                    (1.0, "simple"),
+                    (1.15, "1,15"),
+                    (1.5, "1,5"),
+                    (2.0, "double"),
+                ] {
+                    if ui
+                        .selectable_label((p.line_spacing - v).abs() < 0.01, l)
+                        .clicked()
+                    {
+                        p.line_spacing = v;
+                    }
+                }
+            });
+            ui.end_row();
+            ui.label("Texte");
+            ui.checkbox(&mut p.justify, "Justifié");
+            ui.end_row();
+            ui.label("En-tête");
+            ui.add(
+                egui::TextEdit::singleline(&mut p.header)
+                    .hint_text("ex. {{entreprise}} — Confidentiel"),
+            );
+            ui.end_row();
+            ui.label("Pied de page");
+            ui.add(
+                egui::TextEdit::singleline(&mut p.footer)
+                    .hint_text("ex. **{{entreprise}}** · SIRET {{siret}}"),
+            );
+            ui.end_row();
+            ui.label("");
+            ui.checkbox(&mut p.page_numbers, "Numéros de page « Page 1 sur 3 »");
+            ui.end_row();
+            ui.label("Typographie");
+            ui.checkbox(&mut p.typographie, "Française automatique")
+                    .on_hover_text("« guillemets », apostrophe ’, points de suspension …, espaces fines avant ; : ! ?");
+            ui.end_row();
+        });
 }
 
 /// Nombre à la française : `12,5`, `20`.
@@ -2974,6 +3324,254 @@ fn act_label(a: Act) -> &'static str {
         Act::InsertField => "Insérer un champ",
         Act::InsertPageBreak => "Saut de page",
         Act::Syntax => "Guide de la syntaxe",
+        Act::FullScreen => "Plein écran",
+        Act::Focus => "Mode concentration",
         _ => "",
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Barre de menus native de macOS
+// ---------------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+mod native {
+    use muda::accelerator::Accelerator;
+    use muda::{AboutMetadata, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+
+    use super::{Act, Format, Layout};
+    use crate::editor::LineStyle;
+
+    /// Les menus de la barre de l'écran, et l'action de chaque élément.
+    pub struct NativeMenu {
+        _menu: Menu,
+        actions: Vec<(String, Act)>,
+    }
+
+    struct Builder {
+        actions: Vec<(String, Act)>,
+    }
+
+    impl Builder {
+        fn item(&mut self, label: &str, act: Act, keys: Option<&str>) -> MenuItem {
+            let id = format!("varium-{}", self.actions.len());
+            self.actions.push((id.clone(), act));
+            let accel = keys.and_then(|k| k.parse::<Accelerator>().ok());
+            MenuItem::with_id(id, label, true, accel)
+        }
+    }
+
+    impl NativeMenu {
+        /// Installe les menus. `None` si macOS les refuse (on garde alors ceux d'egui).
+        pub fn install() -> Option<Self> {
+            let mut b = Builder {
+                actions: Vec::new(),
+            };
+            let sep = PredefinedMenuItem::separator;
+
+            let about = PredefinedMenuItem::about(
+                Some("À propos de Varium"),
+                Some(AboutMetadata {
+                    name: Some("Varium".into()),
+                    version: Some(env!("CARGO_PKG_VERSION").into()),
+                    comments: Some("Un document. Toutes ses possibilités.".into()),
+                    website: Some("https://maxlestage.github.io/VARIUM/".into()),
+                    ..Default::default()
+                }),
+            );
+            let quit = b.item("Quitter Varium", Act::Quit, Some("Cmd+Q"));
+            let app_menu = Submenu::with_items(
+                "Varium",
+                true,
+                &[
+                    &about,
+                    &sep(),
+                    &PredefinedMenuItem::services(Some("Services")),
+                    &sep(),
+                    &PredefinedMenuItem::hide(Some("Masquer Varium")),
+                    &PredefinedMenuItem::hide_others(Some("Masquer les autres")),
+                    &PredefinedMenuItem::show_all(Some("Tout afficher")),
+                    &sep(),
+                    &quit,
+                ],
+            )
+            .ok()?;
+
+            let export = Submenu::with_items(
+                "Exporter vers",
+                true,
+                &[
+                    &b.item("PDF…", Act::Print, None),
+                    &b.item("Word (.docx)…", Act::Export(Format::Docx), None),
+                    &b.item("LibreOffice (.odt)…", Act::Export(Format::Odt), None),
+                    &b.item("Texte enrichi (.rtf)…", Act::Export(Format::Rtf), None),
+                    &b.item("EPUB…", Act::Export(Format::Epub), None),
+                    &b.item("Page web (.html)…", Act::Export(Format::Html), None),
+                    &b.item("LaTeX (.tex)…", Act::Export(Format::Latex), None),
+                    &b.item("Texte brut (.txt)…", Act::Export(Format::Text), None),
+                ],
+            )
+            .ok()?;
+            let file = Submenu::with_items(
+                "Fichier",
+                true,
+                &[
+                    &b.item("Nouveau", Act::New, Some("Cmd+N")),
+                    &b.item(
+                        "Nouveau à partir d'un modèle…",
+                        Act::Templates,
+                        Some("Cmd+Shift+N"),
+                    ),
+                    &b.item("Ouvrir…", Act::Open, Some("Cmd+O")),
+                    &sep(),
+                    &b.item("Enregistrer", Act::Save, Some("Cmd+S")),
+                    &b.item("Enregistrer sous…", Act::SaveAs, Some("Cmd+Shift+S")),
+                    &sep(),
+                    &export,
+                    &b.item("Publipostage…", Act::Merge, None),
+                    &sep(),
+                    &b.item("Imprimer…", Act::Print, Some("Cmd+P")),
+                ],
+            )
+            .ok()?;
+            let edit = Submenu::with_items(
+                "Édition",
+                true,
+                &[
+                    &b.item("Annuler", Act::Undo, Some("Cmd+Z")),
+                    &b.item("Rétablir", Act::Redo, Some("Cmd+Shift+Z")),
+                    &sep(),
+                    &b.item("Rechercher…", Act::Find, Some("Cmd+F")),
+                    &b.item("Rechercher et remplacer…", Act::Replace, Some("Cmd+Alt+F")),
+                    &sep(),
+                    &b.item("Effacer toutes les valeurs", Act::ClearValues, None),
+                ],
+            )
+            .ok()?;
+            let insert = Submenu::with_items(
+                "Insertion",
+                true,
+                &[
+                    &b.item("Champ…", Act::InsertField, Some("Cmd+Shift+V")),
+                    &b.item("Champ calculé…", Act::InsertFormula, None),
+                    &b.item("Date du jour", Act::InsertToday, None),
+                    &sep(),
+                    &b.item("Tableau…", Act::InsertTable, None),
+                    &b.item("Saut de page", Act::InsertPageBreak, Some("Cmd+Enter")),
+                    &b.item("Ligne horizontale", Act::InsertRule, None),
+                    &b.item("Formule", Act::InsertMath(false), None),
+                ],
+            )
+            .ok()?;
+            let format = Submenu::with_items(
+                "Format",
+                true,
+                &[
+                    &b.item("Gras", Act::Wrap("**"), Some("Cmd+B")),
+                    &b.item("Italique", Act::Wrap("*"), Some("Cmd+I")),
+                    &b.item("Souligné", Act::Wrap("__"), Some("Cmd+U")),
+                    &b.item("Barré", Act::Wrap("~~"), None),
+                    &sep(),
+                    &b.item("Titre 1", Act::Style(LineStyle::Heading(1)), Some("Cmd+1")),
+                    &b.item("Titre 2", Act::Style(LineStyle::Heading(2)), Some("Cmd+2")),
+                    &b.item("Titre 3", Act::Style(LineStyle::Heading(3)), Some("Cmd+3")),
+                    &b.item("Corps de texte", Act::Style(LineStyle::Body), Some("Cmd+0")),
+                    &b.item("Citation", Act::Style(LineStyle::Quote), None),
+                    &sep(),
+                    &b.item("Liste à puces", Act::Style(LineStyle::Bullet), None),
+                    &b.item("Liste numérotée", Act::Style(LineStyle::Numbered), None),
+                    &sep(),
+                    &b.item("Aligner à gauche", Act::Style(LineStyle::Body), None),
+                    &b.item("Centrer", Act::Style(LineStyle::Center), Some("Cmd+E")),
+                    &b.item(
+                        "Aligner à droite",
+                        Act::Style(LineStyle::Right),
+                        Some("Cmd+R"),
+                    ),
+                    &sep(),
+                    &b.item("Mise en page…", Act::PageSetup, None),
+                ],
+            )
+            .ok()?;
+            let view = Submenu::with_items(
+                "Présentation",
+                true,
+                &[
+                    &b.item("Texte et page", Act::Layout(Layout::Split), None),
+                    &b.item("Page seule", Act::Layout(Layout::Page), None),
+                    &b.item("Texte seul", Act::Layout(Layout::Text), None),
+                    &sep(),
+                    &b.item(
+                        "Afficher / masquer l'inspecteur",
+                        Act::ToggleFields,
+                        Some("Cmd+Alt+I"),
+                    ),
+                    &b.item(
+                        "Afficher / masquer la barre d'outils",
+                        Act::ToggleToolbar,
+                        Some("Cmd+Alt+T"),
+                    ),
+                    &b.item(
+                        "Afficher / masquer la barre d'état",
+                        Act::ToggleStatus,
+                        None,
+                    ),
+                    &b.item("Trame de fond des champs", Act::ToggleHighlight, None),
+                    &b.item("Mode concentration", Act::Focus, Some("Cmd+Shift+F")),
+                    &sep(),
+                    &b.item("Zoom avant", Act::ZoomIn, Some("Cmd+=")),
+                    &b.item("Zoom arrière", Act::ZoomOut, Some("Cmd+-")),
+                    &b.item("Largeur de la page", Act::ZoomFit, None),
+                    &sep(),
+                    &b.item("Plein écran", Act::FullScreen, Some("Ctrl+Cmd+F")),
+                ],
+            )
+            .ok()?;
+            let window = Submenu::with_items(
+                "Fenêtre",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(Some("Placer dans le Dock")),
+                    &PredefinedMenuItem::maximize(Some("Zoom")),
+                    &sep(),
+                    &PredefinedMenuItem::bring_all_to_front(Some("Tout ramener au premier plan")),
+                ],
+            )
+            .ok()?;
+            let help = Submenu::with_items(
+                "Aide",
+                true,
+                &[
+                    &b.item("Guide de la syntaxe", Act::Syntax, None),
+                    &b.item("Raccourcis clavier", Act::Shortcuts, None),
+                    &b.item("Nombre de mots", Act::Stats, None),
+                    &b.item("À propos de Varium", Act::About, None),
+                ],
+            )
+            .ok()?;
+
+            let menu = Menu::with_items(&[
+                &app_menu, &file, &edit, &insert, &format, &view, &window, &help,
+            ])
+            .ok()?;
+            menu.init_for_nsapp();
+            window.set_as_windows_menu_for_nsapp();
+            help.set_as_help_menu_for_nsapp();
+            Some(Self {
+                _menu: menu,
+                actions: b.actions,
+            })
+        }
+
+        /// Les actions choisies dans les menus depuis la dernière image.
+        pub fn poll(&self) -> Vec<Act> {
+            let mut out = Vec::new();
+            while let Ok(ev) = MenuEvent::receiver().try_recv() {
+                if let Some((_, act)) = self.actions.iter().find(|(id, _)| ev.id.0 == *id) {
+                    out.push(*act);
+                }
+            }
+            out
+        }
     }
 }

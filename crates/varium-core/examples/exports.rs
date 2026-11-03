@@ -1,7 +1,7 @@
 //! Produit tous les exports d'un document d'exemple dans un dossier :
 //! `cargo run -p varium-core --example exports -- /tmp/varium`
 
-use varium_core::{PageSetup, Values, VarType, docx, export, odt};
+use varium_core::{PageSetup, Values, VarType, docx, epub, export, odt, rtf};
 
 const SOURCE: &str = r#"-> **{{entreprise | upper}}** <-
 -> {{adresse}} <-
@@ -68,5 +68,7 @@ fn main() {
     w("facture.txt", export::text(&docs).as_bytes());
     w("facture.odt", &odt::odt("Facture", &docs, &page));
     w("facture.docx", &docx::docx("Facture", &docs, &page));
+    w("facture.epub", &epub::epub("Facture", &docs, &page));
+    w("facture.rtf", rtf::rtf(&docs, &page).as_bytes());
     println!("Exports écrits dans {dir}");
 }

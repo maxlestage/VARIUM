@@ -334,3 +334,42 @@ fn valeurs_sur_plusieurs_lignes() {
     assert!(export::html("T", &docs, &page).contains("white-space: pre-wrap"));
     assert!(export::latex("T", &docs, &page).contains("12 rue des Lilas\\\\\n69003 Lyon"));
 }
+
+#[test]
+fn exports_epub_et_rtf() {
+    use varium_core::{PageSetup, epub, rtf};
+    let v = vals(&[("nom", "Léa & Cie")]);
+    let page = PageSetup::default();
+    let docs = [
+        export::prepare(
+            "# Titre\n**Gras** {{nom}}\n| a | b |\n|---|---|\n| 1 | 2 |",
+            &v,
+            &page,
+        ),
+        export::prepare("Deuxième", &v, &page),
+    ];
+    let e = epub::epub("Essai", &docs, &page);
+    assert_eq!(&e[30..38], b"mimetype");
+    let t = String::from_utf8_lossy(&e);
+    assert!(t.contains("application/epub+zip"));
+    assert!(t.contains("chapitre-1.xhtml"));
+    assert!(t.contains("Léa &amp; Cie"));
+    let r = rtf::rtf(&docs, &page);
+    assert!(r.starts_with("{\\rtf1"));
+    assert!(r.ends_with('}'));
+    assert_eq!(r.matches('{').count(), r.matches('}').count());
+    assert!(r.contains("\\u233?")); // é
+    assert!(r.contains("\\page"));
+    assert!(r.contains("\\cell"));
+}
+
+#[test]
+fn typographie_dans_les_exports() {
+    let mut page = varium_core::PageSetup::default();
+    let v = vals(&[]);
+    let d = export::prepare("C'est \"oui\" !", &v, &page);
+    assert_eq!(d.paras[0].plain(), "C’est «\u{a0}oui\u{a0}»\u{202f}!");
+    page.typographie = false;
+    let d = export::prepare("C'est \"oui\" !", &v, &page);
+    assert_eq!(d.paras[0].plain(), "C'est \"oui\" !");
+}
