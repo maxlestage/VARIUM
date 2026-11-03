@@ -1,7 +1,9 @@
 //! Le site entier, testé avec le client en mémoire de Paquets (`app().test()`).
 
+use std::path::Path;
+
 use paquets::prelude::*;
-use varium_site::app;
+use varium_site::{Options, app, app_with};
 
 #[tokio::test]
 async fn les_pages_repondent() {
@@ -117,5 +119,136 @@ async fn introuvable_robots_sitemap() {
             .contains("/sitemap.xml")
     );
     let sitemap = client.get("/sitemap.xml").await.text();
-    assert!(sitemap.contains("/essayer</loc>"));
+    assert!(sitemap.contains("/essayer/</loc>"));
+}
+
+#[tokio::test]
+async fn les_routes_repondent_avec_et_sans_barre_finale() {
+    let client = app().test().await;
+    for chemin in ["/syntaxe", "/syntaxe/", "/essayer", "/essayer/"] {
+        assert_eq!(client.get(chemin).await.status(), 200, "{chemin}");
+    }
+}
+
+#[tokio::test]
+async fn le_serveur_garde_le_formulaire_et_ouvre_l_application() {
+    let client = app_with(Options::new()).test().await;
+    let html = client.get("/essayer/").await.text();
+    assert!(html.contains(r#"<form class="stack" method="post" action="/essayer/">"#));
+    assert!(html.contains(r#"<a class="button petit" href="/app/">Ouvrir l&#x27;application"#));
+    // Le serveur, sans APP_URL, mène à l'application publiée sur GitHub Pages.
+    let html = app().test().await.get("/").await.text();
+    if std::env::var_os("APP_URL").is_none() {
+        assert!(html.contains(&format!(r#"href="{}""#, varium_site::APP_PUBLIQUE)));
+    }
+}
+
+#[tokio::test]
+async fn le_serveur_repond_derriere_la_base() {
+    let options = Options::new()
+        .base("/VARIUM")
+        .site("https://maxlestage.github.io/VARIUM");
+    let client = app_with(options).test().await;
+    let res = client.get("/VARIUM/syntaxe/").await;
+    assert_eq!(res.status(), 200);
+    let html = res.text();
+    assert!(html.contains(r#"href="/VARIUM/site.css""#));
+    assert!(html.contains(r#"href="https://maxlestage.github.io/VARIUM/syntaxe/""#));
+    assert_eq!(client.get("/VARIUM").await.status(), 200);
+    assert_eq!(client.get("/VARIUM/site.css").await.status(), 200);
+    let res = client
+        .post("/VARIUM/essayer/")
+        .form(&[("source", "{{x}}"), ("val.x", "ok")])
+        .await;
+    assert_eq!(res.status(), 200);
+    assert!(res.text().contains(">ok</mark>"));
+    assert_eq!(client.get("/VARIUMX/").await.status(), 404);
+}
+
+/// Les liens internes (`href="/…"`, `src="/…"`, `action="/…"`) de `html` qui ne sont
+/// pas derrière `/VARIUM/`.
+fn liens_sans_base(html: &str) -> Vec<String> {
+    let mut fautifs = Vec::new();
+    for attribut in ["href=\"/", "src=\"/", "action=\"/"] {
+        for (i, _) in html.match_indices(attribut) {
+            let suite = &html[i + attribut.len()..];
+            if !suite.starts_with("VARIUM/") {
+                fautifs.push(suite.chars().take(40).collect());
+            }
+        }
+    }
+    fautifs
+}
+
+#[tokio::test]
+async fn l_export_statique() {
+    let dossier = Path::new(env!("CARGO_TARGET_TMPDIR")).join("export-varium");
+    let _ = std::fs::remove_dir_all(&dossier);
+    let options = Options::new()
+        .base("/VARIUM")
+        .site("https://maxlestage.github.io/VARIUM");
+    let fichiers = varium_site::export::exporter(&dossier, options)
+        .await
+        .expect("export");
+    for fichier in [
+        "index.html",
+        "syntaxe/index.html",
+        "essayer/index.html",
+        "404.html",
+        "sitemap.xml",
+        "robots.txt",
+        "site.css",
+        "favicon.svg",
+        ".nojekyll",
+    ] {
+        assert!(dossier.join(fichier).is_file(), "{fichier}");
+        assert!(fichiers.iter().any(|f| f == fichier), "{fichier}");
+    }
+    let lire = |f: &str| std::fs::read_to_string(dossier.join(f)).unwrap();
+
+    for page in [
+        "index.html",
+        "syntaxe/index.html",
+        "essayer/index.html",
+        "404.html",
+    ] {
+        let html = lire(page);
+        assert_eq!(liens_sans_base(&html), Vec::<String>::new(), "{page}");
+        assert!(html.contains(r#"href="/VARIUM/site.css""#), "{page}");
+        assert!(html.contains(r#"href="/VARIUM/syntaxe/""#), "{page}");
+        // Le bouton de l'en-tête : l'application, publiée à côté du site.
+        assert!(html.contains(r#"href="/VARIUM/app/""#), "{page}");
+    }
+
+    let accueil = lire("index.html");
+    assert!(accueil.contains(r#"<a class="button" href="/VARIUM/app/">"#));
+    assert!(accueil.contains(r#"href="https://maxlestage.github.io/VARIUM/""#));
+
+    let essayer = lire("essayer/index.html");
+    assert!(!essayer.contains(r#"<form method="post""#));
+    assert!(!essayer.contains(r#"method="post""#));
+    assert!(!essayer.contains("<form"));
+    assert!(essayer.contains(r#"class="source""#)); // le modèle, coloré
+    assert!(essayer.contains(r#"class="document""#)); // le document rendu
+    assert!(essayer.contains("ATELIER LUMEN"));
+    assert!(essayer.contains(r#"<a class="button" href="/VARIUM/app/">"#));
+    assert!(essayer.contains(r#"href="https://maxlestage.github.io/VARIUM/essayer/""#));
+
+    let introuvable = lire("404.html");
+    assert!(introuvable.contains("noindex"));
+    assert!(introuvable.contains(r#"href="/VARIUM/""#));
+
+    let sitemap = lire("sitemap.xml");
+    for url in [
+        "/VARIUM/</loc>",
+        "/VARIUM/syntaxe/</loc>",
+        "/VARIUM/essayer/</loc>",
+    ] {
+        assert!(
+            sitemap.contains(&format!("https://maxlestage.github.io{url}")),
+            "{url}"
+        );
+    }
+    assert!(lire("robots.txt").contains("https://maxlestage.github.io/VARIUM/sitemap.xml"));
+    assert!(lire("syntaxe/index.html").contains("http://localhost:3000/api/rendu"));
 }

@@ -2,31 +2,20 @@
 
 use paquets::prelude::*;
 
-use crate::REPO;
+use crate::{Options, REPO};
 
-/// Les entrées de la navigation : (chemin, libellé).
+/// Les entrées de la navigation : (chemin, libellé). Les chemins finissent par `/`,
+/// comme les dossiers de l'export statique : GitHub Pages n'a pas à rediriger.
 const NAV: [(&str, &str); 3] = [
     ("/", "Présentation"),
-    ("/syntaxe", "Syntaxe"),
-    ("/essayer", "Essayer"),
+    ("/syntaxe/", "Syntaxe"),
+    ("/essayer/", "Essayer"),
 ];
 
-/// Origine publique du site : `SITE_URL`, sinon l'hôte de la requête.
-pub fn origine(req: &Request) -> String {
-    if let Ok(url) = std::env::var("SITE_URL") {
-        return url.trim_end_matches('/').to_string();
-    }
-    let hote = req.header("host").unwrap_or("localhost:3000");
-    let schema = if req.header("x-forwarded-proto") == Some("https") {
-        "https"
-    } else {
-        "http"
-    };
-    format!("{schema}://{hote}")
-}
-
-/// Une page du site : `titre`, `description`, le chemin courant et son contenu.
+/// Une page du site : `titre`, `description`, le chemin courant (sans la base) et son
+/// contenu.
 pub fn page(req: &Request, titre: &str, description: &str, chemin: &str, contenu: Node) -> Page {
+    let o = Options::de(req);
     let titre_complet = if chemin == "/" {
         "Varium · Un document. Toutes ses possibilités.".to_string()
     } else {
@@ -37,28 +26,31 @@ pub fn page(req: &Request, titre: &str, description: &str, chemin: &str, contenu
         .description(description.to_string())
         .seo(
             Seo::new()
-                .base_url(origine(req))
+                .base_url(o.origine(req))
                 .canonical(chemin.to_string())
                 .site_name("Varium")
                 .og_type("website")
                 .locale("fr_FR"),
         )
-        .head(r#"<link rel="icon" type="image/svg+xml" href="/favicon.svg"/>"#)
-        .stylesheet("/site.css")
-        .body(entete(chemin))
+        .head(format!(
+            r#"<link rel="icon" type="image/svg+xml" href="{}"/>"#,
+            o.lien("/favicon.svg")
+        ))
+        .stylesheet(o.lien("/site.css"))
+        .body(entete(o, chemin))
         .body(main().class("contenu").child(contenu))
         .body(pied())
 }
 
-fn entete(chemin: &str) -> Element {
+fn entete(o: &Options, chemin: &str) -> Element {
     header()
         .class("entete")
         .child(
             a().class("marque")
-                .href("/")
+                .href(o.lien("/"))
                 .child(
                     img()
-                        .attr("src", "/favicon.svg")
+                        .attr("src", o.lien("/favicon.svg"))
                         .attr("alt", "")
                         .attr("width", "28")
                         .attr("height", "28"),
@@ -66,14 +58,23 @@ fn entete(chemin: &str) -> Element {
                 .child(span().text("Varium")),
         )
         .child(nav().children(NAV.iter().map(|(href, libelle)| {
-            let lien = a().href(href.to_string()).text(libelle.to_string());
+            let lien = a().href(o.lien(href)).text(libelle.to_string());
             if *href == chemin {
                 lien.class("actif").attr("aria-current", "page")
             } else {
                 lien
             }
         })))
-        .child(a().class("button ghost petit").href(REPO).text("GitHub"))
+        .child(
+            div()
+                .class("actions")
+                .child(
+                    a().class("button petit")
+                        .href(o.lien_application())
+                        .text("Ouvrir l'application"),
+                )
+                .child(a().class("button ghost petit").href(REPO).text("GitHub")),
+        )
 }
 
 fn pied() -> Element {

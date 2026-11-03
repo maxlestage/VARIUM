@@ -10,28 +10,57 @@ occurrences sont mises à jour sans toucher aux autres champs.
 La même application tourne **sur le bureau** (Linux, macOS, Windows) et **dans le
 navigateur** (WebAssembly).
 
+- **Application web** : <https://maxlestage.github.io/VARIUM/app/>
+- **Site de présentation** : <https://maxlestage.github.io/VARIUM/>
+
 ## Fonctionnalités
 
-- **Variables globales** : une valeur saisie met à jour toutes ses occurrences.
+**Comme LibreOffice Writer**
+
+- **Barre de menus** Fichier, Édition, Affichage, Insertion, Format, Outils, Aide, et
+  **barre d'outils** : styles de paragraphe, gras, italique, souligné, barré,
+  alignement, listes, champs, tableau, saut de page.
+- **Raccourcis de Writer** : Ctrl+B/I/U, Ctrl+1/2/3 (titres), Ctrl+0 (corps de texte),
+  Ctrl+E/R/L (alignement), F12 / Maj+F12 (listes), Ctrl+Entrée (saut de page),
+  Ctrl+Z/Y, Ctrl+F/H, Ctrl+S, Ctrl+P.
+- **Vue page** : de vraies feuilles A4, A5, Lettre ou Légal, en portrait ou en paysage,
+  avec marges, en-tête, pied de page, numéros « Page 1 sur 3 », pagination
+  automatique et zoom. Police Liberation Serif ou Sans, celles de LibreOffice.
+- **Éditeur mis en forme** : le gras s'affiche en gras, les titres en grand, les marques
+  restent discrètes.
+- **Rechercher et remplacer**, **annuler et rétablir**, **barre d'état** (pages, mots,
+  caractères, champs, zoom).
+
+**Les champs**
+
+- **Champs globaux** : une valeur saisie met à jour toutes ses occurrences.
   `{{prénom}}` et `{{nom}}` restent toujours distincts, même collés.
-- **Variables typées** : texte, texte long, date (avec calendrier), nombre, montant et
+- **Champs typés** : texte, texte long, date (avec calendrier), nombre, montant et
   e-mail, avec validation et format français automatique (`12 500,00 €`,
   `1er mars 2026`).
 - **Filtres** : `{{nom | upper}}`, `{{montant | money:usd}}`, `{{date | date:full}}`,
   `{{titre | default:"Madame, Monsieur"}}`, etc.
-- **Renommer partout** : ne modifie que la variable visée, en gardant ses filtres.
-- **Figer** : remplace une variable par sa valeur dans la source.
-- **Formules LaTeX** : `$…$` en ligne, `$$…$$` centrées. Un `$` qui vient d'une valeur
-  (par exemple `10,00 $US`) n'ouvre jamais de formule.
-- **Exports** : HTML (formules composées par KaTeX, imprimable en PDF), LaTeX (`.tex`
-  complet), texte, modèle brut, projet `.varium.json`.
-- **Sauvegarde automatique** (fichier local sur le bureau, `localStorage` sur le web).
+- **Champs calculés** : `{{= quantité * prix | money}}`, `{{= total * 20%}}`,
+  `arrondi(x; 2)`, `min`, `max`, `somme`.
+- **Date du jour** : `{{aujourdhui}}` se remplit tout seul.
+- **Renommer partout** (formules comprises) et **figer** une valeur dans le texte.
+
+**Produire des documents**
+
+- **Modèles** : lettre, facture, devis, attestation, contrat, convocation.
+- **Publipostage** : un CSV (Excel, Calc, Google Sheets ; `;`, `,` ou tabulation,
+  UTF-8 ou Windows-1252) et Varium produit un document par ligne, dans un seul fichier.
+- **Exports** : ODT (LibreOffice Writer), DOCX (Word), PDF par l'impression, HTML,
+  LaTeX, texte, modèle brut, projet `.varium.json`.
+- **Formules LaTeX** : `$…$` en ligne, `$$…$$` centrées.
+- **Sauvegarde automatique** (fichier local sur le bureau, stockage du navigateur sur le
+  web) et **version téléphone** avec des onglets Texte, Champs et Pages.
 
 ## Organisation (workspace Cargo)
 
 | Paquet | Rôle |
 |---|---|
-| [`crates/varium-core`](crates/varium-core) | Moteur pur, sans interface : analyse, rendu, filtres, formules, exports, format de projet. |
+| [`crates/varium-core`](crates/varium-core) | Moteur pur, sans interface : analyse, champs calculés, mise en forme, mise en page, exports (HTML, LaTeX, texte, ODT, DOCX), publipostage CSV, format de projet. |
 | [`crates/varium`](crates/varium) | Application egui/eframe : binaire de bureau et site WebAssembly (Trunk). |
 
 ## Démarrer
@@ -40,7 +69,7 @@ navigateur** (WebAssembly).
 # Application de bureau
 cargo run -p varium --release
 
-# Site web (http://127.0.0.1:8080)
+# Application web (http://127.0.0.1:8080)
 rustup target add wasm32-unknown-unknown
 cargo install trunk --locked
 cd crates/varium && trunk serve --release
@@ -57,24 +86,32 @@ Sous Linux, la version de bureau a besoin des bibliothèques système habituelle
 
 Chaque push sur une branche lance la CI (`.github/workflows/ci.yml`). Quand tout est vert,
 la branche est **fusionnée automatiquement dans `master`**, puis `master` est déployé : le
-site sur Heroku et l'application web sur GitHub Pages. Les branches nommées `wip/...` ne
-sont jamais fusionnées : c'est la place des travaux en cours.
+site de présentation et l'application web sur GitHub Pages, et le serveur du site sur
+Heroku quand il est configuré. Les branches nommées `wip/...` ne sont jamais fusionnées :
+c'est la place des travaux en cours.
 
 ## Site de présentation
 
 Le dossier [`site/`](site) contient le site de présentation de Varium (accueil, syntaxe,
-démo en ligne), écrit avec [Paquets](https://github.com/maxlestage/Paquets).
+exemple), écrit avec [Paquets](https://github.com/maxlestage/Paquets). Il est publié sur
+GitHub Pages : **<https://maxlestage.github.io/VARIUM/>**.
+
+`cd site && cargo run --release`, puis <http://localhost:3000> : le serveur, avec la démo
+interactive et l'API de rendu. `cargo run --release -- export dist` écrit le site en
+fichiers statiques : voir [`site/README.md`](site/README.md#export-statique-github-pages).
+Déploiement du serveur (Heroku, Docker) : voir
+[`site/README.md`](site/README.md#déployer-le-serveur).
 
 [![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/varium)
 
-`cd site && cargo run --release`, puis <http://localhost:3000>. Déploiement (Heroku, Docker) :
-voir [`site/README.md`](site/README.md#déployer).
-
 ## Application web
 
-À chaque push sur `master`, le workflow `.github/workflows/pages.yml` construit le site
-avec Trunk et le publie sur GitHub Pages. Il faut l'activer une seule fois : *Settings →
-Pages → Source : GitHub Actions*.
+L'application web est publiée sur GitHub Pages : **<https://maxlestage.github.io/VARIUM/app/>**.
+
+À chaque push sur `master`, le workflow `.github/workflows/pages.yml` exporte le site de
+présentation à la racine de GitHub Pages, construit l'application avec Trunk
+(`--public-url /VARIUM/app/`) et la publie dans `app/`. Il faut l'activer une seule fois :
+*Settings → Pages → Source : GitHub Actions*.
 
 ## Syntaxe
 
@@ -89,3 +126,14 @@ Pages → Source : GitHub Actions*.
 | `\{{nom}}` | accolades littérales |
 | `$E = mc^2$`, `$$ \sum_i x_i $$` | formules LaTeX |
 | `\$` | dollar littéral |
+| `{{= quantité * prix \| money}}` | champ calculé (`+ - * / ( )`, `20%`, `arrondi(x; 2)`, `min`, `max`, `somme`) |
+| `{{aujourdhui}}` | date du jour |
+| `# Titre`, `## Sous-titre`, `### Titre 3` | titres |
+| `**gras**`, `*italique*`, `__souligné__`, `~~barré~~` | caractères |
+| `- élément`, `1. élément` | listes (2 espaces de retrait par niveau) |
+| `> citation` | citation |
+| `-> centré <-`, `-> à droite ->` | alignement |
+| `\| a \| b \|` puis `\|---\|---:\|` | tableau, en-tête et alignement des colonnes |
+| `---` | ligne horizontale |
+| `\newpage` | saut de page |
+| `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |

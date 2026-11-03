@@ -10,7 +10,7 @@ default-run = "varium"
 [dependencies]
 varium-core.workspace = true
 eframe = { workspace = true, features = ["persistence"] }
-egui.workspace = true
+egui = { workspace = true, features = ["monochrome_emoji_fonts"] }
 egui_extras = { workspace = true, features = ["datepicker", "serde"] }
 jiff.workspace = true
 serde.workspace = true
@@ -26,5 +26,5 @@ wasm-bindgen-futures.workspace = true
 js-sys.workspace = true
 web-sys = { workspace = true, features = [
   "Window", "Document", "Element", "HtmlCanvasElement", "HtmlElement",
-  "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url",
+  "HtmlAnchorElement", "HtmlInputElement", "File", "FileList", "Blob", "BlobPropertyBag", "Url",
 ] }

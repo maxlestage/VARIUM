@@ -4,10 +4,11 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::page::PageSetup;
 use crate::render::{Values, VarType};
 
 pub const FORMAT: &str = "varium";
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
@@ -23,6 +24,9 @@ pub struct Project {
     pub values: BTreeMap<String, String>,
     #[serde(default)]
     pub types: BTreeMap<String, VarType>,
+    /// Mise en page (depuis la version 2 ; les projets v1 prennent celle par défaut).
+    #[serde(default)]
+    pub page: PageSetup,
 }
 
 fn format_name() -> String {
@@ -41,6 +45,7 @@ impl Default for Project {
             source: String::new(),
             values: BTreeMap::new(),
             types: BTreeMap::new(),
+            page: PageSetup::default(),
         }
     }
 }

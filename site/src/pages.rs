@@ -4,10 +4,10 @@ use paquets::prelude::*;
 use varium_core::{Values, VarType, filters};
 
 use crate::demo::{document, source_coloree};
-use crate::{REPO, layout};
+use crate::{Options, REPO, layout};
 
-/// Les pages indexées (pour `sitemap.xml`).
-const PAGES: [&str; 3] = ["/", "/syntaxe", "/essayer"];
+/// Les pages du site (sans la base), pour `sitemap.xml` et l'export statique.
+pub const PAGES: [&str; 3] = ["/", "/syntaxe/", "/essayer/"];
 
 fn code_bloc(code_source: &str) -> Element {
     pre().child(code().text(code_source.to_string()))
@@ -30,7 +30,7 @@ fn carte(icone: &str, titre: &str, texte: &str) -> Element {
 // Accueil
 // ---------------------------------------------------------------------------------
 
-const AVANT: &str = "Bonjour {{prénom}} {{nom | upper}},\n\nVotre dossier {{référence}} d'un montant de {{montant | money}}\nsera clôturé le {{échéance | date:full}}.\n\nÀ bientôt {{prénom}} !";
+const AVANT: &str = "## Dossier {{référence}}\nBonjour **{{prénom}} {{nom | upper}}**,\n\nVotre dossier d'un montant de **{{montant | money}}** sera clôturé le {{échéance | date:full}}, soit {{= montant / 12 | money}} par mois.\n\n-> À bientôt, {{prénom}} ! <-";
 
 fn valeurs_accueil() -> Values {
     let mut v = Values::default();
@@ -42,31 +42,56 @@ fn valeurs_accueil() -> Values {
     v
 }
 
-const FONCTIONS: [(&str, &str, &str); 8] = [
+const FONCTIONS: [(&str, &str, &str); 12] = [
+    (
+        "📝",
+        "Comme un traitement de texte",
+        "Titres, gras, italique, souligné, listes, citations, tableaux, alignement : la barre d'outils et les raccourcis de LibreOffice Writer.",
+    ),
+    (
+        "📄",
+        "Vraies pages",
+        "Aperçu page par page au format A4, A5 ou Lettre, avec marges, en-tête, pied de page, numéros de page et zoom.",
+    ),
+    (
+        "📤",
+        "Exports LibreOffice et Word",
+        "ODT pour LibreOffice, DOCX pour Word, PDF par l'impression, HTML, LaTeX et texte : la mise en page suit.",
+    ),
     (
         "🔁",
-        "Variables globales",
-        "Une valeur saisie une fois met à jour toutes ses occurrences. {{prénom}} et {{nom}} restent toujours distincts, même collés.",
+        "Champs globaux",
+        "Une valeur saisie une fois met à jour toutes ses occurrences. {{prénom}} et {{nom}} restent toujours distincts.",
+    ),
+    (
+        "🧮",
+        "Champs calculés",
+        "{{= quantité * prix | money}} : totaux, TVA, mensualités et pourcentages se recalculent tout seuls.",
+    ),
+    (
+        "✉️",
+        "Publipostage",
+        "Un tableau CSV d'Excel ou de Calc, et Varium produit un document par destinataire, dans un seul fichier.",
+    ),
+    (
+        "🗂️",
+        "Modèles prêts à l'emploi",
+        "Lettre, facture, devis, attestation, contrat, convocation : un clic pour démarrer.",
     ),
     (
         "🏷️",
-        "Variables typées",
-        "Texte, texte long, date avec calendrier, nombre, montant, e-mail : chaque saisie est validée et mise au format français.",
+        "Champs typés et filtres",
+        "Date avec calendrier, montant, nombre, e-mail, au format français ; filtres upper, date:full, money:usd…",
     ),
     (
-        "🧪",
-        "Filtres",
-        "upper, capitalize, money:usd, date:full, number:2, default:\"…\" : des filtres chaînables pour chaque occurrence.",
+        "🔍",
+        "Rechercher, remplacer, annuler",
+        "Recherche avec ou sans casse, remplacement un par un ou en bloc, annuler et rétablir sans limite pratique.",
     ),
     (
         "✏️",
-        "Renommer partout",
-        "Renommez une variable : seules ses occurrences changent, et elles gardent leurs filtres.",
-    ),
-    (
-        "🧊",
-        "Figer",
-        "Remplacez une variable par sa valeur directement dans la source, quand le document est définitif.",
+        "Renommer et figer",
+        "Renommez un champ partout (formules comprises) ou figez sa valeur dans le texte quand le document est définitif.",
     ),
     (
         "∑",
@@ -74,19 +99,15 @@ const FONCTIONS: [(&str, &str, &str); 8] = [
         "$…$ en ligne, $$…$$ centrées. Un $ qui vient d'une valeur (10,00 $US) n'ouvre jamais de formule.",
     ),
     (
-        "📤",
-        "Exports",
-        "HTML avec KaTeX (imprimable en PDF), LaTeX complet, texte, modèle brut, projet .varium.json.",
-    ),
-    (
-        "💾",
-        "Sauvegarde automatique",
-        "Fichier local sur le bureau, stockage du navigateur sur le web : rien ne se perd.",
+        "📱",
+        "Partout, même sur téléphone",
+        "Bureau (Linux, macOS, Windows) et navigateur ; sur un écran étroit, Texte, Champs et Pages passent en onglets.",
     ),
 ];
 
 /// `GET /`
 pub async fn accueil(req: Request) -> Page {
+    let o = Options::de(&req);
     let valeurs = valeurs_accueil();
 
     let hero = section()
@@ -99,10 +120,11 @@ pub async fn accueil(req: Request) -> Page {
         .child(
             div()
                 .class("row centre")
-                .child(a().class("button").href("/essayer").text("Essayer en ligne"))
-                .child(a().class("button ghost").href(REPO).text("Voir le code source")),
+                .child(a().class("button").href(o.lien_application()).text("Ouvrir l'application"))
+                .child(a().class("button ghost").href(o.lien("/essayer/")).text("Voir un exemple"))
+                .child(a().class("button ghost").href(REPO).text("Code source")),
         )
-        .child(p().class("muted petit").text("Bureau (Linux, macOS, Windows) et navigateur (WebAssembly) · 100 % Rust"));
+        .child(p().class("muted petit").text("Dans le navigateur, sans rien installer (WebAssembly) · sur le bureau (Linux, macOS, Windows) · 100 % Rust"));
 
     let apercu = section()
         .class("apercu")
@@ -158,6 +180,7 @@ pub async fn accueil(req: Request) -> Page {
                 .class("card")
                 .child(h3().text("🌐 Dans le navigateur"))
                 .child(p().class("muted").text("La même application, compilée en WebAssembly, sans rien installer."))
+                .child(p().child(a().href(o.lien_application()).text("Ouvrir l'application web →")))
                 .child(code_bloc(
                     "rustup target add wasm32-unknown-unknown\ncargo install trunk --locked\ncd crates/varium && trunk serve --release",
                 )),
@@ -188,12 +211,12 @@ pub async fn accueil(req: Request) -> Page {
     let appel = section()
         .class("hero appel")
         .child(h2().text("Prêt à essayer ?"))
-        .child(p().class("muted").text("La démo fait tourner le vrai moteur de Varium. Modifiez le courrier d'exemple, ajoutez vos propres variables."))
+        .child(p().class("muted").text("L'application complète tourne dans votre navigateur : écrivez votre modèle, remplissez les valeurs, exportez le document."))
         .child(
             div()
                 .class("row centre")
-                .child(a().class("button").href("/essayer").text("Ouvrir la démo"))
-                .child(a().class("button ghost").href("/syntaxe").text("Lire la syntaxe")),
+                .child(a().class("button").href(o.lien_application()).text("Ouvrir l'application"))
+                .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
         );
 
     let contenu = fragment([
@@ -219,11 +242,11 @@ pub async fn accueil(req: Request) -> Page {
 // Syntaxe
 // ---------------------------------------------------------------------------------
 
-const SYNTAXE: [(&str, &str); 9] = [
-    ("{{nom}}", "une variable"),
+const SYNTAXE: [(&str, &str); 19] = [
+    ("{{nom}}", "un champ : la même valeur partout"),
     (
         "{{ nom | upper | trim }}",
-        "une variable et des filtres chaînés",
+        "un champ et des filtres chaînés",
     ),
     (
         "{{montant | money}}",
@@ -238,12 +261,31 @@ const SYNTAXE: [(&str, &str); 9] = [
         "{{t | default:\"texte\"}}",
         "une valeur par défaut si le champ est vide",
     ),
-    ("\\{{nom}}", "des accolades littérales, sans variable"),
+    (
+        "{{= quantité * prix | money}}",
+        "un champ calculé : + − * / ( ), 20%, arrondi(x; 2), min, max, somme",
+    ),
+    ("{{aujourdhui}}", "la date du jour, remplie automatiquement"),
+    ("# Titre, ## Sous-titre, ### Titre 3", "des titres"),
+    ("**gras**, *italique*", "gras et italique"),
+    ("__souligné__, ~~barré~~", "souligné et barré"),
+    (
+        "- élément, 1. élément",
+        "listes à puces et numérotées (2 espaces de retrait par niveau)",
+    ),
+    ("> citation", "une citation"),
+    ("-> centré <-, -> à droite ->", "alignement du paragraphe"),
+    (
+        "| a | b |  puis  |---|---:|",
+        "un tableau, son en-tête et l'alignement des colonnes",
+    ),
+    ("---, \\newpage", "ligne horizontale, saut de page"),
     (
         "$E = mc^2$, $$ \\sum_i x_i $$",
         "des formules LaTeX, en ligne ou centrées",
     ),
-    ("\\$", "un dollar littéral"),
+    ("\\{{nom}}", "des accolades littérales, sans champ"),
+    ("\\$, \\*, \\|", "un caractère littéral"),
 ];
 
 /// (filtre, argument, valeur d'exemple)
@@ -264,6 +306,7 @@ const FILTRES: [(&str, Option<&str>, &str); 12] = [
 
 /// `GET /syntaxe`
 pub async fn syntaxe(req: Request) -> Page {
+    let o = Options::de(&req);
     let syntaxe = section()
         .child(h2().id("ecriture").text("Écrire des variables"))
         .child(p().text(
@@ -324,6 +367,18 @@ pub async fn syntaxe(req: Request) -> Page {
             " : un fichier autonome, formules composées par KaTeX, prêt à imprimer en PDF.",
         )))
         .child(
+            li().child(strong().text("ODT"))
+                .child(text(" : un document LibreOffice Writer, avec ses styles, son en-tête et ses numéros de page.")),
+        )
+        .child(
+            li().child(strong().text("DOCX"))
+                .child(text(" : un document Word, lisible aussi par LibreOffice et Google Docs.")),
+        )
+        .child(
+            li().child(strong().text("PDF"))
+                .child(text(" : par l'impression, en pages au bon format, avec en-tête et pied de page.")),
+        )
+        .child(
             li().child(strong().text("LaTeX"))
                 .child(text(" : un .tex complet, à compiler tel quel.")),
         )
@@ -340,12 +395,24 @@ pub async fn syntaxe(req: Request) -> Page {
         ))),
     );
 
+    // Un hôte statique n'a pas d'API : c'est le serveur du site (`cargo run`) qui la sert.
+    let (intro_api, adresse_api) = if o.est_statique() {
+        (
+            "Le serveur de ce site (cd site && cargo run) expose le moteur en JSON, pour l'essayer depuis un terminal :",
+            "http://localhost:3000",
+        )
+    } else {
+        (
+            "Ce site expose le moteur en JSON, pour l'essayer depuis un terminal :",
+            "https://<ce-site>",
+        )
+    };
     let api = section()
         .child(h2().id("api").text("API de rendu"))
-        .child(p().text("Ce site expose le moteur en JSON, pour l'essayer depuis un terminal :"))
-        .child(code_bloc(
-            "curl -X POST https://<ce-site>/api/rendu \\\n  -H 'content-type: application/json' \\\n  -d '{\"source\": \"Bonjour {{prénom | upper}}\", \"valeurs\": {\"prénom\": \"Marc\"}}'",
-        ))
+        .child(p().text(intro_api))
+        .child(code_bloc(&format!(
+            "curl -X POST {adresse_api}/api/rendu \\\n  -H 'content-type: application/json' \\\n  -d '{{\"source\": \"Bonjour {{{{prénom | upper}}}}\", \"valeurs\": {{\"prénom\": \"Marc\"}}}}'",
+        )))
         .child(p().class("muted").text(
             "La réponse contient le texte rendu (texte), l'export HTML complet (html) et les variables détectées avec leur nombre d'occurrences (variables).",
         ));
@@ -378,18 +445,25 @@ pub async fn syntaxe(req: Request) -> Page {
         .child(exports)
         .child(api)
         .child(
-            div().class("row").child(
-                a().class("button")
-                    .href("/essayer")
-                    .text("Essayer dans la démo"),
-            ),
+            div()
+                .class("row")
+                .child(
+                    a().class("button")
+                        .href(o.lien_application())
+                        .text("Ouvrir l'application"),
+                )
+                .child(
+                    a().class("button ghost")
+                        .href(o.lien("/essayer/"))
+                        .text("Voir l'exemple"),
+                ),
         );
 
     layout::page(
         &req,
         "Syntaxe",
         "La syntaxe de Varium : variables {{…}}, filtres, types, formules LaTeX et exports.",
-        "/syntaxe",
+        "/syntaxe/",
         contenu.into(),
     )
 }
@@ -400,6 +474,7 @@ pub async fn syntaxe(req: Request) -> Page {
 
 /// Toute route inconnue.
 pub async fn introuvable(req: Request) -> Page {
+    let o = Options::de(&req);
     let contenu = section()
         .class("hero")
         .child(h1().text("{{page}} introuvable"))
@@ -408,9 +483,11 @@ pub async fn introuvable(req: Request) -> Page {
                 .text("Cette variable n'a pas de valeur : la page demandée n'existe pas."),
         )
         .child(
-            div()
-                .class("row centre")
-                .child(a().class("button").href("/").text("Retour à l'accueil")),
+            div().class("row centre").child(
+                a().class("button")
+                    .href(o.lien("/"))
+                    .text("Retour à l'accueil"),
+            ),
         );
     layout::page(
         &req,
@@ -427,14 +504,14 @@ pub async fn introuvable(req: Request) -> Page {
 pub async fn robots(req: Request) -> Response {
     let corps = format!(
         "User-agent: *\nAllow: /\nSitemap: {}/sitemap.xml\n",
-        layout::origine(&req)
+        Options::de(&req).origine(&req)
     );
     res::text(corps)
 }
 
 /// `GET /sitemap.xml`
 pub async fn sitemap(req: Request) -> Response {
-    let origine = layout::origine(&req);
+    let origine = Options::de(&req).origine(&req);
     let urls: String = PAGES
         .iter()
         .map(|p| format!("<url><loc>{origine}{p}</loc></url>"))
