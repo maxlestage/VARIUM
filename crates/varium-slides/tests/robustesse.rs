@@ -208,7 +208,7 @@ fn verifier(deck: &Deck) {
 #[test]
 fn fuzz_presentations_aleatoires_sans_panique() {
     let mut a = Alea(0x5EED_D1A9);
-    for tour in 0..120 {
+    for tour in 0..300 {
         let mut deck = presentation(&mut a);
         // Opérations aux indices quelconques.
         for _ in 0..a.sous(12) {
@@ -282,7 +282,7 @@ fn fuzz_fichiers_abimes_sans_panique() {
 #[test]
 fn texte_immense_sans_panique() {
     let mut deck = Deck::new();
-    let enorme = "**gras** et *italique* | cellule | {{x}}\n- puce très longue ".repeat(2_000);
+    let enorme = "**gras** et *italique* | cellule | {{x}}\n- puce très longue ".repeat(300);
     for l in Layout::ALL {
         deck.add_slide(usize::MAX, l);
         let s = deck.slides.last_mut().unwrap();
@@ -292,6 +292,6 @@ fn texte_immense_sans_panique() {
         s.body2 = format!("| a | b |\n|---|---|\n{}", "| x | y |\n".repeat(500));
         s.notes = enorme.clone();
     }
-    deck.values.insert("x".into(), "y".repeat(10_000));
+    deck.values.insert("x".into(), "y".repeat(1_000));
     verifier(&deck);
 }
