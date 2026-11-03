@@ -246,6 +246,10 @@ pub const TEXTES: Textes = Textes {
             effet: "linea orizzontale, interruzione di pagina",
         },
         Ligne {
+            code: "\\sommaire",
+            effet: "un indice generato dai titoli",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "formule LaTeX, nel testo o centrate",
         },

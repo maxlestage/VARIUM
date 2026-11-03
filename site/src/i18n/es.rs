@@ -246,6 +246,10 @@ pub const TEXTES: Textes = Textes {
             effet: "línea horizontal, salto de página",
         },
         Ligne {
+            code: "\\sommaire",
+            effet: "un índice generado a partir de los títulos",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "fórmulas LaTeX, en línea o centradas",
         },
