@@ -35,7 +35,8 @@ la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
 - **Fichiers comme Writer** : Ctrl+S réécrit le fichier ouvert (écriture atomique),
   « Enregistrer sous… », indicateur • de modifications non enregistrées dans le titre
   de la fenêtre, confirmation avant de fermer, de créer ou d'ouvrir un autre document,
-  menu « Documents récents ».
+  menu « Documents récents », sauvegarde de secours automatique toutes les 30 s
+  (restaurée après un plantage ou une coupure).
 - **Vue page** : de vraies feuilles A4, A5, Lettre ou Légal, en portrait ou en paysage,
   avec marges, en-tête, pied de page, numéros « Page 1 sur 3 », pagination
   automatique et zoom. Police Liberation Serif ou Sans, celles de LibreOffice.
