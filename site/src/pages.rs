@@ -46,7 +46,7 @@ const FONCTIONS: [(&str, &str, &str); 13] = [
     (
         "📝",
         "Comme un traitement de texte",
-        "Titres, gras, italique, souligné, listes, citations, tableaux, alignement : la barre d'outils et les raccourcis de LibreOffice Writer, avec Ctrl+S, « Enregistrer sous », documents récents et confirmation avant de perdre vos modifications.",
+        "Titres, gras, listes, tableaux, alignement : la barre d'outils de LibreOffice Writer et un inspecteur Format, Document, Champs et Plan comme dans Pages, avec Ctrl+S, « Enregistrer sous », documents récents et sauvegarde de secours.",
     ),
     (
         "📄",
@@ -56,7 +56,7 @@ const FONCTIONS: [(&str, &str, &str); 13] = [
     (
         "📤",
         "Exports LibreOffice et Word",
-        "ODT pour LibreOffice, DOCX pour Word, PDF par l'impression, HTML, LaTeX et texte : la mise en page suit.",
+        "PDF, Word (DOCX), LibreOffice (ODT), RTF pour Pages et TextEdit, EPUB, HTML, LaTeX et texte : la mise en page suit.",
     ),
     (
         "🔁",
@@ -94,9 +94,9 @@ const FONCTIONS: [(&str, &str, &str); 13] = [
         "Recherche avec ou sans casse, remplacement un par un ou en bloc, annuler et rétablir sans limite pratique.",
     ),
     (
-        "✏️",
-        "Renommer et figer",
-        "Renommez un champ partout (formules comprises) ou figez sa valeur dans le texte quand le document est définitif.",
+        "«»",
+        "Typographie française",
+        "Guillemets « », apostrophe ’, points de suspension et espaces fines avant ; : ! ? posés tout seuls, comme dans Pages.",
     ),
     (
         "∑",
@@ -105,8 +105,8 @@ const FONCTIONS: [(&str, &str, &str); 13] = [
     ),
     (
         "📱",
-        "Sur tous les ordinateurs",
-        "Linux, macOS et Windows ; dans une fenêtre étroite, Texte, Champs et Pages passent en onglets.",
+        "Une vraie application Mac",
+        "Menus dans la barre de l'écran, raccourcis ⌘, icône, plein écran et mode concentration ; aussi pour Windows et Linux.",
     ),
 ];
 

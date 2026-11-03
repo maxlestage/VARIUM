@@ -39,3 +39,13 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 ## 7. Accessibilité et ergonomie : clavier, info-bulles, messages d'erreur en français
 
 ## 8. Site et README à jour avec chaque fonction livrée
+
+## 9. Comme Pages et natif sur Mac
+- [x] Inspecteur Format / Document / Champs / Plan, galerie de modèles au premier lancement — « Varium façon Pages, et natif sur Mac »
+- [x] Menus natifs macOS (muda), raccourcis ⌘, plein écran, mode concentration — idem
+- [x] Typographie française automatique, exports RTF et EPUB — idem
+- [x] Icône de l'application (Dock, .icns, varium.exe, Linux) et job CI macOS — idem
+- [ ] Ouvrir un document par double-clic dans le Finder (événements Apple « open documents » non transmis par winit)
+- [ ] Barre de titre unifiée façon macOS, à valider sur un vrai Mac
+- [ ] Vignettes des pages dans la barre latérale (comme Pages)
+- [ ] Commentaires et suivi des modifications
