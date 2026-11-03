@@ -34,6 +34,7 @@ pub const TEXTES: Textes = Textes {
                 "Campos {{…}} globales, calculados y condicionales; combinación de correspondencia",
                 "Barra de herramientas al estilo de Writer, inspector al estilo de Pages",
                 "Exportación a PDF, DOCX, ODT, RTF, EPUB, HTML y LaTeX",
+                "Ortografía en seis idiomas, con verdaderos diccionarios Hunspell",
             ],
         },
         Appli {
@@ -42,8 +43,9 @@ pub const TEXTES: Textes = Textes {
             points: [
                 "Celdas, fórmulas y varias hojas por libro",
                 "Funciones en francés o en inglés: SOMME o SUM, SI o IF, RECHERCHEV o VLOOKUP",
-                "Formatos de celda, ordenación, relleno y gráficos",
-                "Exportación a XLSX, ODS y CSV",
+                "Formato condicional, escalas de color, barras de datos e inmovilizar paneles",
+                "Ocho gráficos: barras, barras apiladas, líneas, áreas, sectores, anillo, dispersión",
+                "Abre y guarda archivos de Excel (XLSX) y LibreOffice (ODS), además de CSV",
             ],
         },
         Appli {
@@ -51,9 +53,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Presentaciones listas para proyectar, con tus campos dentro.",
             points: [
                 "Diseños, temas y transiciones",
-                "Notas del orador y modo presentador a pantalla completa",
-                "Campos {{…}} en las diapositivas",
-                "Exportación a HTML, ODP (Impress) y PDF",
+                "Imágenes y formas colocadas con el ratón, campos {{…}} en las diapositivas",
+                "Modo presentador en una segunda pantalla: notas, diapositiva siguiente, cronómetro",
+                "Abre presentaciones de PowerPoint (PPTX) e Impress (ODP)",
+                "Exportación a HTML, ODP y PDF",
             ],
         },
     ],
@@ -72,8 +75,12 @@ pub const TEXTES: Textes = Textes {
             titre: "Fechas, números y monedas",
             texte: "Cada idioma tiene sus formatos: 12\u{202f}500,50 en francés, 12,500.50 en inglés, 12.500,50 en alemán; las fechas, los meses y los importes siguen el idioma del documento.",
         },
+        Item {
+            titre: "Ortografía",
+            texte: "Los errores se subrayan mientras escribe, con sugerencias al hacer clic derecho. Varium usa los diccionarios instalados o los descarga de LibreOffice, y recuerda sus palabras en un diccionario personal.",
+        },
     ],
-    langues_note: "La interfaz de Varium está en francés; el idioma se elige para cada documento.",
+    langues_note: "La interfaz de Varium está disponible en estos seis idiomas; el idioma del texto se elige para cada documento.",
     fonctions_titre: "Todo lo necesario para tus documentos repetitivos",
     fonctions_intro: "Cartas, presupuestos, contratos, certificados: una sola plantilla y tantos documentos como necesites.",
     fonctions: [

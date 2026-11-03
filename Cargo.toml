@@ -5,15 +5,15 @@ members = ["crates/varium-core", "crates/varium-calc", "crates/varium-slides", "
 exclude = ["site"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.92"
 repository = "https://github.com/maxlestage/varium"
 
 [workspace.dependencies]
-varium-core = { path = "crates/varium-core", version = "0.4.0" }
-varium-calc = { path = "crates/varium-calc", version = "0.4.0" }
-varium-slides = { path = "crates/varium-slides", version = "0.4.0" }
+varium-core = { path = "crates/varium-core", version = "0.5.0" }
+varium-calc = { path = "crates/varium-calc", version = "0.5.0" }
+varium-slides = { path = "crates/varium-slides", version = "0.5.0" }
 eframe = "0.37.0"
 egui = "0.37.0"
 egui_extras = "0.37.0"

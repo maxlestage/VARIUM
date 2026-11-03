@@ -5,12 +5,19 @@
 // Sous Windows, pas de fenêtre de console derrière l'application.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+#[macro_use]
+mod tr;
+
 mod app;
 mod calc_ui;
+mod dico;
 mod editor;
 mod files;
 mod fonts;
 mod io;
+mod labels;
+#[cfg(target_os = "macos")]
+mod menubar;
 mod pageview;
 mod secours;
 mod slides_ui;

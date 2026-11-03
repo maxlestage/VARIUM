@@ -1,6 +1,7 @@
 //! La suite Varium : trois applications dans une fenêtre, comme LibreOffice —
 //! Documents (traitement de texte), Classeur (tableur) et Présentation (diaporamas).
 
+use crate::tr::{self, tr};
 use egui::{Color32, RichText, Vec2};
 use serde::{Deserialize, Serialize};
 
@@ -23,9 +24,9 @@ impl Module {
 
     fn label(self) -> &'static str {
         match self {
-            Module::Documents => "Documents",
-            Module::Classeur => "Classeur",
-            Module::Presentation => "Présentation",
+            Module::Documents => tr("Documents"),
+            Module::Classeur => tr("Classeur"),
+            Module::Presentation => tr("Présentation"),
         }
     }
 
@@ -52,6 +53,15 @@ pub struct Suite {
     slides: SlidesApp,
     module: Module,
     last_title: String,
+    /// Langue de l'interface au dernier titre de fenêtre envoyé.
+    title_lang: varium_core::Lang,
+    /// Barre de menus native de macOS (reconstruite quand le module ou la langue change).
+    #[cfg(target_os = "macos")]
+    native: Option<crate::menubar::NativeBar>,
+    #[cfg(target_os = "macos")]
+    menu_events: crate::menubar::Events,
+    #[cfg(target_os = "macos")]
+    menu_generation: u32,
 }
 
 impl Suite {
@@ -60,12 +70,73 @@ impl Suite {
             .storage
             .and_then(|s| eframe::get_value::<Module>(s, MODULE_KEY))
             .unwrap_or_default();
-        Self {
+        // La langue de l'interface, avant de construire les modules.
+        let choice = cc
+            .storage
+            .and_then(|s| s.get_string(tr::STORAGE_KEY))
+            .and_then(|code| tr::parse_choice(&code));
+        tr::set_choice(choice);
+        #[allow(unused_mut)]
+        let mut suite = Self {
             doc: VariumApp::new(cc),
             calc: CalcApp::new(cc.storage),
             slides: SlidesApp::new(cc.storage),
             module,
             last_title: String::new(),
+            title_lang: tr::lang(),
+            #[cfg(target_os = "macos")]
+            native: None,
+            #[cfg(target_os = "macos")]
+            menu_events: crate::menubar::Events::install(&cc.egui_ctx),
+            #[cfg(target_os = "macos")]
+            menu_generation: 0,
+        };
+        #[cfg(target_os = "macos")]
+        suite.update_native_menu();
+        suite
+    }
+
+    /// Installe ou reconstruit la barre native selon le module et la langue.
+    #[cfg(target_os = "macos")]
+    fn update_native_menu(&mut self) {
+        if self.native.as_ref().is_some_and(|n| !n.stale(self.module)) {
+            return;
+        }
+        self.menu_generation += 1;
+        self.native = crate::menubar::NativeBar::install(self.module, self.menu_generation);
+        let on = self.native.is_some();
+        self.doc.native_menu = on;
+        self.calc.native_menu = on;
+        self.slides.native_menu = on;
+    }
+
+    /// Les actions choisies dans la barre native depuis la dernière image.
+    #[cfg(target_os = "macos")]
+    fn native_actions(&mut self, ctx: &egui::Context) {
+        use crate::menubar::MenuAct;
+        let Some(bar) = &self.native else { return };
+        for act in bar.poll(&self.menu_events) {
+            match act {
+                MenuAct::Doc(crate::app::Act::Quit) if self.module != Module::Documents => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                MenuAct::Doc(a) => self.doc.menu_act(ctx, a),
+                MenuAct::Calc(a) => self.calc.perform_once(ctx, a),
+                MenuAct::Slides(a) => self.slides.perform_once(ctx, a),
+                MenuAct::Module(m) => self.switch(m),
+                MenuAct::UiLang(c) => tr::set_choice(c),
+                MenuAct::Website => ctx.open_url(egui::OpenUrl::new_tab(
+                    "https://maxlestage.github.io/VARIUM/",
+                )),
+            }
+        }
+    }
+
+    fn switch(&mut self, m: Module) {
+        if self.module != m {
+            self.module = m;
+            self.doc.refresh_window_title();
+            self.last_title.clear();
         }
     }
 
@@ -86,12 +157,26 @@ impl Suite {
                 if on {
                     b = b.fill(m.color());
                 }
-                if ui.add(b).clicked() && !on {
-                    self.module = m;
-                    self.doc.refresh_window_title();
-                    self.last_title.clear();
+                if ui.add(b).clicked() {
+                    self.switch(m);
                 }
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let current = tr::choice();
+                let label = current.map_or(tr("Automatique"), |l| l.native());
+                ui.menu_button(format!("🌐 {label}"), |ui| {
+                    ui.label(RichText::new(tr("Langue de l'interface")).strong());
+                    ui.separator();
+                    for (c, name) in tr::choices() {
+                        if ui.radio(current == c, name).clicked() {
+                            tr::set_choice(c);
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(tr("Langue de l'interface"));
+            });
         });
     }
 }
@@ -99,6 +184,17 @@ impl Suite {
 impl eframe::App for Suite {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(target_os = "macos")]
+        {
+            self.update_native_menu();
+            self.native_actions(&ctx);
+        }
+        // Langue changée : les titres de fenêtre suivent.
+        if self.title_lang != tr::lang() {
+            self.title_lang = tr::lang();
+            self.doc.refresh_window_title();
+            self.last_title.clear();
+        }
         // Fermer la fenêtre depuis le Classeur ou la Présentation : si le document a
         // des modifications, on revient sur lui pour la confirmation.
         if self.module != Module::Documents
@@ -145,6 +241,7 @@ impl eframe::App for Suite {
         self.calc.save(storage);
         self.slides.save(storage);
         eframe::set_value(storage, MODULE_KEY, &self.module);
+        storage.set_string(tr::STORAGE_KEY, tr::choice_code(tr::choice()).to_string());
     }
 
     fn auto_save_interval(&self) -> std::time::Duration {

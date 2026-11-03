@@ -34,6 +34,7 @@ pub const TEXTES: Textes = Textes {
                 "Champs {{…}} globaux, calculés et conditionnels, publipostage",
                 "Barre d'outils façon Writer, inspecteur façon Pages",
                 "Exports PDF, DOCX, ODT, RTF, EPUB, HTML et LaTeX",
+                "Orthographe dans six langues, avec de vrais dictionnaires Hunspell",
             ],
         },
         Appli {
@@ -42,8 +43,9 @@ pub const TEXTES: Textes = Textes {
             points: [
                 "Cellules, formules et plusieurs feuilles par classeur",
                 "Fonctions en français ou en anglais\u{a0}: SOMME ou SUM, SI ou IF, RECHERCHEV ou VLOOKUP",
-                "Formats de cellule, tri, recopie et graphiques",
-                "Exports XLSX, ODS et CSV",
+                "Mise en forme conditionnelle, échelles de couleurs, barres de données et volets figés",
+                "Huit graphiques\u{a0}: barres, barres empilées, courbes, aires, secteurs, anneau, nuage de points",
+                "Ouvre et enregistre les fichiers Excel (XLSX) et LibreOffice (ODS), et le CSV",
             ],
         },
         Appli {
@@ -51,9 +53,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Des présentations à projeter, avec vos champs dedans.",
             points: [
                 "Dispositions, thèmes et transitions",
-                "Notes de l'orateur et mode présentateur en plein écran",
-                "Champs {{…}} dans les diapositives",
-                "Exports HTML, ODP (Impress) et PDF",
+                "Images et formes à placer à la souris, champs {{…}} dans les diapositives",
+                "Mode présentateur sur un deuxième écran\u{a0}: notes, diapositive suivante, chronomètre",
+                "Ouvre les présentations PowerPoint (PPTX) et Impress (ODP)",
+                "Exports HTML, ODP et PDF",
             ],
         },
     ],
@@ -72,8 +75,12 @@ pub const TEXTES: Textes = Textes {
             titre: "Dates, nombres et devises",
             texte: "Chaque langue a ses formats\u{a0}: 12\u{202f}500,50 en français, 12,500.50 en anglais, 12.500,50 en allemand\u{a0}; les dates, les mois et les montants suivent la langue du document.",
         },
+        Item {
+            titre: "Orthographe",
+            texte: "Les fautes sont soulignées pendant la frappe, avec des suggestions au clic droit. Varium utilise les dictionnaires installés ou les télécharge depuis LibreOffice, et retient vos mots dans un dictionnaire personnel.",
+        },
     ],
-    langues_note: "L'interface de Varium est en français\u{a0}; la langue se choisit pour chaque document.",
+    langues_note: "L'interface de Varium existe dans ces six langues\u{a0}; la langue du texte se choisit pour chaque document.",
     fonctions_titre: "Tout ce qu'il faut pour vos documents répétitifs",
     fonctions_intro: "Courriers, devis, contrats, attestations\u{a0}: un seul modèle, autant de documents que nécessaire.",
     fonctions: [

@@ -8,6 +8,7 @@
 //! la césure et le centrage sont exacts. Le texte trop long pour sa zone est
 //! réduit, comme l'ajustement automatique d'Impress, puis coupé s'il le faut.
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use varium_core::{Align, Para, Run, Table};
@@ -16,6 +17,7 @@ use crate::geometrie::{
     Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, TITLE_LINE_HEIGHT, footer_frame, number_frame,
 };
 use crate::metriques::LARGEURS;
+use crate::objets::{Object, ObjectKind, arrow_head, format_image, jpeg_composantes};
 use crate::texte::MISSING_COLOR;
 use crate::{Deck, Layout, Palette, Rendu, Slide, body_size, subtitle_size, title_size};
 
@@ -904,34 +906,46 @@ fn dessiner(out: &mut String, p: &Prim, x0: f32, y0: f32, ph: f32) {
 
 /// Chemin d'un cercle (quatre arcs de Bézier).
 fn cercle(cx: f32, cy: f32, r: f32) -> String {
-    let k = 0.552_284_8 * r;
+    ellipse(cx, cy, r, r)
+}
+
+/// Chemin d'une ellipse (quatre arcs de Bézier).
+fn ellipse(cx: f32, cy: f32, rx: f32, ry: f32) -> String {
+    let (kx, ky) = (0.552_284_8 * rx, 0.552_284_8 * ry);
+    let (r, k) = ((rx, ry), (kx, ky));
+    ellipse_xy(cx, cy, r, k)
+}
+
+fn ellipse_xy(cx: f32, cy: f32, r: (f32, f32), k: (f32, f32)) -> String {
+    let (rx, ry) = r;
+    let (kx, ky) = k;
     format!(
         "{} {} m {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c h",
-        n(cx + r),
+        n(cx + rx),
         n(cy),
-        n(cx + r),
-        n(cy + k),
-        n(cx + k),
-        n(cy + r),
+        n(cx + rx),
+        n(cy + ky),
+        n(cx + kx),
+        n(cy + ry),
         n(cx),
-        n(cy + r),
-        n(cx - k),
-        n(cy + r),
-        n(cx - r),
-        n(cy + k),
-        n(cx - r),
+        n(cy + ry),
+        n(cx - kx),
+        n(cy + ry),
+        n(cx - rx),
+        n(cy + ky),
+        n(cx - rx),
         n(cy),
-        n(cx - r),
-        n(cy - k),
-        n(cx - k),
-        n(cy - r),
+        n(cx - rx),
+        n(cy - ky),
+        n(cx - kx),
+        n(cy - ry),
         n(cx),
-        n(cy - r),
-        n(cx + k),
-        n(cy - r),
-        n(cx + r),
-        n(cy - k),
-        n(cx + r),
+        n(cy - ry),
+        n(cx + kx),
+        n(cy - ry),
+        n(cx + rx),
+        n(cy - ky),
+        n(cx + rx),
         n(cy)
     )
 }
@@ -1027,7 +1041,243 @@ fn filet(out: &mut String, f: Frame, couleur: [u8; 3], pw: f32, ph: f32) {
     );
 }
 
-fn page(r: &Rendu, s: &Slide, pw: f32, ph: f32) -> String {
+/// Rectangle aux coins arrondis de rayon `r` (`y` : bas du rectangle).
+fn rect_arrondi(x: f32, y: f32, w: f32, h: f32, r: f32) -> String {
+    let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+    let k = r * (1.0 - 0.552_284_8);
+    let (x2, y2) = (x + w, y + h);
+    format!(
+        "{} {} m {} {} l {} {} {} {} {} {} c {} {} l {} {} {} {} {} {} c {} {} l {} {} {} {} {} {} c {} {} l {} {} {} {} {} {} c h",
+        n(x + r),
+        n(y),
+        n(x2 - r),
+        n(y),
+        n(x2 - k),
+        n(y),
+        n(x2),
+        n(y + k),
+        n(x2),
+        n(y + r),
+        n(x2),
+        n(y2 - r),
+        n(x2),
+        n(y2 - k),
+        n(x2 - k),
+        n(y2),
+        n(x2 - r),
+        n(y2),
+        n(x + r),
+        n(y2),
+        n(x + k),
+        n(y2),
+        n(x),
+        n(y2 - k),
+        n(x),
+        n(y2 - r),
+        n(x),
+        n(y + r),
+        n(x),
+        n(y + k),
+        n(x + k),
+        n(y),
+        n(x + r),
+        n(y)
+    )
+}
+
+/// Un objet de la diapositive (image ou forme) en tracés PDF.
+fn objet_pdf(
+    out: &mut String,
+    o: &Object,
+    texte: &[Para],
+    pal: Palette,
+    images: &BTreeMap<String, usize>,
+    pw: f32,
+    ph: f32,
+) {
+    let (x, y, w, h) = o.frame.scaled(pw, ph);
+    // Coordonnées PDF : origine en bas à gauche.
+    let bas = ph - (y + h);
+    match o.kind {
+        ObjectKind::Image => {
+            if let Some(num) = images.get(&o.media) {
+                let _ = writeln!(
+                    out,
+                    "q {} 0 0 {} {} {} cm /Im{num} Do Q",
+                    n(w),
+                    n(h),
+                    n(x),
+                    n(bas)
+                );
+            }
+        }
+        ObjectKind::Line | ObjectKind::Arrow => {
+            let Some(c) = o.stroke else {
+                return;
+            };
+            let ((x1, y1), (x2, y2)) = o.line_points();
+            let a = (x1 * pw, ph - y1 * ph);
+            let b = (x2 * pw, ph - y2 * ph);
+            let sw = o.stroke_width.max(0.5);
+            let fin = if o.kind == ObjectKind::Arrow {
+                let (fin, tri) = arrow_head(a, b, sw);
+                let _ = writeln!(
+                    out,
+                    "q {} rg {} {} m {} {} l {} {} l h f Q",
+                    rgb(c),
+                    n(tri[0].0),
+                    n(tri[0].1),
+                    n(tri[1].0),
+                    n(tri[1].1),
+                    n(tri[2].0),
+                    n(tri[2].1)
+                );
+                fin
+            } else {
+                b
+            };
+            let _ = writeln!(
+                out,
+                "q {} RG {} w 1 J {} {} m {} {} l S Q",
+                rgb(c),
+                n(sw),
+                n(a.0),
+                n(a.1),
+                n(fin.0),
+                n(fin.1)
+            );
+        }
+        ObjectKind::Rect | ObjectKind::RoundRect | ObjectKind::Ellipse => {
+            let trait_ = o.stroke.filter(|_| o.stroke_width > 0.0);
+            let op = match (o.fill.is_some(), trait_.is_some()) {
+                (true, true) => "B",
+                (true, false) => "f",
+                (false, true) => "S",
+                (false, false) => "n",
+            };
+            let mut c = String::from("q ");
+            if let Some(f) = o.fill {
+                let _ = write!(c, "{} rg ", rgb(f));
+            }
+            if let Some(t) = trait_ {
+                let _ = write!(c, "{} RG {} w 1 j ", rgb(t), n(o.stroke_width));
+            }
+            let chemin = match o.kind {
+                ObjectKind::Ellipse => ellipse(x + w / 2.0, bas + h / 2.0, w / 2.0, h / 2.0),
+                ObjectKind::RoundRect => rect_arrondi(x, bas, w, h, w.min(h) * Object::CORNER),
+                _ => format!("{} {} {} {} re", n(x), n(bas), n(w), n(h)),
+            };
+            let _ = writeln!(out, "{c}{chemin} {op} Q");
+            if !texte.is_empty() {
+                let hab = Habillage {
+                    base: Base {
+                        police: Police::default(),
+                        couleur: o.text_ink(&pal),
+                        majuscules: false,
+                    },
+                    pal,
+                    interligne: 1.2,
+                    approche: 0.0,
+                    align: Align::Center,
+                    titre: true,
+                    citation: false,
+                };
+                let zone_texte = o.frame.inset(0.012, 0.012 * pw / ph);
+                zone(
+                    out,
+                    texte,
+                    zone_texte,
+                    o.text_size * ph,
+                    &hab,
+                    Anchor::Middle,
+                    pw,
+                    ph,
+                );
+            }
+        }
+    }
+}
+
+/// Les images de la présentation en objets PDF, numérotés à partir de
+/// `premier` : JPEG tels quels (DCTDecode), PNG décodés en RVB compressé
+/// (FlateDecode) avec leur transparence en masque doux (SMask). Renvoie les
+/// objets et le numéro d'objet de chaque image.
+fn images_pdf(deck: &Deck, premier: usize) -> (Vec<Vec<u8>>, BTreeMap<String, usize>) {
+    let mut objs: Vec<Vec<u8>> = Vec::new();
+    let mut nums = BTreeMap::new();
+    let flux = |dict: String, data: &[u8]| {
+        let mut o = format!("{dict} /Length {} >>\nstream\n", data.len()).into_bytes();
+        o.extend_from_slice(data);
+        o.extend_from_slice(b"\nendstream");
+        o
+    };
+    for id in deck.used_media() {
+        let Some(m) = deck.media.get(id) else {
+            continue;
+        };
+        let num = premier + objs.len();
+        let format = format_image(&m.data);
+        let composantes = if format == Some(image::ImageFormat::Jpeg) {
+            jpeg_composantes(&m.data)
+        } else {
+            None
+        };
+        if let (Some(c @ (1 | 3)), Ok((w, h))) = (
+            composantes,
+            image::ImageReader::with_format(
+                std::io::Cursor::new(&m.data[..]),
+                image::ImageFormat::Jpeg,
+            )
+            .into_dimensions(),
+        ) {
+            let espace = if c == 1 { "/DeviceGray" } else { "/DeviceRGB" };
+            objs.push(flux(
+                format!(
+                    "<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace {espace} /BitsPerComponent 8 /Filter /DCTDecode"
+                ),
+                &m.data,
+            ));
+            nums.insert(id.to_string(), num);
+            continue;
+        }
+        let Some(img) = format.and_then(|f| image::load_from_memory_with_format(&m.data, f).ok())
+        else {
+            continue;
+        };
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let mut rvb = Vec::with_capacity((w * h * 3) as usize);
+        let mut alpha = Vec::with_capacity((w * h) as usize);
+        for p in rgba.pixels() {
+            rvb.extend_from_slice(&p.0[..3]);
+            alpha.push(p.0[3]);
+        }
+        let transparente = alpha.iter().any(|&a| a != 255);
+        let masque = if transparente {
+            format!(" /SMask {} 0 R", num + 1)
+        } else {
+            String::new()
+        };
+        objs.push(flux(
+            format!(
+                "<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode{masque}"
+            ),
+            &miniz_oxide::deflate::compress_to_vec_zlib(&rvb, 6),
+        ));
+        if transparente {
+            objs.push(flux(
+                format!(
+                    "<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode"
+                ),
+                &miniz_oxide::deflate::compress_to_vec_zlib(&alpha, 6),
+            ));
+        }
+        nums.insert(id.to_string(), num);
+    }
+    (objs, nums)
+}
+
+fn page(r: &Rendu, s: &Slide, images: &BTreeMap<String, usize>, pw: f32, ph: f32) -> String {
     let pal = r.palette;
     let b = &r.boxes;
     let mut out = String::new();
@@ -1113,6 +1363,9 @@ fn page(r: &Rendu, s: &Slide, pw: f32, ph: f32) -> String {
             zone(&mut out, paras, f, t, &hab, b.body_anchor, pw, ph);
         }
     }
+    for (o, texte) in s.objects.iter().zip(&r.objets) {
+        objet_pdf(&mut out, o, texte, pal, images, pw, ph);
+    }
     let pied = Base {
         police: Police::default(),
         couleur: pal.muted,
@@ -1170,12 +1423,23 @@ pub(crate) fn pdf(deck: &Deck) -> Vec<u8> {
     let ph = (pw / deck.aspect.ratio() * 1000.0).round() / 1000.0;
     let rendus = deck.rendus();
     let slides = deck.exported();
+    let np = rendus.len();
+    // Les images suivent les pages : objets 12 + 2 × pages et au-delà.
+    let (images, nums) = images_pdf(deck, 12 + 2 * np);
     let pages: Vec<String> = rendus
         .iter()
         .zip(slides.iter())
-        .map(|(r, s)| page(r, s, pw, ph))
+        .map(|(r, s)| page(r, s, &nums, pw, ph))
         .collect();
-    let np = pages.len();
+    let xobjets: String = if nums.is_empty() {
+        String::new()
+    } else {
+        let refs: String = nums
+            .values()
+            .map(|num| format!("/Im{num} {num} 0 R "))
+            .collect();
+        format!(" /XObject << {refs}>>")
+    };
 
     // 1 catalogue, 2 arbre des pages, 3 infos, 4 à 11 polices, puis (page, contenu).
     let mut objs: Vec<Vec<u8>> = Vec::new();
@@ -1208,7 +1472,7 @@ pub(crate) fn pdf(deck: &Deck) -> Vec<u8> {
     for (i, contenu) in pages.iter().enumerate() {
         objs.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {polices}>> >> /Contents {} 0 R >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {polices}>>{xobjets} >> /Contents {} 0 R >>",
                 n(pw),
                 n(ph),
                 13 + i * 2
@@ -1220,6 +1484,7 @@ pub(crate) fn pdf(deck: &Deck) -> Vec<u8> {
         c.extend_from_slice(b"endstream");
         objs.push(c);
     }
+    objs.extend(images);
 
     let mut out = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut positions = Vec::with_capacity(objs.len());

@@ -5,7 +5,7 @@
 mod commun;
 
 use commun::{compte, xml_bien_forme, zip_entries};
-use varium_slides::{Aspect, Deck, Layout, Slide, Theme, Transition};
+use varium_slides::{Aspect, Deck, Frame, Layout, Object, ObjectKind, Slide, Theme, Transition};
 
 /// Générateur pseudo-aléatoire (SplitMix64) : mêmes tirages à chaque exécution.
 struct Alea(u64);
@@ -149,6 +149,23 @@ fn diapositive(a: &mut Alea) -> Slide {
         background: a
             .pile()
             .then(|| [a.suivant() as u8, a.suivant() as u8, a.suivant() as u8]),
+        objects: (0..a.sous(4))
+            .map(|_| Object {
+                kind: *a.choix(&ObjectKind::SHAPES),
+                frame: Frame::new(
+                    a.sous(100) as f32 / 100.0,
+                    a.sous(100) as f32 / 100.0,
+                    a.sous(100) as f32 / 100.0,
+                    a.sous(100) as f32 / 100.0,
+                ),
+                fill: a.pile().then_some([1, 2, 3]),
+                stroke: a.pile().then_some([200, 100, 0]),
+                stroke_width: a.sous(20) as f32,
+                flip_h: a.pile(),
+                text: chaine(a, 3),
+                ..Object::default()
+            })
+            .collect(),
     }
 }
 
@@ -161,6 +178,7 @@ fn presentation(a: &mut Alea) -> Deck {
         slide_numbers: a.pile(),
         values: Default::default(),
         slides: (0..a.sous(9)).map(|_| diapositive(a)).collect(),
+        media: Default::default(),
     };
     for nom in ["entreprise", "ville", "a", "b", "x", "absent"] {
         if a.pile() {
