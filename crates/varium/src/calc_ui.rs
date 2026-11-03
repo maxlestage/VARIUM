@@ -1662,7 +1662,9 @@ impl CalcApp {
             self.chart = None;
             return;
         }
-        let chart = self.chart.as_ref().expect("présent");
+        let Some(chart) = self.chart.as_ref() else {
+            return;
+        };
         let data = chart_data(&self.wb, chart.sheet, chart.range);
         let (rect, _) = ui.allocate_exact_size(
             Vec2::new(

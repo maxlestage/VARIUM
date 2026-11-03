@@ -310,6 +310,15 @@ fn table(ctx: &egui::Context, t: &Table, m: &Metrics) -> Vec<Chunk> {
         .collect()
 }
 
+/// Dernière page, créée au besoin : ne panique jamais.
+fn page_courante(pages: &mut Vec<Vec<Placed>>) -> &mut Vec<Placed> {
+    if pages.is_empty() {
+        pages.push(Vec::new());
+    }
+    let i = pages.len() - 1;
+    &mut pages[i]
+}
+
 fn paginate(chunks: &[Chunk], m: &Metrics) -> Vec<Vec<Placed>> {
     let mut pages: Vec<Vec<Placed>> = vec![Vec::new()];
     let mut y = 0.0f32;
@@ -325,7 +334,7 @@ fn paginate(chunks: &[Chunk], m: &Metrics) -> Vec<Vec<Placed>> {
                     pages.push(Vec::new());
                     y = 0.0;
                 }
-                pages.last_mut().unwrap().push(Placed {
+                page_courante(&mut pages).push(Placed {
                     chunk: i,
                     y,
                     offset: 0.0,
@@ -338,7 +347,7 @@ fn paginate(chunks: &[Chunk], m: &Metrics) -> Vec<Vec<Placed>> {
                     pages.push(Vec::new());
                     y = 0.0;
                 }
-                pages.last_mut().unwrap().push(Placed {
+                page_courante(&mut pages).push(Placed {
                     chunk: i,
                     y,
                     offset: 0.0,
@@ -355,7 +364,7 @@ fn paginate(chunks: &[Chunk], m: &Metrics) -> Vec<Vec<Placed>> {
                 let h = galley.size().y;
                 let mut top = if y == 0.0 { y } else { y + before };
                 if top + h <= m.text_h + 0.5 {
-                    pages.last_mut().unwrap().push(Placed {
+                    page_courante(&mut pages).push(Placed {
                         chunk: i,
                         y: top,
                         offset: 0.0,
@@ -366,7 +375,7 @@ fn paginate(chunks: &[Chunk], m: &Metrics) -> Vec<Vec<Placed>> {
                 }
                 if h <= m.text_h && y > 0.0 {
                     pages.push(Vec::new());
-                    pages.last_mut().unwrap().push(Placed {
+                    page_courante(&mut pages).push(Placed {
                         chunk: i,
                         y: 0.0,
                         offset: 0.0,
@@ -393,7 +402,7 @@ fn paginate(chunks: &[Chunk], m: &Metrics) -> Vec<Vec<Placed>> {
                         }
                         end = offset + room; // une ligne plus haute qu'une page
                     }
-                    pages.last_mut().unwrap().push(Placed {
+                    page_courante(&mut pages).push(Placed {
                         chunk: i,
                         y: top,
                         offset,
