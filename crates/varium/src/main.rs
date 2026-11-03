@@ -4,8 +4,11 @@
 //! Web    : `trunk serve` dans `crates/varium`
 
 mod app;
+mod editor;
+mod fonts;
 mod io;
-mod sample;
+mod pageview;
+mod templates;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
