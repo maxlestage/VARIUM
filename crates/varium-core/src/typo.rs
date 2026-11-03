@@ -1,12 +1,15 @@
-//! Typographie française automatique, comme la correction automatique de Pages et
-//! de Writer : guillemets « », apostrophe ’, points de suspension …, tirets – —,
-//! espaces fines insécables avant ; : ! ? et à l'intérieur des guillemets.
+//! Typographie automatique selon la langue du document, comme la correction
+//! automatique de Pages et de Writer : guillemets (« » en français avec espaces
+//! insécables, “ ” en anglais et en portugais, „ “ en allemand, «» en espagnol et en
+//! italien), apostrophe ’, points de suspension …, tirets – —, et en français espaces
+//! fines insécables avant ; : ! ?.
 //!
 //! Seul le texte écrit dans la source est corrigé : les valeurs des champs et les
 //! formules restent telles quelles.
 
 use crate::doc::{Para, Run};
 use crate::filters::{NBSP, THIN_NBSP};
+use crate::lang::Lang;
 
 /// État conservé d'un morceau de texte à l'autre dans un paragraphe.
 #[derive(Default)]
@@ -15,6 +18,7 @@ struct State {
     open_quote: bool,
     /// Dernier caractère écrit (pour savoir si un guillemet ouvre ou ferme).
     prev: Option<char>,
+    lang: Lang,
 }
 
 fn fix(text: &str, st: &mut State) -> String {
@@ -58,9 +62,12 @@ fn fix(text: &str, st: &mut State) -> String {
                     && st
                         .prev
                         .is_none_or(|p| p.is_whitespace() || "([{—–".contains(p));
+                let (open, close, inner) = st.lang.quotes();
                 if opening {
-                    push(&mut out, st, '«');
-                    out.push(NBSP);
+                    push(&mut out, st, open);
+                    if let Some(sp) = inner {
+                        out.push(sp);
+                    }
                     st.open_quote = true;
                     // les espaces déjà tapées après le guillemet sont remplacées
                     while chars.get(i + 1).is_some_and(|c| *c == ' ') {
@@ -70,13 +77,15 @@ fn fix(text: &str, st: &mut State) -> String {
                     while out.ends_with(' ') {
                         out.pop();
                     }
-                    out.push(NBSP);
-                    push(&mut out, st, '»');
+                    if let Some(sp) = inner {
+                        out.push(sp);
+                    }
+                    push(&mut out, st, close);
                     st.open_quote = false;
                 }
             }
-            // Ponctuation haute : espace fine insécable avant
-            ';' | '!' | '?' | ':' => {
+            // Ponctuation haute, en français : espace fine insécable avant
+            ';' | '!' | '?' | ':' if st.lang == Lang::Fr => {
                 if out.ends_with(' ') {
                     out.pop();
                     out.push(if c == ':' { NBSP } else { THIN_NBSP });
@@ -90,8 +99,11 @@ fn fix(text: &str, st: &mut State) -> String {
     out
 }
 
-fn fix_runs(runs: &mut [Run]) {
-    let mut st = State::default();
+fn fix_runs(runs: &mut [Run], lang: Lang) {
+    let mut st = State {
+        lang,
+        ..State::default()
+    };
     for r in runs {
         match r {
             Run::Text { text, .. } => *text = fix(text, &mut st),
@@ -100,23 +112,34 @@ fn fix_runs(runs: &mut [Run]) {
     }
 }
 
-/// Applique la typographie française au document mis en forme.
-pub fn apply(paras: &mut [Para]) {
+/// Applique la typographie de la langue au document mis en forme.
+pub fn apply(paras: &mut [Para], lang: Lang) {
     for p in paras {
         match p {
             Para::Text { runs, .. }
             | Para::Heading { runs, .. }
             | Para::Item { runs, .. }
-            | Para::Quote { runs } => fix_runs(runs),
-            Para::Table(t) => t.rows.iter_mut().flatten().for_each(|c| fix_runs(c)),
+            | Para::Quote { runs } => fix_runs(runs, lang),
+            Para::Table(t) => t.rows.iter_mut().flatten().for_each(|c| fix_runs(c, lang)),
             _ => {}
         }
     }
 }
 
-/// La correction d'un texte seul (pour les tests et l'aperçu).
+/// La correction d'un texte seul, en français (pour les tests et l'aperçu).
 pub fn correct(text: &str) -> String {
-    fix(text, &mut State::default())
+    correct_in(text, Lang::Fr)
+}
+
+/// La correction d'un texte seul dans une langue.
+pub fn correct_in(text: &str, lang: Lang) -> String {
+    fix(
+        text,
+        &mut State {
+            lang,
+            ..State::default()
+        },
+    )
 }
 
 #[cfg(test)]
@@ -143,11 +166,24 @@ mod tests {
     }
 
     #[test]
+    fn guillemets_par_langue() {
+        let t = "Il dit \"oui\" ! C'est fini...";
+        assert_eq!(correct_in(t, Lang::En), "Il dit “oui” ! C’est fini…");
+        assert_eq!(correct_in(t, Lang::De), "Il dit „oui“ ! C’est fini…");
+        assert_eq!(correct_in(t, Lang::Es), "Il dit «oui» ! C’est fini…");
+        assert_eq!(correct_in(t, Lang::Pt), "Il dit “oui” ! C’est fini…");
+        assert_eq!(
+            correct_in(t, Lang::Fr),
+            "Il dit «\u{a0}oui\u{a0}»\u{202f}! C’est fini…"
+        );
+    }
+
+    #[test]
     fn les_valeurs_ne_sont_pas_touchees() {
         let mut v = crate::Values::default();
         v.set("nom", "l'ami \"Jo\" ?");
         let mut d = crate::document("Bonjour {{nom}} ?", &v);
-        apply(&mut d);
+        apply(&mut d, Lang::Fr);
         assert_eq!(d[0].plain(), "Bonjour l'ami \"Jo\" ?\u{202f}?");
     }
 }

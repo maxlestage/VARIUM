@@ -241,6 +241,8 @@ struct Attr {
     underline: bool,
     strike: bool,
     scale: f32,
+    /// Souligné rouge de la révision.
+    issue: bool,
 }
 
 pub struct Palette {
@@ -348,6 +350,7 @@ pub fn highlight(
     font: DocFont,
     size: f32,
     found: &[(usize, usize)],
+    issues: &[(usize, usize)],
 ) -> LayoutJob {
     let base = Attr {
         color: pal.text,
@@ -357,6 +360,7 @@ pub fn highlight(
         underline: false,
         strike: false,
         scale: 1.0,
+        issue: false,
     };
     let mut attrs = vec![base; src.len()];
     let mut protected = vec![false; src.len()];
@@ -474,6 +478,12 @@ pub fn highlight(
             at.bg = pal.found;
         }
     }
+    // Remarques de la révision : soulignées en rouge
+    for &(a, b) in issues {
+        for at in attrs.iter_mut().take(b.min(src.len())).skip(a) {
+            at.issue = true;
+        }
+    }
 
     let mut job = LayoutJob::default();
     let mut run_start = 0;
@@ -484,7 +494,9 @@ pub fn highlight(
             color: a.color,
             background: a.bg,
             italics: a.italic && !fonts::has_italic(font),
-            underline: if a.underline {
+            underline: if a.issue {
+                Stroke::new(1.6, Color32::from_rgb(0xE0, 0x3A, 0x30))
+            } else if a.underline {
                 Stroke::new(1.0, a.color)
             } else {
                 Stroke::NONE
@@ -625,7 +637,14 @@ mod tests {
             "é **gras** {{v}} $y$ \\newpage",
             "-> c <-",
         ] {
-            let job = highlight(s, &pal, DocFont::Serif, 15.0, &[(0, s.len())]);
+            let job = highlight(
+                s,
+                &pal,
+                DocFont::Serif,
+                15.0,
+                &[(0, s.len())],
+                &[(0, s.len())],
+            );
             assert_eq!(job.text, s);
         }
     }

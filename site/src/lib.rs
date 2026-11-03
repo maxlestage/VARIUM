@@ -5,26 +5,36 @@
 //! `Page` rendues par le serveur (balises SEO, thème, Content-Security-Policy) et une
 //! démo qui fait tourner le vrai moteur `varium-core` côté serveur, sans JavaScript.
 //!
+//! Le site parle six langues ([`Langue`]) : français (la source), anglais, espagnol,
+//! allemand, italien et portugais. Chaque page existe dans chacune, sous `/{langue}/`.
+//!
 //! | Route | Contenu |
 //! |---|---|
-//! | `GET /` | la page d'accueil |
-//! | `GET /essayer/`, `POST /essayer/` | la démo : un modèle, des valeurs, le document rendu |
-//! | `GET /syntaxe/` | la référence : variables, filtres, formules, exports |
+//! | `GET /` | redirige vers `/{langue}/`, d'après `Accept-Language` (français sinon) |
+//! | `GET /{langue}/` | la page d'accueil |
+//! | `GET /{langue}/syntaxe/` | la référence : variables, filtres, formules, Classeur, exports |
+//! | `GET /{langue}/installer/` | télécharger l'application de bureau |
+//! | `GET /{langue}/essayer/`, `POST /{langue}/essayer/` | la démo : un modèle, des valeurs, le document rendu |
+//! | `GET /syntaxe/`, `/essayer/`, `/installer/` | les anciennes adresses : redirigent vers `/fr/…` |
 //! | `POST /api/rendu` | le moteur en JSON : `{source, valeurs}` → texte, HTML, variables |
 //! | `GET /sitemap.xml`, `GET /robots.txt` | pour les moteurs de recherche |
 //!
 //! Les routes répondent avec ou sans `/` final. Avec un chemin de base (`BASE_PATH`,
-//! voir [`Options`]), elles répondent aussi derrière lui : `/VARIUM/syntaxe/`.
+//! voir [`Options`]), elles répondent aussi derrière lui : `/VARIUM/fr/syntaxe/`.
 //!
 //! [`export`] écrit le site en fichiers statiques, pour GitHub Pages.
 
 mod demo;
 pub use demo::LIMITE;
 pub mod export;
+pub mod i18n;
+pub use i18n::Langue;
 mod layout;
 mod options;
 pub use options::Options;
 mod pages;
+pub mod routes;
+pub use routes::Rubrique;
 
 use paquets::prelude::*;
 use paquets::vitesse::http::Uri;
@@ -55,15 +65,32 @@ pub fn app_with(options: Options) -> App {
     }
     app.state(options);
 
-    app.get("/", pages::accueil);
-    app.get("/syntaxe", pages::syntaxe);
-    app.get("/essayer", demo::page);
-    app.get("/installer", pages::installer);
-    app.post("/essayer", demo::soumettre);
+    app.get("/", pages::racine);
+    for langue in Langue::ALL {
+        let l = langue.code();
+        app.get(&format!("/{l}"), move |req| pages::accueil(req, langue));
+        app.get(&format!("/{l}/syntaxe"), move |req| {
+            pages::syntaxe(req, langue)
+        });
+        app.get(&format!("/{l}/installer"), move |req| {
+            pages::installer(req, langue)
+        });
+        app.get(&format!("/{l}/essayer"), move |req| demo::page(req, langue));
+        app.post(&format!("/{l}/essayer"), move |req| {
+            demo::soumettre(req, langue)
+        });
+    }
+    // Les adresses d'avant les langues, en français.
+    for rubrique in [Rubrique::Syntaxe, Rubrique::Installer, Rubrique::Essayer] {
+        app.get(&rubrique.ancien_chemin(), move |req| {
+            pages::ancienne(req, rubrique)
+        });
+    }
+    app.post("/essayer", |req| demo::soumettre(req, Langue::Fr));
     app.post("/api/rendu", demo::api);
     app.get("/robots.txt", pages::robots);
     app.get("/sitemap.xml", pages::sitemap);
-    app.fallback(pages::introuvable);
+    app.fallback(pages::introuvable_partout);
 
     app
 }
