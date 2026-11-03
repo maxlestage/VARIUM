@@ -130,7 +130,7 @@ impl Structural {
     }
 
     /// Nouvelles bornes d'un intervalle `lo..=hi` ; `None` s'il disparaît.
-    fn map_span(&self, lo: u32, hi: u32) -> Option<(u32, u32)> {
+    pub(crate) fn map_span(&self, lo: u32, hi: u32) -> Option<(u32, u32)> {
         if self.insert {
             let nlo = self.map(lo)?;
             let nhi = self.map(hi).unwrap_or(self.limit() - 1);
@@ -322,6 +322,242 @@ pub(crate) fn to_odf_formula(formula: &str) -> String {
     format!("of:{}", translate(formula, Dialect::Odf))
 }
 
+// ---------------------------------------------------------------- Imports
+
+/// Remplace les colonnes entières (`A:B`, `$C:$C`) par des plages explicites
+/// (`A$1:B$1048576`), que le moteur sait lire. `text` ne contient pas de chaîne.
+fn expand_whole_columns(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let is_ident = |c: char| c.is_alphanumeric() || matches!(c, '_' | '.' | '$' | '!' | '\'');
+    let col_word = |i: usize| -> Option<(usize, String)> {
+        // Lit `$?[A-Z]{1,3}` à partir de i ; renvoie la fin et les lettres.
+        let mut j = i;
+        if chars.get(j) == Some(&'$') {
+            j += 1;
+        }
+        let start = j;
+        while chars.get(j).is_some_and(|c| c.is_ascii_alphabetic()) {
+            j += 1;
+        }
+        let letters: String = chars[start..j].iter().collect();
+        (j > start && j - start <= 3 && crate::refs::col_index(&letters).is_some())
+            .then_some((j, letters))
+    };
+    let mut i = 0;
+    while i < chars.len() {
+        let prev_ok = i == 0 || !is_ident(chars[i - 1]);
+        if prev_ok
+            && let Some((j, a)) = col_word(i)
+            && chars.get(j) == Some(&':')
+            && let Some((k, b)) = col_word(j + 1)
+            && !chars
+                .get(k)
+                .is_some_and(|c| c.is_alphanumeric() || matches!(c, '_' | '(' | '.' | '!'))
+        {
+            let _ = std::fmt::Write::write_fmt(
+                &mut out,
+                format_args!("{}$1:{}${MAX_ROWS}", a.to_uppercase(), b.to_uppercase()),
+            );
+            i = k;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+/// Passe sur les morceaux hors chaînes (`"…"`) et hors noms de feuille entre
+/// apostrophes (`'…'`), qui sont recopiés tels quels.
+fn outside_strings(text: &str, mut f: impl FnMut(&str) -> String) -> String {
+    let mut out = String::with_capacity(text.len() + 8);
+    let mut chunk = String::new();
+    let mut quote: Option<char> = None;
+    for c in text.chars() {
+        match quote {
+            Some(q) => {
+                out.push(c);
+                if c == q {
+                    quote = None;
+                }
+            }
+            None if c == '"' || c == '\'' => {
+                out.push_str(&f(&chunk));
+                chunk.clear();
+                out.push(c);
+                quote = Some(c);
+            }
+            None => chunk.push(c),
+        }
+    }
+    out.push_str(&f(&chunk));
+    out
+}
+
+/// Écriture française des jetons : noms de fonctions, `VRAI`/`FAUX`, codes
+/// d'erreur et virgule décimale.
+fn to_french_tokens(formula: &str) -> String {
+    rewrite(formula, |t, text| match &t.kind {
+        Kind::Func(name) => {
+            let bare = strip_func_prefix(name);
+            match lookup(bare).or_else(|| lookup(name)) {
+                Some(id) => Some(info(id).fr.to_string()),
+                None => (bare.len() != name.len()).then(|| bare.to_string()),
+            }
+        }
+        Kind::Bool(true) => Some("VRAI".into()),
+        Kind::Bool(false) => Some("FAUX".into()),
+        Kind::Err(e) => Some(e.code().to_string()),
+        Kind::Num(_) => Some(text.replace('.', ",")),
+        _ => None,
+    })
+}
+
+/// Préfixes des fonctions récentes d'Excel (`_xlfn.`, `_xlws.`).
+fn strip_func_prefix(name: &str) -> &str {
+    let lower = name.to_ascii_lowercase();
+    for p in ["_xlfn._xlws.", "_xlfn.", "_xlws."] {
+        if lower.starts_with(p) {
+            return &name[p.len()..];
+        }
+    }
+    name
+}
+
+/// Formule d'un fichier XLSX (`SUM(A1,B2)`, sans `=`) → saisie Varium
+/// (`=SOMME(A1;B2)`).
+pub(crate) fn from_xlsx_formula(f: &str) -> String {
+    let f = f.trim();
+    let f = f.strip_prefix('=').unwrap_or(f);
+    let body = outside_strings(f, |chunk| expand_whole_columns(&chunk.replace(',', ";")));
+    to_french_tokens(&format!("={body}"))
+}
+
+/// Une référence OpenFormula entre crochets (`.A1`, `$'F 2'.$B$2:.C3`) → `'F 2'!$B$2:C3`.
+fn odf_ref(inner: &str) -> String {
+    // Découpe sur « : » hors apostrophes.
+    let mut parts = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    for c in inner.chars() {
+        match c {
+            '\'' => {
+                quoted = !quoted;
+                cur.push(c);
+            }
+            ':' if !quoted => parts.push(std::mem::take(&mut cur)),
+            c => cur.push(c),
+        }
+    }
+    parts.push(cur);
+    let mut sheet: Option<String> = None;
+    let mut addrs = Vec::new();
+    for (i, p) in parts.iter().enumerate() {
+        let p = p.trim();
+        // Nom de feuille éventuel avant le dernier « . » hors apostrophes.
+        let mut split = None;
+        let mut q = false;
+        for (k, c) in p.char_indices() {
+            match c {
+                '\'' => q = !q,
+                '.' if !q => split = Some(k),
+                _ => {}
+            }
+        }
+        let (sh, addr) = match split {
+            Some(k) => (&p[..k], &p[k + 1..]),
+            None => ("", p),
+        };
+        let sh = sh.trim_start_matches('$');
+        if i == 0 && !sh.is_empty() {
+            let name = sh
+                .strip_prefix('\'')
+                .and_then(|x| x.strip_suffix('\''))
+                .map(|x| x.replace("''", "'"))
+                .unwrap_or_else(|| sh.to_string());
+            sheet = Some(name);
+        }
+        if addr.contains('#') || addr.is_empty() {
+            return REF_ERROR.to_string();
+        }
+        addrs.push(addr.to_string());
+    }
+    let prefix = sheet
+        .map(|s| format!("{}!", crate::refs::quote_sheet_name(&s)))
+        .unwrap_or_default();
+    let body = addrs.join(":");
+    // Colonnes entières : [.A:.A].
+    let body = if addrs.len() == 2
+        && addrs
+            .iter()
+            .all(|a| a.trim_start_matches('$').chars().all(|c| c.is_ascii_alphabetic()))
+    {
+        expand_whole_columns(&body)
+    } else {
+        body
+    };
+    format!("{prefix}{body}")
+}
+
+/// Formule OpenFormula d'un fichier ODS (`of:=SUM([.A1:.A3])`) → saisie Varium.
+pub(crate) fn from_odf_formula(f: &str) -> String {
+    let f = f.trim();
+    let (ns, body) = match f.split_once(':') {
+        Some((ns, rest))
+            if !ns.is_empty()
+                && ns.len() <= 8
+                && ns.chars().all(|c| c.is_ascii_alphanumeric())
+                && rest.starts_with('=') =>
+        {
+            (ns, rest)
+        }
+        _ => ("of", f),
+    };
+    if ns.eq_ignore_ascii_case("msoxl") {
+        return from_xlsx_formula(body);
+    }
+    let body = body.strip_prefix('=').unwrap_or(body);
+    let body = odf_refs(body);
+    to_french_tokens(&format!("={body}"))
+}
+
+/// Remplace les références entre crochets (hors chaînes).
+fn odf_refs(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    let mut in_str = false;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' {
+            in_str = !in_str;
+        }
+        if !in_str && c == '[' {
+            // Fin du crochet, en sautant les apostrophes.
+            let mut j = i + 1;
+            let mut q = false;
+            while j < chars.len() {
+                match chars[j] {
+                    '\'' => q = !q,
+                    ']' if !q => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            if j < chars.len() {
+                let inner: String = chars[i + 1..j].iter().collect();
+                out.push_str(&odf_ref(&inner));
+                i = j + 1;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,6 +641,46 @@ mod tests {
             "of:=[$'Feuille 2'.$B$2]*TRUE()"
         );
         assert_eq!(to_odf_formula("=SI(A1;1,5;2)"), "of:=IF([.A1];1.5;2)");
+    }
+
+    #[test]
+    fn formules_importees() {
+        assert_eq!(from_xlsx_formula("SUM(A1,B2)"), "=SOMME(A1;B2)");
+        assert_eq!(
+            from_xlsx_formula("IF(A1>=1.5,\"a,b\",FALSE)"),
+            "=SI(A1>=1,5;\"a,b\";FAUX)"
+        );
+        assert_eq!(
+            from_xlsx_formula("'Feuille, 2'!A1+_xlfn.CONCAT(\"x\",B1)"),
+            "='Feuille, 2'!A1+CONCAT(\"x\";B1)"
+        );
+        assert_eq!(from_xlsx_formula("SUM(A:A)"), "=SOMME(A$1:A$1048576)");
+        assert_eq!(from_xlsx_formula("#DIV/0!"), "=#DIV/0!");
+        assert_eq!(from_xlsx_formula("VLOOKUP(1,A1:B3,2,0)"), "=RECHERCHEV(1;A1:B3;2;0)");
+        assert_eq!(from_odf_formula("of:=SUM([.A1:.A3])"), "=SOMME(A1:A3)");
+        assert_eq!(
+            from_odf_formula("of:=[$'Feuille 2'.$B$2]*TRUE()"),
+            "='Feuille 2'!$B$2*VRAI()"
+        );
+        assert_eq!(
+            from_odf_formula("of:=IF([.A1];1.5;\"[x]\")"),
+            "=SI(A1;1,5;\"[x]\")"
+        );
+        assert_eq!(from_odf_formula("of:=[$Feuille2.A1:.B2]"), "=Feuille2!A1:B2");
+        assert_eq!(from_odf_formula("of:=[.#REF!]+1"), "=#REF!+1");
+        assert_eq!(from_odf_formula("msoxl:=SUM(A1,A2)"), "=SOMME(A1;A2)");
+        // Aller-retour avec les exports.
+        for f in [
+            "=SOMME(A1:A3)*2",
+            "=SI(A1>=1,5;\"oui\";FAUX)",
+            "='Feuille 2'!$B$2&\"x\"",
+            "=RECHERCHEV(A1;'L''autre'!A1:B3;2;0)",
+        ] {
+            assert_eq!(from_xlsx_formula(&to_xlsx_formula(f)), f, "xlsx {f}");
+            let odf = to_odf_formula(f);
+            let back = from_odf_formula(&odf);
+            assert_eq!(back.replace("VRAI()", "VRAI").replace("FAUX()", "FAUX"), f, "ods {f}");
+        }
     }
 
     #[test]
