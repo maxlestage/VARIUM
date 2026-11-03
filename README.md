@@ -55,6 +55,8 @@ la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
   `{{titre | default:"Madame, Monsieur"}}`, etc.
 - **Champs calculés** : `{{= quantité * prix | money}}`, `{{= total * 20%}}`,
   `arrondi(x; 2)`, `min`, `max`, `somme`.
+- **Texte conditionnel** : `{{si remise}}…{{sinon}}…{{fin}}`, `{{si non champ}}`,
+  `{{si statut = payé}}` ; les blocs s'imbriquent, une directive seule sur sa ligne disparaît avec elle.
 - **Date du jour** : `{{aujourdhui}}` se remplit tout seul.
 - **Renommer partout** (formules comprises) et **figer** une valeur dans le texte.
 
@@ -125,6 +127,7 @@ Déploiement du serveur (Heroku, Docker) : voir
 | `$E = mc^2$`, `$$ \sum_i x_i $$` | formules LaTeX |
 | `\$` | dollar littéral |
 | `{{= quantité * prix \| money}}` | champ calculé (`+ - * / ( )`, `20%`, `arrondi(x; 2)`, `min`, `max`, `somme`) |
+| `{{si champ}}…{{sinon}}…{{fin}}` | texte conditionnel (champ renseigné, `si non`, `=`, `!=`) |
 | `{{aujourdhui}}` | date du jour |
 | `# Titre`, `## Sous-titre`, `### Titre 3` | titres |
 | `**gras**`, `*italique*`, `__souligné__`, `~~barré~~` | caractères |
