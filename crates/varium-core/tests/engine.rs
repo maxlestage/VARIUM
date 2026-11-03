@@ -373,3 +373,67 @@ fn typographie_dans_les_exports() {
     let d = export::prepare("C'est \"oui\" !", &v, &page);
     assert_eq!(d.paras[0].plain(), "C'est \"oui\" !");
 }
+
+#[test]
+fn formats_selon_la_langue() {
+    use varium_core::{Lang, PageSetup};
+    let v = {
+        let mut v = vals(&[("d", "2026-03-01"), ("m", "12500.5")]);
+        v.types.insert("d".into(), VarType::Date);
+        v.types.insert("m".into(), VarType::Money);
+        v
+    };
+    let src = "{{d}} · {{d | date:full}} · {{m}} · {{m | number:1}}";
+    let out = |lang: Lang| {
+        let page = PageSetup {
+            langue: lang,
+            typographie: false,
+            ..PageSetup::default()
+        };
+        export::prepare(src, &v, &page).paras[0].plain()
+    };
+    assert_eq!(
+        out(Lang::Fr),
+        "1er mars 2026 · dimanche 1er mars 2026 · 12\u{202f}500,50\u{a0}€ · 12\u{202f}500,5"
+    );
+    assert_eq!(
+        out(Lang::En),
+        "1 March 2026 · Sunday 1 March 2026 · €12,500.50 · 12,500.5"
+    );
+    assert_eq!(
+        out(Lang::De),
+        "1. März 2026 · Sonntag, 1. März 2026 · 12.500,50\u{a0}€ · 12.500,5"
+    );
+    assert_eq!(
+        out(Lang::Es),
+        "1 de marzo de 2026 · domingo, 1 de marzo de 2026 · 12.500,50\u{a0}€ · 12.500,5"
+    );
+    assert_eq!(
+        out(Lang::It),
+        "1º marzo 2026 · domenica 1º marzo 2026 · 12.500,50\u{a0}€ · 12.500,5"
+    );
+    assert_eq!(
+        out(Lang::Pt),
+        "1 de março de 2026 · domingo, 1 de março de 2026 · 12.500,50\u{a0}€ · 12.500,5"
+    );
+    // Hors mise en page, le français reste la langue des filtres.
+    assert_eq!(
+        render("{{m | money}}", &v, Missing::Keep),
+        "12\u{202f}500,50\u{a0}€"
+    );
+    // Les exports portent la langue.
+    let page = PageSetup {
+        langue: Lang::De,
+        ..PageSetup::default()
+    };
+    let docs = [export::prepare("Hallo", &v, &page)];
+    assert!(export::html("T", &docs, &page).contains("<html lang=\"de\">"));
+    assert!(
+        String::from_utf8_lossy(&varium_core::odt::odt("T", &docs, &page))
+            .contains("fo:language=\"de\" fo:country=\"DE\"")
+    );
+    assert!(
+        String::from_utf8_lossy(&varium_core::docx::docx("T", &docs, &page))
+            .contains("w:val=\"de-DE\"")
+    );
+}

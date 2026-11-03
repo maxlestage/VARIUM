@@ -6,12 +6,15 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod calc_ui;
 mod editor;
 mod files;
 mod fonts;
 mod io;
 mod pageview;
 mod secours;
+mod slides_ui;
+mod suite;
 mod templates;
 
 fn main() -> eframe::Result {
@@ -31,6 +34,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Varium",
         options,
-        Box::new(|cc| Ok(Box::new(app::VariumApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(suite::Suite::new(cc)))),
     )
 }
