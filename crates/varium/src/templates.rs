@@ -1,5 +1,6 @@
 //! Modèles prêts à l'emploi (Fichier → Nouveau à partir d'un modèle).
 
+use crate::tr::n_;
 use varium_core::{PageSetup, Project, Values, VarType};
 
 pub struct Template {
@@ -340,54 +341,54 @@ fn convocation_values() -> Values {
 
 pub const ALL: &[Template] = &[
     Template {
-        name: "Lettre",
+        name: n_("Lettre"),
         icon: "✉",
-        description: "Courrier avec objet, montant et mensualité calculée",
+        description: n_("Courrier avec objet, montant et mensualité calculée"),
         title: "Courrier de suivi",
         source: LETTRE,
         values: lettre_values,
         page: page_default,
     },
     Template {
-        name: "Facture",
+        name: n_("Facture"),
         icon: "🧾",
-        description: "Tableau des prestations, totaux HT, TVA et TTC calculés",
+        description: n_("Tableau des prestations, totaux HT, TVA et TTC calculés"),
         title: "Facture",
         source: FACTURE,
         values: facture_values,
         page: page_default,
     },
     Template {
-        name: "Devis",
+        name: n_("Devis"),
         icon: "📝",
-        description: "Postes, total et acompte calculés automatiquement",
+        description: n_("Postes, total et acompte calculés automatiquement"),
         title: "Devis",
         source: DEVIS,
         values: devis_values,
         page: page_default,
     },
     Template {
-        name: "Attestation",
+        name: n_("Attestation"),
         icon: "🎓",
-        description: "Attestation de formation datée du jour",
+        description: n_("Attestation de formation datée du jour"),
         title: "Attestation",
         source: ATTESTATION,
         values: attestation_values,
         page: page_default,
     },
     Template {
-        name: "Contrat",
+        name: n_("Contrat"),
         icon: "📑",
-        description: "Contrat de prestation en articles, sur deux pages",
+        description: n_("Contrat de prestation en articles, sur deux pages"),
         title: "Contrat de prestation",
         source: CONTRAT,
         values: contrat_values,
         page: page_numbered,
     },
     Template {
-        name: "Convocation",
+        name: n_("Convocation"),
         icon: "📅",
-        description: "Invitation à un entretien, idéale pour le publipostage",
+        description: n_("Invitation à un entretien, idéale pour le publipostage"),
         title: "Convocation",
         source: CONVOCATION,
         values: convocation_values,

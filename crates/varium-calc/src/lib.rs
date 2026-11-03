@@ -31,15 +31,29 @@
 //! `#NOMBRE!`. Les formules sont limitées à 8 192 caractères et 64 niveaux
 //! d'imbrication : aucune saisie ne peut faire planter le moteur.
 //!
+//! # Mise en forme conditionnelle, volets figés, imports
+//!
+//! Chaque feuille porte ses règles de mise en forme conditionnelle
+//! ([`CondFormat`] : comparaisons, texte, vide, erreur, N premiers, moyenne,
+//! échelles de couleurs, barres de données ; voir [`CondFormatter`] pour
+//! l'ordre d'application) et ses volets figés (`frozen_rows`,
+//! `frozen_cols`). Les deux sont enregistrés en JSON et exportés en XLSX et
+//! ODS. [`Workbook::from_xlsx`] et [`Workbook::from_ods`] relisent ces
+//! formats (valeurs, formules traduites, formats, largeurs, règles, volets) ;
+//! un fichier abîmé donne une erreur en français.
+//!
 //! Les dates sont des numéros de série comptés depuis le 30/12/1899, comme
 //! dans les tableurs.
 
+mod cond;
 mod csv;
 mod eval;
 mod format;
 mod functions;
+mod import;
 mod lexer;
 mod ods;
+mod ods_read;
 mod parser;
 mod refs;
 mod rewrite;
@@ -47,8 +61,11 @@ mod sample;
 mod value;
 mod workbook;
 mod xlsx;
+mod xlsx_read;
 mod xml;
+mod xmltree;
 
+pub use cond::{CompareOp, CondFormat, CondFormatter, CondPaint, CondRule, CondStyle};
 pub use format::{
     CellFormat, HAlign, NBSP, NumberFormat, THOUSANDS_SEP, date_serial, format_general,
     format_number, format_value, parse_number, serial_to_ymd, today_serial,

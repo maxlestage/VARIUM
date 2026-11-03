@@ -9,9 +9,12 @@ use std::fmt::Write as _;
 
 use varium_core::zip::Zip;
 
+use crate::cond::{CompareOp, CondRule, CondStyle};
 use crate::eval::{CellMap, is_formula};
-use crate::format::{CellFormat, HAlign, NBSP, NumberFormat, format_value, serial_to_ymd};
-use crate::refs::CellRef;
+use crate::format::{
+    CellFormat, HAlign, NBSP, NumberFormat, format_value, parse_literal, serial_to_ymd,
+};
+use crate::refs::{CellRef, MAX_COLS, MAX_ROWS, quote_sheet_name};
 use crate::rewrite::to_odf_formula;
 use crate::value::Value;
 use crate::workbook::{DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, Sheet, Workbook};
@@ -30,6 +33,7 @@ const NAMESPACES: &str = concat!(
     " xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\"",
     " xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\"",
     " xmlns:dc=\"http://purl.org/dc/elements/1.1/\"",
+    " xmlns:calcext=\"urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0\"",
     " office:version=\"1.3\""
 );
 
@@ -45,6 +49,8 @@ struct Styles {
     cell_index: HashMap<CellFormat, usize>,
     cols: Vec<String>,
     rows: Vec<String>,
+    /// Styles nommés des règles conditionnelles (`VariumCF1`…), dans styles.xml.
+    conds: Vec<CondStyle>,
 }
 
 impl Styles {
@@ -87,6 +93,51 @@ impl Styles {
             }
         };
         format!("ro{}", i + 1)
+    }
+
+    fn cond(&mut self, c: CondStyle) -> String {
+        let i = match self.conds.iter().position(|x| *x == c) {
+            Some(i) => i,
+            None => {
+                self.conds.push(c);
+                self.conds.len() - 1
+            }
+        };
+        format!("VariumCF{}", i + 1)
+    }
+
+    /// Styles nommés des règles conditionnelles.
+    fn cond_xml(&self) -> String {
+        let mut x = String::new();
+        for (i, c) in self.conds.iter().enumerate() {
+            let _ = write!(
+                x,
+                "<style:style style:name=\"VariumCF{}\" style:family=\"table-cell\" style:parent-style-name=\"Default\">",
+                i + 1
+            );
+            if let Some(f) = c.fill {
+                let _ = write!(
+                    x,
+                    "<style:table-cell-properties fo:background-color=\"#{}\"/>",
+                    hex(f).to_lowercase()
+                );
+            }
+            if c.bold || c.italic || c.color.is_some() {
+                x.push_str("<style:text-properties");
+                if let Some(col) = c.color {
+                    let _ = write!(x, " fo:color=\"#{}\"", hex(col).to_lowercase());
+                }
+                if c.bold {
+                    x.push_str(" fo:font-weight=\"bold\" style:font-weight-asian=\"bold\" style:font-weight-complex=\"bold\"");
+                }
+                if c.italic {
+                    x.push_str(" fo:font-style=\"italic\" style:font-style-asian=\"italic\" style:font-style-complex=\"italic\"");
+                }
+                x.push_str("/>");
+            }
+            x.push_str("</style:style>");
+        }
+        x
     }
 
     fn data_name(&self, n: NumberFormat) -> Option<String> {
@@ -418,7 +469,187 @@ fn table_xml(sheet: &Sheet, name: &str, values: Option<&CellMap>, styles: &mut S
     if last_row == 0 {
         x.push_str("<table:table-row><table:table-cell/></table:table-row>");
     }
+    x.push_str(&cond_formats_xml(sheet, name, styles));
     x.push_str("</table:table>");
+    x
+}
+
+/// Adresse ODF d'une cellule : `Feuille.A1` ou `'Feuille 2'.A1`.
+fn odf_addr(sheet: &str, at: CellRef) -> String {
+    format!("{}.{}", quote_sheet_name(sheet), at.name())
+}
+
+/// Constante d'une condition : nombre (point décimal) ou texte entre guillemets.
+fn cond_operand(v: &str) -> String {
+    match parse_literal(v.trim()).0 {
+        Value::Number(n) => num(n),
+        Value::Bool(b) => if b { "1" } else { "0" }.into(),
+        _ => format!("\"{}\"", v.trim().replace('"', "\"\"")),
+    }
+}
+
+/// `<calcext:conditional-formats>`, comme LibreOffice les écrit : les règles
+/// consécutives sur la même plage sont regroupées (la première vérifiée l'emporte).
+fn cond_formats_xml(sheet: &Sheet, name: &str, styles: &mut Styles) -> String {
+    if sheet.cond_formats.is_empty() {
+        return String::new();
+    }
+    let mut x = String::from("<calcext:conditional-formats>");
+    let mut i = 0;
+    let rules = &sheet.cond_formats;
+    while i < rules.len() {
+        let range = rules[i].range;
+        let target = format!(
+            "{}:{}",
+            odf_addr(name, range.start),
+            odf_addr(name, range.end)
+        );
+        let base = odf_addr(name, range.start);
+        let _ = write!(
+            x,
+            "<calcext:conditional-format calcext:target-range-address=\"{}\">",
+            esc(&target)
+        );
+        while i < rules.len() && rules[i].range == range {
+            let cf = &rules[i];
+            i += 1;
+            let tl = format!("[.{}]", range.start.name());
+            let q = |t: &str| format!("\"{}\"", t.replace('"', "\"\""));
+            let value = match &cf.rule {
+                CondRule::ColorScale { min, mid, max } => {
+                    x.push_str("<calcext:color-scale>");
+                    let _ = write!(
+                        x,
+                        "<calcext:color-scale-entry calcext:value=\"0\" calcext:type=\"minimum\" calcext:color=\"#{}\"/>",
+                        hex(*min).to_lowercase()
+                    );
+                    if let Some(m) = mid {
+                        let _ = write!(
+                            x,
+                            "<calcext:color-scale-entry calcext:value=\"50\" calcext:type=\"percentile\" calcext:color=\"#{}\"/>",
+                            hex(*m).to_lowercase()
+                        );
+                    }
+                    let _ = write!(
+                        x,
+                        "<calcext:color-scale-entry calcext:value=\"0\" calcext:type=\"maximum\" calcext:color=\"#{}\"/></calcext:color-scale>",
+                        hex(*max).to_lowercase()
+                    );
+                    continue;
+                }
+                CondRule::DataBar { color } => {
+                    let _ = write!(
+                        x,
+                        "<calcext:data-bar calcext:min-length=\"10\" calcext:max-length=\"90\" calcext:negative-color=\"#ff0000\" calcext:axis-position=\"none\" calcext:positive-color=\"#{}\" calcext:axis-color=\"#000000\"><calcext:formatting-entry calcext:value=\"0\" calcext:type=\"minimum\"/><calcext:formatting-entry calcext:value=\"0\" calcext:type=\"maximum\"/></calcext:data-bar>",
+                        hex(*color).to_lowercase()
+                    );
+                    continue;
+                }
+                CondRule::Compare { op, value, value2 } => {
+                    let a = cond_operand(value);
+                    let b = cond_operand(value2);
+                    match op {
+                        CompareOp::Gt => format!(">{a}"),
+                        CompareOp::Ge => format!(">={a}"),
+                        CompareOp::Lt => format!("<{a}"),
+                        CompareOp::Le => format!("<={a}"),
+                        CompareOp::Eq => format!("={a}"),
+                        CompareOp::Ne => format!("!={a}"),
+                        CompareOp::Between => format!("between({a},{b})"),
+                        CompareOp::NotBetween => format!("not-between({a},{b})"),
+                    }
+                }
+                CondRule::Contains { text } => format!("contains-text({})", q(text)),
+                CondRule::BeginsWith { text } => format!("begins-with({})", q(text)),
+                CondRule::EndsWith { text } => format!("ends-with({})", q(text)),
+                CondRule::Empty => format!("formula-is(LEN(TRIM({tl}))=0)"),
+                CondRule::NotEmpty => format!("formula-is(LEN(TRIM({tl}))>0)"),
+                CondRule::Error => "is-error".into(),
+                CondRule::Top { n, bottom, percent } => format!(
+                    "{}-{}({})",
+                    if *bottom { "bottom" } else { "top" },
+                    if *percent { "percent" } else { "elements" },
+                    (*n).max(1)
+                ),
+                CondRule::Average { above: true } => "above-average".into(),
+                CondRule::Average { above: false } => "below-average".into(),
+            };
+            let style = styles.cond(cf.style);
+            let _ = write!(
+                x,
+                "<calcext:condition calcext:apply-style-name=\"{style}\" calcext:value=\"{}\" calcext:base-cell-address=\"{}\"/>",
+                esc(&value),
+                esc(&base)
+            );
+        }
+        x.push_str("</calcext:conditional-format>");
+    }
+    x.push_str("</calcext:conditional-formats>");
+    x
+}
+
+/// `settings.xml` : volets figés de chaque feuille (vue de LibreOffice).
+fn settings_xml(wb: &Workbook, names: &[String]) -> String {
+    let mut x = String::from(HEADER);
+    x.push_str("<office:document-settings xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:config=\"urn:oasis:names:tc:opendocument:xmlns:config:1.0\" office:version=\"1.3\"><office:settings>");
+    x.push_str("<config:config-item-set config:name=\"ooo:view-settings\"><config:config-item-map-indexed config:name=\"Views\"><config:config-item-map-entry>");
+    x.push_str("<config:config-item config:name=\"ViewId\" config:type=\"string\">view1</config:config-item>");
+    x.push_str("<config:config-item-map-named config:name=\"Tables\">");
+    let item = |x: &mut String, name: &str, kind: &str, v: u32| {
+        let _ = write!(
+            x,
+            "<config:config-item config:name=\"{name}\" config:type=\"{kind}\">{v}</config:config-item>"
+        );
+    };
+    for (sheet, name) in wb.sheets.iter().zip(names) {
+        let rows = sheet.frozen_rows.min(MAX_ROWS - 1);
+        let cols = sheet.frozen_cols.min(MAX_COLS - 1);
+        let _ = write!(
+            x,
+            "<config:config-item-map-entry config:name=\"{}\">",
+            esc(name)
+        );
+        item(&mut x, "CursorPositionX", "int", 0);
+        item(&mut x, "CursorPositionY", "int", 0);
+        item(
+            &mut x,
+            "HorizontalSplitMode",
+            "short",
+            if cols > 0 { 2 } else { 0 },
+        );
+        item(
+            &mut x,
+            "VerticalSplitMode",
+            "short",
+            if rows > 0 { 2 } else { 0 },
+        );
+        item(&mut x, "HorizontalSplitPosition", "int", cols);
+        item(&mut x, "VerticalSplitPosition", "int", rows);
+        let active = match (rows > 0, cols > 0) {
+            (true, true) => 3,
+            (true, false) => 2,
+            (false, true) => 1,
+            (false, false) => 2,
+        };
+        item(&mut x, "ActiveSplitRange", "short", active);
+        item(&mut x, "PositionLeft", "int", 0);
+        item(&mut x, "PositionRight", "int", cols);
+        item(&mut x, "PositionTop", "int", 0);
+        item(&mut x, "PositionBottom", "int", rows);
+        x.push_str("</config:config-item-map-entry>");
+    }
+    x.push_str("</config:config-item-map-named>");
+    if let Some(first) = names.first() {
+        let _ = write!(
+            x,
+            "<config:config-item config:name=\"ActiveTable\" config:type=\"string\">{}</config:config-item>",
+            esc(first)
+        );
+    }
+    x.push_str(
+        "</config:config-item-map-entry></config:config-item-map-indexed></config:config-item-set>",
+    );
+    x.push_str("</office:settings></office:document-settings>");
     x
 }
 
@@ -450,6 +681,7 @@ pub(crate) fn to_ods(wb: &Workbook) -> Vec<u8> {
     st.push_str("<office:styles>");
     st.push_str("<style:default-style style:family=\"table-cell\"><style:text-properties fo:language=\"fr\" fo:country=\"FR\"/></style:default-style>");
     st.push_str("<style:style style:name=\"Default\" style:family=\"table-cell\"/>");
+    st.push_str(&styles.cond_xml());
     st.push_str("</office:styles></office:document-styles>");
 
     let mut meta = String::from(HEADER);
@@ -468,7 +700,7 @@ pub(crate) fn to_ods(wb: &Workbook) -> Vec<u8> {
         manifest,
         "<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.3\" manifest:media-type=\"{MIME}\"/>"
     );
-    for f in ["content.xml", "styles.xml", "meta.xml"] {
+    for f in ["content.xml", "styles.xml", "meta.xml", "settings.xml"] {
         let _ = write!(
             manifest,
             "<manifest:file-entry manifest:full-path=\"{f}\" manifest:media-type=\"text/xml\"/>"
@@ -482,6 +714,7 @@ pub(crate) fn to_ods(wb: &Workbook) -> Vec<u8> {
     zip.add("content.xml", content.as_bytes());
     zip.add("styles.xml", st.as_bytes());
     zip.add("meta.xml", meta.as_bytes());
+    zip.add("settings.xml", settings_xml(wb, &names).as_bytes());
     zip.finish()
 }
 

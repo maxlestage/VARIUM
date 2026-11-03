@@ -1,5 +1,6 @@
 //! Ouverture, enregistrement et impression (dialogues natifs rfd).
 
+use crate::tr::tr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -57,17 +58,26 @@ impl Io {
         let ctx = ctx.clone();
         let dialog = match kind {
             OpenKind::Document => rfd::AsyncFileDialog::new()
-                .set_title("Ouvrir un document Varium")
-                .add_filter("Varium / texte", OPEN_EXTENSIONS),
+                .set_title(tr("Ouvrir un document Varium"))
+                .add_filter(tr("Varium / texte"), OPEN_EXTENSIONS),
             OpenKind::Data => rfd::AsyncFileDialog::new()
-                .set_title("Choisir les données du publipostage")
-                .add_filter("Tableau CSV", DATA_EXTENSIONS),
+                .set_title(tr("Choisir les données du publipostage"))
+                .add_filter(tr("Tableau CSV"), DATA_EXTENSIONS),
             OpenKind::Workbook => rfd::AsyncFileDialog::new()
-                .set_title("Ouvrir un classeur")
-                .add_filter("Classeur Varium ou CSV", &["json", "csv", "tsv", "txt"]),
+                .set_title(tr("Ouvrir un classeur"))
+                .add_filter(
+                    tr("Classeur (Varium, Excel, OpenDocument, CSV)"),
+                    &["json", "xlsx", "xlsm", "ods", "csv", "tsv", "txt"],
+                ),
             OpenKind::Deck => rfd::AsyncFileDialog::new()
-                .set_title("Ouvrir une présentation")
-                .add_filter("Présentation Varium", &["json"]),
+                .set_title(tr("Ouvrir une présentation"))
+                .add_filter(
+                    tr("Présentation (Varium, Impress, PowerPoint)"),
+                    &["json", "odp", "pptx"],
+                )
+                .add_filter(tr("Présentation Varium"), &["json"])
+                .add_filter(tr("LibreOffice Impress"), &["odp"])
+                .add_filter(tr("PowerPoint"), &["pptx"]),
         };
         spawn(async move {
             let Some(file) = dialog.pick_file().await else {
@@ -88,7 +98,7 @@ impl Io {
         );
         let ev = match std::fs::read(path) {
             Ok(bytes) => decode(kind, name, Some(path.to_path_buf()), bytes),
-            Err(e) => Event::Error(format!("Ouverture impossible de « {name} » : {e}")),
+            Err(e) => Event::Error(trf!("Ouverture impossible de « {name} » : {e}", name, e)),
         };
         Self::push(&self.inbox, ctx, ev);
     }
@@ -105,7 +115,7 @@ impl Io {
         let inbox = self.inbox.clone();
         let ctx = ctx.clone();
         let dialog = rfd::AsyncFileDialog::new()
-            .set_title("Enregistrer")
+            .set_title(tr("Enregistrer"))
             .set_file_name(&file_name);
         spawn(async move {
             let Some(handle) = dialog.save_file().await else {
@@ -114,7 +124,7 @@ impl Io {
             let path = handle.path().to_path_buf();
             let ev = match write_atomic(&path, &content) {
                 Ok(()) => Event::Saved { path, project },
-                Err(e) => Event::Error(format!("Écriture impossible : {e}")),
+                Err(e) => Event::Error(trf!("Écriture impossible : {e}", e)),
             };
             Self::push(&inbox, &ctx, ev);
         });
@@ -127,7 +137,7 @@ impl Io {
                 path,
                 project: true,
             },
-            Err(e) => Event::Error(format!("Écriture impossible : {e}")),
+            Err(e) => Event::Error(trf!("Écriture impossible : {e}", e)),
         };
         Self::push(&self.inbox, ctx, ev);
     }
@@ -144,15 +154,16 @@ impl Io {
         let ev = match std::fs::write(&path, html) {
             Ok(()) => match open_in_browser(&path) {
                 Ok(()) => Event::Info(
-                    "Document ouvert dans le navigateur : imprimez-le ou enregistrez-le en PDF"
+                    tr("Document ouvert dans le navigateur : imprimez-le ou enregistrez-le en PDF")
                         .into(),
                 ),
-                Err(e) => Event::Error(format!(
-                    "Navigateur introuvable ({e}) : ouvrez {}",
-                    path.display()
+                Err(e) => Event::Error(trf!(
+                    "Navigateur introuvable ({e}) : ouvrez {path}",
+                    e,
+                    path = path.display()
                 )),
             },
-            Err(e) => Event::Error(format!("Écriture impossible : {e}")),
+            Err(e) => Event::Error(trf!("Écriture impossible : {e}", e)),
         };
         Self::push(&self.inbox, ctx, ev);
     }
@@ -160,6 +171,16 @@ impl Io {
 
 /// Le contenu d'un fichier ouvert, en texte.
 fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -> Event {
+    // Présentations ODP et PPTX (archives ZIP) : transmises octet pour caractère
+    // (U+0000 à U+00FF), que le module Présentation reconvertit en octets.
+    if kind == OpenKind::Deck && (bytes.starts_with(b"PK\x03\x04") || is_zip_deck(&name)) {
+        return Event::Opened {
+            kind,
+            name,
+            content: bytes.iter().map(|&b| b as char).collect(),
+            path,
+        };
+    }
     match String::from_utf8(bytes) {
         Ok(content) => Event::Opened {
             kind,
@@ -174,8 +195,14 @@ fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -
             content: e.into_bytes().iter().map(|&b| cp1252(b)).collect(),
             path,
         },
-        Err(_) => Event::Error(format!("« {name} » n'est pas un fichier texte UTF-8")),
+        Err(_) => Event::Error(trf!("« {name} » n'est pas un fichier texte UTF-8", name)),
     }
+}
+
+/// Présentation enregistrée dans une archive (`.odp`, `.pptx`).
+fn is_zip_deck(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.ends_with(".odp") || n.ends_with(".pptx")
 }
 
 /// Écrit dans un fichier temporaire voisin puis le renomme : un plantage ou un
@@ -264,6 +291,18 @@ mod tests {
     fn ecriture_dans_un_dossier_absent_echoue_proprement() {
         let f = std::env::temp_dir().join("varium-absent-xyz/dossier/doc.json");
         assert!(write_atomic(&f, b"x").is_err());
+    }
+
+    #[test]
+    fn decode_transmet_les_presentations_binaires() {
+        let octets = vec![b'P', b'K', 3, 4, 0xff, 0x80, 0];
+        match decode(OpenKind::Deck, "a.pptx".into(), None, octets.clone()) {
+            Event::Opened { content, .. } => {
+                let relu: Vec<u8> = content.chars().map(|c| c as u32 as u8).collect();
+                assert_eq!(relu, octets);
+            }
+            _ => panic!("présentation binaire attendue"),
+        }
     }
 
     #[test]
