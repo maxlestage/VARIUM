@@ -469,64 +469,98 @@ pub async fn syntaxe(req: Request) -> Page {
 // 404, robots.txt, sitemap.xml
 // ---------------------------------------------------------------------------------
 
-/// `GET /installer/` : installer l'application de bureau.
+/// Où télécharger les binaires : la dernière Release GitHub (noms de fichiers stables).
+pub const TELECHARGEMENTS: &str = "https://github.com/maxlestage/VARIUM/releases/latest/download/";
+
+/// (système, fichier, taille indicative, étapes)
+const SYSTEMES: [(&str, &str, &str, &[&str]); 3] = [
+    (
+        "Windows",
+        "varium-windows-x86_64.zip",
+        "Windows 10 et 11, 64 bits",
+        &[
+            "Décompressez le fichier (clic droit → Extraire tout).",
+            "Lancez varium.exe.",
+            "Si Windows affiche « Windows a protégé votre ordinateur » : « Informations complémentaires » → « Exécuter quand même ».",
+        ],
+    ),
+    (
+        "macOS",
+        "varium-macos.zip",
+        "macOS 11 ou plus récent, Apple Silicon et Intel",
+        &[
+            "Décompressez le fichier et glissez Varium dans le dossier Applications.",
+            "Au premier lancement : clic droit sur Varium → Ouvrir → Ouvrir.",
+            "Si macOS refuse encore : Réglages Système → Confidentialité et sécurité → « Ouvrir quand même ».",
+        ],
+    ),
+    (
+        "Linux",
+        "varium-linux-x86_64.tar.gz",
+        "x86_64, glibc 2.35 ou plus récente (Ubuntu 22.04, Debian 12, Fedora 36…)",
+        &[
+            "Décompressez : tar xzf varium-linux-x86_64.tar.gz",
+            "Lancez : ./varium/varium",
+            "Pour le menu des applications : copiez varium dans ~/.local/bin, varium.desktop dans ~/.local/share/applications et varium.svg dans ~/.local/share/icons.",
+        ],
+    ),
+];
+
+/// `GET /installer/` : télécharger l'application de bureau.
 pub async fn installer(req: Request) -> Page {
     let o = Options::de(&req);
-    let etape = |titre: &str, texte: &str, code: &str| {
-        div()
-            .class("card")
-            .child(h3().text(titre.to_string()))
-            .child(p().class("muted").text(texte.to_string()))
-            .child(code_bloc(code))
-    };
+    let cartes = div()
+        .class("grid telechargements")
+        .children(SYSTEMES.iter().map(|(nom, fichier, compat, etapes)| {
+            article()
+                .class("card")
+                .id(nom.to_lowercase())
+                .child(h2().text(nom.to_string()))
+                .child(p().class("muted petit").text(compat.to_string()))
+                .child(
+                    a().class("button")
+                        .href(format!("{TELECHARGEMENTS}{fichier}"))
+                        .text(format!("Télécharger pour {nom}")),
+                )
+                .child(
+                    p().class("muted petit")
+                        .child(code().text(fichier.to_string())),
+                )
+                .child(ol().children(etapes.iter().map(|e| li().text(e.to_string()))))
+        }));
     let contenu = article()
-        .class("prose")
+        .class("prose large")
         .child(h1().text("Installer Varium"))
         .child(p().class("chapo").text(
-            "Varium est une application de bureau pour Linux, macOS et Windows. Pas de compte, pas de version en ligne : vos documents restent sur votre ordinateur.",
+            "Varium est une application de bureau gratuite pour Windows, macOS et Linux. Pas de compte, pas de version en ligne : vos documents restent sur votre ordinateur.",
         ))
-        .child(etape(
-            "1. Installer Rust",
-            "Une seule fois, depuis rustup.rs (Linux, macOS) ou l'installateur Windows.",
-            "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
-        ))
-        .child(etape(
-            "2. Installer Varium",
-            "Cargo télécharge, compile et installe la commande varium.",
-            "cargo install --git https://github.com/maxlestage/VARIUM varium --locked",
-        ))
-        .child(etape(
-            "3. Lancer Varium",
-            "Ouvrez Varium depuis un terminal ; la fenêtre s'ouvre sur la lettre d'exemple.",
-            "varium",
-        ))
-        .child(
-            section()
-                .child(h2().text("Sous Linux"))
-                .child(p().text(
-                    "Varium a besoin des bibliothèques graphiques habituelles (souvent déjà présentes) : libxkbcommon-x11, libwayland et un pilote Vulkan ou OpenGL. Sous Debian ou Ubuntu :",
-                ))
-                .child(code_bloc(
-                    "sudo apt install libxkbcommon-x11-0 libwayland-client0 libgl1",
-                )),
-        )
+        .child(cartes)
+        .child(p().class("muted").child(text("Toutes les versions et leurs notes : ")).child(
+            a().href("https://github.com/maxlestage/VARIUM/releases").text("page des versions sur GitHub"),
+        ).child(text(". Les applications ne sont pas encore signées par Apple ni Microsoft, d'où l'avertissement au premier lancement.")))
         .child(
             section()
                 .child(h2().text("Depuis le code source"))
+                .child(p().text(
+                    "Avec Rust (rustup.rs), la commande varium s'installe sur n'importe quel système :",
+                ))
                 .child(code_bloc(
-                    "git clone https://github.com/maxlestage/VARIUM\ncd VARIUM\ncargo run -p varium --release",
+                    "cargo install --git https://github.com/maxlestage/VARIUM varium --locked\nvarium",
+                ))
+                .child(p().class("muted").text(
+                    "Sous Linux, Varium utilise les bibliothèques graphiques habituelles (libxkbcommon, Wayland ou X11, un pilote OpenGL ou Vulkan), déjà présentes sur un bureau.",
                 )),
         )
         .child(
             div()
                 .class("row")
-                .child(a().class("button").href(REPO).text("Code source sur GitHub"))
+                .child(a().class("button ghost").href(REPO).text("Code source sur GitHub"))
                 .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
         );
     layout::page(
         &req,
         "Installer",
-        "Installer Varium, l'éditeur de documents à champs, sur Linux, macOS ou Windows.",
+        "Télécharger Varium, l'éditeur de documents à champs, pour Windows, macOS et Linux.",
         "/installer/",
         contenu.into(),
     )

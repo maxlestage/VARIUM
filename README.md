@@ -11,7 +11,16 @@ Varium est une **application de bureau** (Linux, macOS, Windows). Il n'y a pas d
 version en ligne : vos documents restent sur votre ordinateur.
 
 - **Site de présentation** : <https://maxlestage.github.io/VARIUM/>
-- **Installer** : `cargo install --git https://github.com/maxlestage/VARIUM varium --locked`, puis `varium`
+- **Télécharger** (dernière version) :
+  [Windows](https://github.com/maxlestage/VARIUM/releases/latest/download/varium-windows-x86_64.zip) ·
+  [macOS](https://github.com/maxlestage/VARIUM/releases/latest/download/varium-macos.zip) (Apple Silicon et Intel) ·
+  [Linux](https://github.com/maxlestage/VARIUM/releases/latest/download/varium-linux-x86_64.tar.gz) —
+  mode d'emploi sur la [page Installer](https://maxlestage.github.io/VARIUM/installer/)
+- **Depuis les sources** : `cargo install --git https://github.com/maxlestage/VARIUM varium --locked`, puis `varium`
+
+Une nouvelle version se publie en poussant un tag : `git tag v0.3.0 && git push origin v0.3.0`.
+Le workflow `.github/workflows/release.yml` compile alors les trois binaires et les joint à
+la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
 
 ## Fonctionnalités
 

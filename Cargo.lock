@@ -3793,7 +3793,7 @@ dependencies = [
 
 [[package]]
 name = "varium"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "egui",
@@ -3808,7 +3808,7 @@ dependencies = [
 
 [[package]]
 name = "varium-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
