@@ -45,6 +45,22 @@ la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
 - **Rechercher et remplacer**, **annuler et rétablir**, **barre d'état** (pages, mots,
   caractères, champs, zoom).
 
+**Comme Pages, et natif sur Mac**
+
+- **Inspecteur** à droite, comme dans Pages : onglets Format (styles de paragraphe,
+  police, alignement, espacement, insertion), Document (mise en page, statistiques),
+  Champs et Plan (titres cliquables).
+- **Galerie de modèles** au premier lancement, **plein écran** (F11, ⌃⌘F) et **mode
+  concentration** (⌘⇧F).
+- **Typographie française automatique** : « guillemets », apostrophe ’, …, espaces fines
+  avant ; : ! ? (désactivable dans Document).
+- **Exports Pages** : RTF (Pages, TextEdit) et EPUB (livre numérique), en plus de PDF,
+  DOCX, ODT, HTML, LaTeX et texte.
+- **Sur macOS** : menus dans la barre de l'écran (Varium, Fichier, Édition, Insertion,
+  Format, Présentation, Fenêtre, Aide) avec les raccourcis ⌘, À propos, Services,
+  Masquer ; `Varium.app` universelle avec son icône. Icône aussi dans `varium.exe` et
+  dans le paquet Linux.
+
 **Les champs**
 
 - **Champs globaux** : une valeur saisie met à jour toutes ses occurrences.
