@@ -630,3 +630,52 @@ mod tests {
         }
     }
 }
+
+/// Un titre du document, pour le plan (table des matières de la barre latérale).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Heading {
+    pub level: u8,
+    pub title: String,
+    /// Sélection du texte du titre dans la source (en caractères).
+    pub sel: Sel,
+}
+
+/// Les titres de la source (`#`, `##`, `###`), dans l'ordre.
+pub fn outline(src: &str) -> Vec<Heading> {
+    let mut out = Vec::new();
+    let mut chars = 0usize;
+    for line in src.split('\n') {
+        let len = line.chars().count();
+        if let (LineStyle::Heading(level), pre, _) = line_markup(line) {
+            let title = line[pre..].trim().to_string();
+            if !title.is_empty() {
+                let start = chars + line[..pre].chars().count();
+                out.push(Heading {
+                    level,
+                    title,
+                    sel: (start, chars + len),
+                });
+            }
+        }
+        chars += len + 1;
+    }
+    out
+}
+
+#[cfg(test)]
+mod outline_tests {
+    use super::*;
+
+    #[test]
+    fn plan() {
+        let src = "# Été\ntexte\n## Deux\n#pas un titre\n### Trois";
+        let o = outline(src);
+        assert_eq!(o.len(), 3);
+        assert_eq!(o[0].title, "Été");
+        assert_eq!(o[0].sel, (2, 5));
+        assert_eq!(o[1].level, 2);
+        let chars: Vec<char> = src.chars().collect();
+        let (a, b) = o[2].sel;
+        assert_eq!(chars[a..b].iter().collect::<String>(), "Trois");
+    }
+}

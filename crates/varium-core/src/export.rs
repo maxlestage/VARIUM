@@ -18,10 +18,26 @@ pub struct Rendered {
 
 /// Met en forme la source avec ses valeurs, en-tête et pied de page compris.
 pub fn prepare(src: &str, values: &Values, page: &PageSetup) -> Rendered {
+    let mut paras = doc::document(src, values);
+    let mut header = doc::inline(&page.header, values);
+    let mut footer = doc::inline(&page.footer, values);
+    if page.typographie {
+        crate::typo::apply(&mut paras);
+        for runs in [&mut header, &mut footer] {
+            let mut p = [doc::Para::Quote {
+                runs: std::mem::take(runs),
+            }];
+            crate::typo::apply(&mut p);
+            let [doc::Para::Quote { runs: r }] = p else {
+                unreachable!()
+            };
+            *runs = r;
+        }
+    }
     Rendered {
-        paras: doc::document(src, values),
-        header: doc::inline(&page.header, values),
-        footer: doc::inline(&page.footer, values),
+        paras,
+        header,
+        footer,
     }
 }
 

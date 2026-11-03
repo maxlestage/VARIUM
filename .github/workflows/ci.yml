@@ -42,9 +42,19 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
+  macos:
+    name: macOS (menus natifs)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install stable --profile minimal -c clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p varium --all-targets -- -D warnings
+      - run: cargo test -p varium
+
   merge:
     name: Fusion dans master
-    needs: [check, site]
+    needs: [check, site, macos]
     if: >-
       github.event_name == 'push' && github.ref_name != 'master' &&
       !startsWith(github.ref_name, 'wip/')
