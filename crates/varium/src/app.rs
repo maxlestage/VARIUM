@@ -60,6 +60,7 @@ enum Act {
     ClearValues,
     Shortcuts,
     Syntax,
+    Languages,
     About,
     ZoomIn,
     ZoomOut,
@@ -164,6 +165,7 @@ enum Inspector {
     Document,
     Fields,
     Outline,
+    Review,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -231,6 +233,7 @@ enum Dialog {
     Stats,
     Shortcuts,
     Syntax,
+    Languages(varium_core::Lang),
     About,
     /// Modifications non enregistrées : que faire avant de continuer ?
     Confirm(Pending),
@@ -513,6 +516,16 @@ impl VariumApp {
     }
 
     /// Des modifications ne sont-elles pas enregistrées ?
+    /// Le document a des modifications non enregistrées (pour la suite).
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.is_dirty()
+    }
+
+    /// Force la remise à jour du titre de la fenêtre (retour depuis un autre module).
+    pub fn refresh_window_title(&mut self) {
+        self.last_window_title.clear();
+    }
+
     fn is_dirty(&self) -> bool {
         self.saved.source != self.source
             || self.saved.title != self.title
@@ -845,6 +858,7 @@ impl VariumApp {
             }
             Act::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
             Act::Syntax => self.dialog = Some(Dialog::Syntax),
+            Act::Languages => self.dialog = Some(Dialog::Languages(self.page.langue)),
             Act::About => self.dialog = Some(Dialog::About),
             Act::ZoomIn => self.prefs.zoom = Some((self.zoom_now() + 0.1).min(3.0)),
             Act::ZoomOut => self.prefs.zoom = Some((self.zoom_now() - 0.1).max(0.3)),
@@ -934,6 +948,11 @@ impl VariumApp {
     fn handle_io(&mut self, ctx: &egui::Context) {
         for ev in self.io.drain() {
             match ev {
+                // Classeurs et présentations ont leur propre module.
+                Event::Opened {
+                    kind: OpenKind::Workbook | OpenKind::Deck,
+                    ..
+                } => {}
                 Event::Opened {
                     kind: OpenKind::Data,
                     name,
@@ -1185,6 +1204,7 @@ impl VariumApp {
         });
         ui.menu_button("Aide", |ui| {
             self.item(ui, "Guide de la syntaxe", Act::Syntax);
+            self.item(ui, "Écrire en plusieurs langues", Act::Languages);
             self.item(ui, "Raccourcis clavier", Act::Shortcuts);
             ui.hyperlink_to("Site de Varium", "https://maxlestage.github.io/VARIUM/");
             self.item(ui, "À propos de Varium", Act::About);
@@ -1508,8 +1528,17 @@ impl VariumApp {
         };
         let font = self.page.font;
         let size = if mobile { 17.0 } else { 16.0 };
+        // Remarques de la révision, soulignées dans le texte quand l'onglet est ouvert.
+        let issues: Vec<(usize, usize)> = if self.prefs.inspector == Inspector::Review {
+            varium_core::check::check(&self.source, self.page.langue)
+                .into_iter()
+                .map(|i| (i.start, i.end))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
-            let mut job = editor::highlight(buf.as_str(), &pal, font, size, &found);
+            let mut job = editor::highlight(buf.as_str(), &pal, font, size, &found, &issues);
             job.wrap.max_width = wrap;
             ui.ctx().fonts_mut(|f| f.layout_job(job))
         };
@@ -1555,15 +1584,19 @@ impl VariumApp {
     fn inspector(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            let w = (ui.available_width() - 6.0) / 4.0;
+            let w = (ui.available_width() - 8.0) / 5.0;
             for (tab, label) in [
                 (Inspector::Format, "Format"),
                 (Inspector::Document, "Document"),
                 (Inspector::Fields, "Champs"),
                 (Inspector::Outline, "Plan"),
+                (Inspector::Review, "Révision"),
             ] {
-                let b = egui::Button::selectable(self.prefs.inspector == tab, label)
-                    .min_size(Vec2::new(w, 26.0));
+                let b = egui::Button::selectable(
+                    self.prefs.inspector == tab,
+                    RichText::new(label).size(12.5),
+                )
+                .min_size(Vec2::new(w, 26.0));
                 if ui.add(b).clicked() {
                     self.prefs.inspector = tab;
                 }
@@ -1604,6 +1637,7 @@ impl VariumApp {
                     });
             }
             Inspector::Outline => self.outline_tab(ui),
+            Inspector::Review => self.review_tab(ui),
         }
     }
 
@@ -1725,6 +1759,138 @@ impl VariumApp {
         .on_hover_text(
             "« guillemets », apostrophe ’, points de suspension …, espaces fines avant ; : ! ?",
         );
+    }
+
+    /// Révision : remarques d'écriture selon la langue du document.
+    fn review_tab(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Langue");
+            egui::ComboBox::from_id_salt("review-lang")
+                .selected_text(self.page.langue.native())
+                .show_ui(ui, |ui| {
+                    for l in varium_core::Lang::ALL {
+                        ui.selectable_value(&mut self.page.langue, l, l.native());
+                    }
+                });
+            if ui
+                .small_button("Règles…")
+                .on_hover_text("Les règles d'écriture de cette langue")
+                .clicked()
+            {
+                self.queue.push(Act::Languages);
+            }
+        });
+        let issues = varium_core::check::check(&self.source, self.page.langue);
+        let fixable = issues.iter().filter(|i| i.replacement.is_some()).count();
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(match issues.len() {
+                    0 => "Aucune remarque ✔".to_string(),
+                    1 => "1 remarque".to_string(),
+                    n => format!("{n} remarques"),
+                })
+                .strong(),
+            );
+            if fixable > 0 && ui.button(format!("Tout corriger ({fixable})")).clicked() {
+                self.history.cut = true;
+                let n = varium_core::check::apply_all(&mut self.source, self.page.langue);
+                let ctx = ui.ctx().clone();
+                self.notify(&ctx, format!("{n} correction(s) appliquée(s)"), false);
+            }
+        });
+        ui.label(
+            RichText::new("Les remarques sont soulignées en rouge dans le texte. Les champs et les formules ne sont pas examinés.")
+                .small()
+                .weak(),
+        );
+        ui.separator();
+        let mut apply: Option<varium_core::check::Issue> = None;
+        let mut goto: Option<(usize, usize)> = None;
+        egui::ScrollArea::vertical()
+            .id_salt("review")
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                for (k, issue) in issues.iter().enumerate().take(300) {
+                    egui::Frame::group(ui.style())
+                        .inner_margin(6.0)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new(issue.kind.label()).small().color(err(ui)));
+                                ui.label(&issue.message);
+                            });
+                            // Le contexte : quelques caractères autour de la remarque.
+                            let a = self.source[..issue.start]
+                                .char_indices()
+                                .rev()
+                                .nth(18)
+                                .map_or(0, |(i, _)| i);
+                            let b = self.source[issue.end..]
+                                .char_indices()
+                                .nth(18)
+                                .map_or(self.source.len(), |(i, _)| issue.end + i);
+                            let mut job = egui::text::LayoutJob::default();
+                            let base = egui::TextFormat {
+                                color: ui.visuals().weak_text_color(),
+                                ..Default::default()
+                            };
+                            job.append(
+                                &self.source[a..issue.start].replace('\n', "⏎"),
+                                0.0,
+                                base.clone(),
+                            );
+                            job.append(
+                                &self.source[issue.start..issue.end]
+                                    .replace(' ', "·")
+                                    .replace('\n', "⏎"),
+                                0.0,
+                                egui::TextFormat {
+                                    color: ui.visuals().text_color(),
+                                    background: Color32::from_rgba_unmultiplied(
+                                        0xE0, 0x3A, 0x30, 50,
+                                    ),
+                                    ..Default::default()
+                                },
+                            );
+                            job.append(&self.source[issue.end..b].replace('\n', "⏎"), 0.0, base);
+                            ui.label(job);
+                            ui.horizontal(|ui| {
+                                if let Some(rep) = &issue.replacement
+                                    && ui
+                                        .small_button(format!(
+                                            "Corriger : « {} »",
+                                            rep.replace(' ', "·")
+                                        ))
+                                        .clicked()
+                                {
+                                    apply = Some(issue.clone());
+                                }
+                                if ui.small_button("Aller").clicked() {
+                                    goto = Some((issue.start, issue.end));
+                                }
+                            });
+                        });
+                    if k + 1 == 300 {
+                        ui.label(RichText::new("… (300 premières remarques)").weak());
+                    }
+                }
+            });
+        if let Some(i) = apply {
+            self.history.cut = true;
+            varium_core::check::apply_fix(&mut self.source, &i);
+        }
+        if let Some((a, b)) = goto {
+            let sel = (
+                editor::char_of(&self.source, a),
+                editor::char_of(&self.source, b),
+            );
+            self.sel = sel;
+            self.pending_sel = Some(sel);
+            self.tab = Tab::Text;
+            if self.prefs.layout == Layout::Page {
+                self.prefs.layout = Layout::Split;
+            }
+        }
     }
 
     fn outline_tab(&mut self, ui: &mut egui::Ui) {
@@ -2117,7 +2283,7 @@ impl VariumApp {
                 Paper::Letter => "Lettre US",
                 Paper::Legal => "Légal US",
             });
-            ui.label("Français (France)");
+            ui.label(self.page.langue.label());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = match self.prefs.zoom {
                     None => "Largeur".to_string(),
@@ -2306,6 +2472,33 @@ impl VariumApp {
                         });
                     });
                     keep = !ui.button("Fermer").clicked();
+                }
+                Dialog::Languages(lang) => {
+                    ui.heading("Écrire en plusieurs langues");
+                    ui.label("Choisissez la langue du document (Document → Langue) : les dates, les nombres, les montants, la typographie automatique et la révision suivent ses règles.");
+                    ui.horizontal_wrapped(|ui| {
+                        for l in varium_core::Lang::ALL {
+                            ui.selectable_value(lang, l, l.native());
+                        }
+                    });
+                    ui.separator();
+                    egui::Grid::new("lang-rules").num_columns(2).striped(true).show(ui, |ui| {
+                        for (k, v) in lang.rules() {
+                            ui.label(RichText::new(*k).strong());
+                            ui.label(*v);
+                            ui.end_row();
+                        }
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("Écrire ce document en {}", lang.native())).clicked() {
+                            self.page.langue = *lang;
+                            keep = false;
+                        }
+                        if ui.button("Fermer").clicked() {
+                            keep = false;
+                        }
+                    });
                 }
                 Dialog::Syntax => {
                     ui.heading("Guide de la syntaxe");
@@ -2954,8 +3147,17 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
             ui.label("");
             ui.checkbox(&mut p.page_numbers, "Numéros de page « Page 1 sur 3 »");
             ui.end_row();
+            ui.label("Langue");
+            egui::ComboBox::from_id_salt((id, "langue"))
+                .selected_text(p.langue.label())
+                .show_ui(ui, |ui| {
+                    for l in varium_core::Lang::ALL {
+                        ui.selectable_value(&mut p.langue, l, l.label());
+                    }
+                });
+            ui.end_row();
             ui.label("Typographie");
-            ui.checkbox(&mut p.typographie, "Française automatique")
+            ui.checkbox(&mut p.typographie, "Automatique (selon la langue)")
                     .on_hover_text("« guillemets », apostrophe ’, points de suspension …, espaces fines avant ; : ! ?");
             ui.end_row();
         });
@@ -3337,6 +3539,7 @@ fn act_label(a: Act) -> &'static str {
         Act::InsertField => "Insérer un champ",
         Act::InsertPageBreak => "Saut de page",
         Act::Syntax => "Guide de la syntaxe",
+        Act::Languages => "Écrire en plusieurs langues",
         Act::FullScreen => "Plein écran",
         Act::Focus => "Mode concentration",
         _ => "",

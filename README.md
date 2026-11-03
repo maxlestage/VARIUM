@@ -22,6 +22,32 @@ Une nouvelle version se publie en poussant un tag : `git tag v0.3.0 && git push 
 Le workflow `.github/workflows/release.yml` compile alors les trois binaires et les joint à
 la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
 
+## Trois applications, une suite
+
+Comme LibreOffice, Varium réunit trois modules dans la même fenêtre (sélecteur en haut) :
+
+| Module | Pour | Points forts |
+|---|---|---|
+| 📝 **Documents** | courriers, factures, contrats | champs `{{…}}`, mise en page, publipostage, exports PDF/ODT/DOCX/RTF/EPUB |
+| 📊 **Classeur** | tableaux, budgets, calculs | formules en français et en anglais (`=SOMME(A1:A9)` / `=SUM(…)`), plusieurs feuilles, formats (€, %, dates), tri, recopie, graphiques, exports XLSX, ODS, CSV |
+| 🎞 **Présentation** | diaporamas | dispositions, thèmes, transitions, notes de l'orateur, `{{champs}}` partagés, diaporama plein écran (F5), exports PDF, ODP (Impress), HTML |
+
+## Écrire dans plusieurs langues
+
+Document → **Langue** : français, anglais, espagnol, allemand, italien ou portugais.
+
+- **Formats** : dates (« 1er mars 2026 », « 1 March 2026 », « 1. März 2026 »…), nombres et
+  montants (« 12 500,00 € », « €12,500.00 », « 12.500,00 € ») selon la langue.
+- **Typographie automatique** : « » avec espaces insécables en français, “ ” en anglais et
+  en portugais, „ “ en allemand, «» en espagnol et en italien ; apostrophe ’, points de
+  suspension, tirets.
+- **Révision** (onglet de l'inspecteur) : doubles espaces, mots répétés, majuscule en début
+  de phrase, espaces autour de la ponctuation (insécables en français, aucune ailleurs),
+  ¿ ¡ en espagnol, a/an et « I » en anglais, accents fréquents en italien, parenthèses non
+  fermées ; correction en un clic, remarques soulignées dans le texte.
+- **Aide → Écrire en plusieurs langues** : les règles de chaque langue.
+- Les exports portent la langue (HTML `lang`, ODT, DOCX, EPUB).
+
 ## Fonctionnalités
 
 **Comme LibreOffice Writer**
