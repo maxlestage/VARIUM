@@ -14,6 +14,7 @@
 //! | `\| a \| b \|` (+ `\|---\|:---:\|` sous l'en-tête) | tableau |
 //! | `---` | ligne horizontale |
 //! | `\newpage` | saut de page |
+//! | `\sommaire` | table des matières (liste des titres, générée) |
 //! | `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |
 
 use crate::render::{Block, Piece, Values, blocks, render_pieces};
@@ -347,6 +348,8 @@ fn separator_aligns(s: &str) -> Option<Vec<Align>> {
 /// Le document mis en forme.
 pub fn document(src: &str, values: &Values) -> Vec<Para> {
     let mut out = Vec::new();
+    // Positions des `\sommaire`, remplies une fois tous les titres connus.
+    let mut sommaires: Vec<usize> = Vec::new();
     let mut lines = lines(src, values).into_iter().peekable();
     while let Some(line) = lines.next() {
         let items = match line {
@@ -386,9 +389,69 @@ pub fn document(src: &str, values: &Values) -> Vec<Para> {
             continue;
         }
 
+        if text_only(&items).is_some_and(|t| t.trim() == "\\sommaire") {
+            sommaires.push(out.len());
+            out.push(Para::Rule);
+            continue;
+        }
+
         out.push(paragraph(items));
     }
+    // Du dernier au premier, pour que les positions restent valables.
+    if !sommaires.is_empty() {
+        let toc = table_des_matieres(&out);
+        for pos in sommaires.into_iter().rev() {
+            out.splice(pos..=pos, toc.iter().cloned());
+        }
+    }
     out
+}
+
+/// Table des matières : un titre en gras puis un élément de liste par titre du
+/// document (niveau 1 → retrait 0, niveau 3 → retrait 2).
+fn table_des_matieres(doc: &[Para]) -> Vec<Para> {
+    let bold = Style {
+        bold: true,
+        ..Style::default()
+    };
+    let mut toc = vec![Para::Text {
+        align: Align::Left,
+        runs: vec![Run::Text {
+            text: "Table des matières".to_string(),
+            style: bold,
+        }],
+    }];
+    let mut any = false;
+    for para in doc {
+        if let Para::Heading { level, runs } = para {
+            let text = plain(runs);
+            if text.trim().is_empty() {
+                continue;
+            }
+            any = true;
+            toc.push(Para::Item {
+                number: None,
+                depth: level.saturating_sub(1).min(5),
+                runs: vec![Run::Text {
+                    text: text.trim().to_string(),
+                    style: Style::default(),
+                }],
+            });
+        }
+    }
+    if !any {
+        toc.push(Para::Text {
+            align: Align::Left,
+            runs: vec![Run::Text {
+                text: "(aucun titre dans le document)".to_string(),
+                style: Style {
+                    italic: true,
+                    ..Style::default()
+                },
+            }],
+        });
+    }
+    toc
 }
 
 fn paragraph(mut items: Vec<Item>) -> Para {
@@ -691,6 +754,51 @@ pub fn stats(doc: &[Para]) -> Stats {
         s.chars += text.chars().filter(|c| *c != '\n').count();
     }
     s
+}
+
+#[cfg(test)]
+mod tests_sommaire {
+    use super::*;
+
+    fn textes(doc: &[Para]) -> Vec<String> {
+        doc.iter().map(Para::plain).collect()
+    }
+
+    #[test]
+    fn sommaire_liste_les_titres() {
+        let doc = document("\\sommaire\n# Un\n## Deux {{x}}\n### Trois\ntexte", &{
+            let mut v = Values::default();
+            v.set("x", "bis");
+            v
+        });
+        let t = textes(&doc);
+        assert_eq!(t[0], "Table des matières");
+        assert_eq!(&t[1..4], ["Un", "Deux bis", "Trois"]);
+        assert!(matches!(doc[1], Para::Item { depth: 0, .. }));
+        assert!(matches!(doc[3], Para::Item { depth: 2, .. }));
+        // Les titres eux-mêmes sont conservés après le sommaire.
+        assert!(matches!(doc[4], Para::Heading { level: 1, .. }));
+    }
+
+    #[test]
+    fn sommaire_sans_titre_et_multiple() {
+        let doc = document("\\sommaire\nrien", &Values::default());
+        assert_eq!(doc.len(), 3);
+        assert!(textes(&doc)[1].contains("aucun titre"));
+        let doc = document("\\sommaire\n# A\n\\sommaire", &Values::default());
+        assert_eq!(
+            doc.iter()
+                .filter(|p| p.plain() == "Table des matières")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn sommaire_dans_un_paragraphe_reste_du_texte() {
+        let doc = document("voir \\sommaire ici", &Values::default());
+        assert_eq!(doc.len(), 1);
+    }
 }
 
 #[cfg(test)]
