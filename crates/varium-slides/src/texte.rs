@@ -88,6 +88,16 @@ pub fn parse_color(s: &str) -> Option<[u8; 3]> {
     }
 }
 
+/// Une couleur de texte lisible sur le fond `bg` : blanc ou presque noir.
+pub fn readable_on(bg: [u8; 3]) -> [u8; 3] {
+    let (blanc, noir) = ([255, 255, 255], [20, 20, 24]);
+    if contraste(blanc, bg) >= contraste(noir, bg) {
+        blanc
+    } else {
+        noir
+    }
+}
+
 /// Coupe un texte à `max` caractères, avec des points de suspension.
 pub(crate) fn tronquer(s: &str, max: usize) -> String {
     if s.chars().count() <= max {

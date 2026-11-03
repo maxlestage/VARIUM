@@ -8,6 +8,9 @@
 use crate::lang::Lang;
 use crate::parse::{Segment, parse};
 
+/// Orthographe (dictionnaire) : voir [`crate::spell`].
+pub use crate::spell::{Speller, check_spelling};
+
 /// Le genre d'une remarque, pour l'affichage et le filtrage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -52,7 +55,7 @@ pub struct Issue {
 }
 
 /// Les zones de texte vérifiables : hors champs et hors formules.
-fn zones(src: &str) -> Vec<(usize, usize)> {
+pub(crate) fn zones(src: &str) -> Vec<(usize, usize)> {
     // 1. hors champs {{…}}
     let mut text_zones = Vec::new();
     let mut last = 0;

@@ -69,18 +69,26 @@ macro_rules! identifiants {
 mod fichier;
 mod geometrie;
 mod html;
+mod import;
 mod metriques;
+mod objets;
 mod odp;
 mod pdf;
+mod pptx;
 mod texte;
 mod theme;
+mod xml;
 
 pub use fichier::{FORMAT, VERSION};
 pub use geometrie::{
     Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, SlideLayoutBoxes, TITLE_LINE_HEIGHT, body_size,
     boxes, footer_frame, number_frame, subtitle_size, title_size,
 };
-pub use texte::{MISSING_COLOR, hex_color, parse_color, text_lines};
+pub use objets::{
+    MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, Media, Object, ObjectKind, arrow_head, base64, image_frame,
+    unbase64,
+};
+pub use texte::{MISSING_COLOR, hex_color, parse_color, readable_on, text_lines};
 pub use theme::{Palette, Theme};
 
 // ---------------------------------------------------------------------------------
@@ -251,6 +259,12 @@ pub struct Slide {
         skip_serializing_if = "Option::is_none"
     )]
     pub background: Option<[u8; 3]>,
+    /// Images et formes posées sur la diapositive, de l'arrière-plan au premier plan.
+    #[serde(
+        deserialize_with = "fichier::objets",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub objects: Vec<Object>,
 }
 
 impl Slide {
@@ -324,6 +338,13 @@ pub struct Deck {
     pub values: BTreeMap<String, String>,
     #[serde(deserialize_with = "fichier::diapositives")]
     pub slides: Vec<Slide>,
+    /// Images de la présentation, chacune stockée une seule fois, par identifiant
+    /// (voir [`Deck::add_media`]) ; les objets image des diapositives y renvoient.
+    #[serde(
+        deserialize_with = "fichier::medias",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub media: BTreeMap<String, Media>,
 }
 
 impl Default for Deck {
@@ -343,6 +364,7 @@ impl Deck {
             slide_numbers: true,
             values: BTreeMap::new(),
             slides: vec![Slide::new(Layout::Title)],
+            media: BTreeMap::new(),
         }
     }
 
@@ -440,6 +462,7 @@ impl Deck {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             slides,
+            media: BTreeMap::new(),
         }
     }
 
@@ -522,7 +545,11 @@ impl Deck {
         let textes = self
             .slides
             .iter()
-            .flat_map(Slide::texts)
+            .flat_map(|s| {
+                s.texts()
+                    .into_iter()
+                    .chain(s.objects.iter().map(|o| o.text.as_str()))
+            })
             .chain([self.footer.as_str()]);
         for src in textes {
             for v in varium_core::variables(src) {
@@ -566,6 +593,24 @@ impl Deck {
     /// Le PDF : une page par diapositive, au format de la présentation.
     pub fn to_pdf(&self) -> Vec<u8> {
         pdf::pdf(self)
+    }
+
+    /// Importe une présentation OpenDocument (`.odp`, LibreOffice Impress).
+    /// Erreur en français si le fichier est endommagé ; jamais de panique.
+    pub fn from_odp(bytes: &[u8]) -> Result<Self, String> {
+        import::odp(bytes)
+    }
+
+    /// Importe une présentation PowerPoint (`.pptx`).
+    /// Erreur en français si le fichier est endommagé ; jamais de panique.
+    pub fn from_pptx(bytes: &[u8]) -> Result<Self, String> {
+        pptx::pptx(bytes)
+    }
+
+    /// Ouvre un fichier de présentation quel qu'il soit : `.varium-slides.json`,
+    /// `.odp` ou `.pptx`, reconnu à son contenu.
+    pub fn open_bytes(bytes: &[u8]) -> Result<Self, String> {
+        import::ouvrir(bytes)
     }
 
     /// Les diapositives à exporter : jamais aucune (une diapositive vide sinon).
