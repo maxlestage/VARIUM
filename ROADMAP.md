@@ -28,7 +28,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 ## 4. Export PDF natif (en-tête, pied de page, numéros de page)
 
 ## 5. Proche de Writer
-- [ ] Texte conditionnel `{{si champ}}…{{fin}}`
+- [x] Texte conditionnel `{{si champ}}…{{sinon}}…{{fin}}` (conditions.rs) — « Texte conditionnel »
 - [ ] Table des matières, notes de bas de page
 - [ ] Retraits, couleurs/surlignage, interligne par paragraphe
 - [ ] Import .odt / .docx simples
