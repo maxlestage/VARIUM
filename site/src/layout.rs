@@ -1,100 +1,191 @@
-//! La mise en page commune : en-tête, navigation, pied de page, balises SEO.
+//! La mise en page commune : en-tête (navigation, langues), pied de page, balises SEO.
 
 use paquets::prelude::*;
 
+use crate::i18n::Langue;
+use crate::routes::Rubrique;
 use crate::{Options, REPO};
 
-/// Les entrées de la navigation : (chemin, libellé). Les chemins finissent par `/`,
-/// comme les dossiers de l'export statique : GitHub Pages n'a pas à rediriger.
-const NAV: [(&str, &str); 4] = [
-    ("/", "Présentation"),
-    ("/syntaxe/", "Syntaxe"),
-    ("/installer/", "Installer"),
-    ("/essayer/", "Essayer"),
-];
-
-/// Une page du site : `titre`, `description`, le chemin courant (sans la base) et son
-/// contenu.
-pub fn page(req: &Request, titre: &str, description: &str, chemin: &str, contenu: Node) -> Page {
+/// Une page du site dans `langue` : `rubrique` (`None` pour une page introuvable, qui
+/// n'est pas indexée), son titre, sa description et son contenu.
+///
+/// La page porte `<html lang>`, son URL canonique, `og:locale` et un lien `hreflang`
+/// vers chacune de ses versions, plus `x-default`.
+pub fn page(
+    req: &Request,
+    langue: Langue,
+    rubrique: Option<Rubrique>,
+    titre: &str,
+    description: &str,
+    contenu: Node,
+) -> Page {
     let o = Options::de(req);
-    let titre_complet = if chemin == "/" {
-        "Varium · Un document. Toutes ses possibilités.".to_string()
-    } else {
-        format!("{titre} · Varium")
+    let t = langue.textes();
+    let titre_complet = match rubrique {
+        Some(Rubrique::Accueil) => format!("Varium · {}", t.accroche),
+        _ => format!("{titre} · Varium"),
     };
+    let mut seo = Seo::new()
+        .base_url(o.origine(req))
+        .site_name("Varium")
+        .og_type("website")
+        .locale(langue.locale());
+    match rubrique {
+        Some(r) => {
+            seo = seo.canonical(r.chemin(langue));
+            for l in Langue::ALL {
+                seo = seo.alternate(l.code(), r.chemin(l));
+            }
+            seo = seo.alternate("x-default", r.chemin_par_defaut());
+        }
+        None => seo = seo.noindex(true),
+    }
     Page::new(titre_complet)
-        .lang("fr")
+        .lang(langue.code())
+        .description(description.to_string())
+        .seo(seo)
+        .head(icone(o))
+        .stylesheet(o.lien("/site.css"))
+        .body(entete(o, langue, rubrique))
+        .body(main().class("contenu").child(contenu))
+        .body(pied(langue))
+}
+
+/// Une page qui ne choisit pas de langue (l'aiguillage de `/`, les anciennes adresses,
+/// l'introuvable de l'export) : en-tête réduit au logo, contenu dans toutes les langues.
+pub fn page_neutre(req: &Request, titre: &str, description: &str, contenu: Node) -> Page {
+    let o = Options::de(req);
+    Page::new(titre.to_string())
+        .lang(Langue::Fr.code())
         .description(description.to_string())
         .seo(
             Seo::new()
                 .base_url(o.origine(req))
-                .canonical(chemin.to_string())
                 .site_name("Varium")
                 .og_type("website")
-                .locale("fr_FR"),
+                .locale(Langue::Fr.locale()),
         )
-        .head(format!(
-            r#"<link rel="icon" type="image/svg+xml" href="{}"/>"#,
-            o.lien("/favicon.svg")
-        ))
+        .head(icone(o))
         .stylesheet(o.lien("/site.css"))
-        .body(entete(o, chemin))
+        .body(header().class("entete").child(marque(o, "/", "Varium")))
         .body(main().class("contenu").child(contenu))
-        .body(pied())
+        .body(
+            footer().class("pied").child(
+                p().class("muted")
+                    .child(text("Varium · "))
+                    .child(a().href(REPO).text("GitHub")),
+            ),
+        )
 }
 
-fn entete(o: &Options, chemin: &str) -> Element {
+fn icone(o: &Options) -> String {
+    format!(
+        r#"<link rel="icon" type="image/svg+xml" href="{}"/>"#,
+        o.lien("/favicon.svg")
+    )
+}
+
+fn marque(o: &Options, chemin: &str, aria: &str) -> Element {
+    a().class("marque")
+        .href(o.lien(chemin))
+        .attr("aria-label", aria.to_string())
+        .child(
+            img()
+                .attr("src", o.lien("/favicon.svg"))
+                .attr("alt", "")
+                .attr("width", "28")
+                .attr("height", "28"),
+        )
+        .child(span().text("Varium"))
+}
+
+fn entete(o: &Options, langue: Langue, rubrique: Option<Rubrique>) -> Element {
+    let t = langue.textes();
     header()
         .class("entete")
+        .child(marque(o, &Rubrique::Accueil.chemin(langue), t.accueil_aria))
         .child(
-            a().class("marque")
-                .href(o.lien("/"))
-                .child(
-                    img()
-                        .attr("src", o.lien("/favicon.svg"))
-                        .attr("alt", "")
-                        .attr("width", "28")
-                        .attr("height", "28"),
-                )
-                .child(span().text("Varium")),
+            nav()
+                .class("principale")
+                .attr("aria-label", t.nav_aria)
+                .children(Rubrique::ALL.map(|r| {
+                    let lien = a().href(o.lien(&r.chemin(langue))).text(r.nom(langue));
+                    if Some(r) == rubrique {
+                        lien.class("actif").attr("aria-current", "page")
+                    } else {
+                        lien
+                    }
+                })),
         )
-        .child(nav().children(NAV.iter().map(|(href, libelle)| {
-            let lien = a().href(o.lien(href)).text(libelle.to_string());
-            if *href == chemin {
-                lien.class("actif").attr("aria-current", "page")
-            } else {
-                lien
-            }
-        })))
         .child(
             div()
                 .class("actions")
+                .child(langues(o, langue, rubrique))
                 .child(
-                    a().class("button petit")
-                        .href(o.lien_application())
-                        .text("Installer Varium"),
+                    a().class("button petit installer")
+                        .href(o.lien_application(langue))
+                        .text(t.installer_varium),
                 )
                 .child(a().class("button ghost petit").href(REPO).text("GitHub")),
         )
 }
 
-fn pied() -> Element {
+/// Le sélecteur de langue : un menu `<details>` (sans JavaScript) qui mène à la même
+/// page dans chaque langue, ou à l'accueil depuis une page introuvable.
+fn langues(o: &Options, langue: Langue, rubrique: Option<Rubrique>) -> Element {
+    let t = langue.textes();
+    let cible = rubrique.unwrap_or(Rubrique::Accueil);
+    details()
+        .class("langues")
+        .child(
+            summary()
+                .attr("title", t.langue_choisir)
+                .child(span().class("globe").attr("aria-hidden", "true").text("🌐"))
+                .child(span().class("nom").text(langue.nom()))
+                .child(
+                    span()
+                        .class("code")
+                        .attr("aria-hidden", "true")
+                        .text(langue.code().to_uppercase()),
+                ),
+        )
+        .child(
+            ul().attr("aria-label", t.langue_choisir)
+                .children(Langue::ALL.map(|l| {
+                    let lien = a()
+                        .href(o.lien(&cible.chemin(l)))
+                        .attr("hreflang", l.code())
+                        .attr("lang", l.code())
+                        .text(l.nom());
+                    li().child(if l == langue {
+                        lien.class("actif").attr("aria-current", "true")
+                    } else {
+                        lien
+                    })
+                })),
+        )
+}
+
+fn pied(langue: Langue) -> Element {
+    let t = langue.textes();
+    let (avant, apres) = t
+        .pied_paquets
+        .split_once("{}")
+        .unwrap_or((t.pied_paquets, ""));
     footer()
         .class("pied")
         .child(
             p().class("muted")
-                .child(text(
-                    "Varium, un éditeur de documents à variables écrit en Rust. ",
-                ))
-                .child(a().href(REPO).text("Code source")),
+                .child(text(format!("{} ", t.pied)))
+                .child(a().href(REPO).text(t.code_source)),
         )
         .child(
             p().class("muted")
-                .child(text("Ce site est écrit avec "))
+                .child(text(avant.to_string()))
                 .child(
                     a().href("https://github.com/maxlestage/Paquets")
                         .text("Paquets"),
                 )
-                .child(text(", le framework full-stack Rust.")),
+                .child(text(apres.to_string())),
         )
 }

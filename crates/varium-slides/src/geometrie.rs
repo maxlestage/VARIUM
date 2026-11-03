@@ -188,6 +188,8 @@ pub fn body_size(layout: Layout) -> f32 {
     match layout {
         Layout::TwoColumns => 0.04,
         Layout::Quote => 0.06,
+        // Une diapositive vide sert aux messages courts : texte plus grand.
+        Layout::Blank => 0.055,
         _ => 0.045,
     }
 }
