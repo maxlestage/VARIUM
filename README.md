@@ -155,4 +155,5 @@ Déploiement du serveur (Heroku, Docker) : voir
 | `\| a \| b \|` puis `\|---\|---:\|` | tableau, en-tête et alignement des colonnes |
 | `---` | ligne horizontale |
 | `\newpage` | saut de page |
+| `\sommaire` | table des matières (liste des titres, générée) |
 | `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |

@@ -33,7 +33,9 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 
 ## 5. Proche de Writer
 - [x] Texte conditionnel `{{si champ}}…{{sinon}}…{{fin}}` (conditions.rs) — « Texte conditionnel »
-- [ ] Table des matières, notes de bas de page
+- [x] Table des matières `\sommaire` (liste des titres, sans numéros de page) — « Table des matières »
+- [ ] Numéros de page dans la table des matières (nécessite la pagination)
+- [ ] Notes de bas de page
 - [ ] Retraits, couleurs/surlignage, interligne par paragraphe
 - [ ] Import .odt / .docx simples
 - [ ] Détection des doubles espaces / correcteur orthographique
