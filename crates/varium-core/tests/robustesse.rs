@@ -269,3 +269,38 @@ fn tres_longues_entrees() {
     let tableau = "| a | b |\n|---|---|\n".to_string() + &"| 1 | 2 |\n".repeat(20_000);
     let _ = document(&tableau, &v);
 }
+
+#[test]
+fn tableaux_et_echappements_limites_ne_paniquent_pas() {
+    let v = valeurs();
+    let cas = [
+        "|",
+        "||",
+        "|||",
+        "\\|",
+        "\\",
+        "a|b",
+        "|a|",
+        "|\\|\\|",
+        "|{{nom}}|",
+        "| **a** | _b_ |",
+        "\\*",
+        "\\#",
+        "\\>",
+        "\\~",
+        "\\_x",
+        "|\\",
+        "x\\",
+        "**",
+        "__",
+        "~~",
+        "|a\n|b|c|\n||",
+    ];
+    for c in cas {
+        let d = document(c, &v);
+        let _ = export::to_html("t", c, &v);
+        let _ = export::to_latex("t", c, &v);
+        let _ = &d;
+        let _ = blocks(render_pieces(c, &v));
+    }
+}
