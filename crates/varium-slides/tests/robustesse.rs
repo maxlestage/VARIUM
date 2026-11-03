@@ -269,7 +269,17 @@ fn fuzz_fichiers_abimes_sans_panique() {
         }
     }
     // Valeurs de types inattendus à chaque niveau.
-    for valeur in ["null", "1", "-1e400", "true", "\"x\"", "[]", "{}", "[[[]]]", "\"\\u0000\""] {
+    for valeur in [
+        "null",
+        "1",
+        "-1e400",
+        "true",
+        "\"x\"",
+        "[]",
+        "{}",
+        "[[[]]]",
+        "\"\\u0000\"",
+    ] {
         let json = format!(
             "{{\"title\":{valeur},\"theme\":{valeur},\"aspect\":{valeur},\"footer\":{valeur},\"slide_numbers\":{valeur},\"values\":{valeur},\"slides\":[{{\"layout\":{valeur},\"title\":{valeur},\"body\":{valeur},\"transition\":{valeur},\"background\":{valeur}}}, {valeur}]}}"
         );

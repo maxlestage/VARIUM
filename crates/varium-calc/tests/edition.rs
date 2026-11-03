@@ -468,3 +468,15 @@ fn classeur_d_exemple() {
         }
     }
 }
+
+#[test]
+fn classeur_partageable_entre_threads() {
+    fn verifie<T: Send + Sync + Clone + std::fmt::Debug>() {}
+    verifie::<Workbook>();
+    verifie::<Clip>();
+    let wb = Workbook::sample();
+    let total = std::thread::spawn(move || wb.display(1, at("D12")))
+        .join()
+        .expect("thread");
+    assert_eq!(total, "7\u{202F}660,80\u{A0}€");
+}

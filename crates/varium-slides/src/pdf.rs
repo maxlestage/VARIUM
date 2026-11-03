@@ -31,10 +31,10 @@ const ASCENDANTE: f32 = 0.905;
 // ---------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-struct Police {
-    serif: bool,
-    gras: bool,
-    italique: bool,
+pub(crate) struct Police {
+    pub serif: bool,
+    pub gras: bool,
+    pub italique: bool,
 }
 
 impl Police {
@@ -306,6 +306,64 @@ fn scinder(m: &Mot, max: f32, corps: Corps) -> Vec<Mot> {
     out
 }
 
+/// Largeurs des colonnes d'un tableau, en points, pour une largeur totale donnée :
+/// chaque colonne reçoit si possible la largeur de son mot le plus long, puis le
+/// reste se partage au prorata du texte. Renvoie aussi la largeur naturelle totale
+/// (texte de chaque colonne sur une seule ligne), marges `px` comprises.
+pub(crate) fn colonnes(
+    t: &Table,
+    police: Police,
+    taille: f32,
+    px: f32,
+    largeur: f32,
+) -> (Vec<f32>, f32) {
+    let cols = t.columns().max(1);
+    let corps = Corps {
+        taille,
+        approche: 0.0,
+    };
+    let mut naturelles = vec![2.0 * px; cols];
+    let mut minimales = vec![2.0 * px; cols];
+    // Les premiers rangs suffisent à estimer les proportions.
+    for (ri, row) in t.rows.iter().enumerate().take(200) {
+        let base = Base {
+            police: Police {
+                gras: police.gras || (ri == 0 && t.header),
+                ..police
+            },
+            couleur: [0, 0, 0],
+            majuscules: false,
+        };
+        for (c, cell) in row.iter().enumerate().take(cols) {
+            let m = mots(cell, base, corps, largeur * 2.0);
+            let total: f32 = m.iter().map(|m| m.largeur).sum();
+            let long = m
+                .iter()
+                .filter(|m| !m.espace)
+                .map(|m| m.largeur)
+                .fold(0.0f32, f32::max);
+            naturelles[c] = naturelles[c].max(total + 2.0 * px);
+            minimales[c] = minimales[c].max(long.min(largeur) + 2.0 * px);
+        }
+    }
+    let (somme_nat, somme_min): (f32, f32) = (naturelles.iter().sum(), minimales.iter().sum());
+    let largeurs = if somme_nat <= 0.0 {
+        vec![largeur / cols as f32; cols]
+    } else if somme_nat <= largeur {
+        naturelles.iter().map(|w| w * largeur / somme_nat).collect()
+    } else if somme_min < largeur && somme_nat > somme_min {
+        let k = (largeur - somme_min) / (somme_nat - somme_min);
+        minimales
+            .iter()
+            .zip(&naturelles)
+            .map(|(mi, na)| mi + (na - mi) * k)
+            .collect()
+    } else {
+        minimales.iter().map(|w| w * largeur / somme_min).collect()
+    };
+    (largeurs, somme_nat)
+}
+
 // ---------------------------------------------------------------------------------
 // Composition d'une zone de texte
 // ---------------------------------------------------------------------------------
@@ -326,12 +384,22 @@ enum Prim {
         h: f32,
         couleur: [u8; 3],
     },
+    /// Puce dessinée (pas de glyphe : « ◦ » n'existe pas en WinAnsi), alignée
+    /// sur la première ligne de son élément.
+    Puce {
+        x: f32,
+        haut: f32,
+        hauteur: f32,
+        taille: f32,
+        profondeur: u8,
+        couleur: [u8; 3],
+    },
 }
 
 impl Prim {
     fn bas(&self) -> f32 {
         match self {
-            Prim::Ligne { haut, hauteur, .. } => haut + hauteur,
+            Prim::Ligne { haut, hauteur, .. } | Prim::Puce { haut, hauteur, .. } => haut + hauteur,
             Prim::Rect { y, h, .. } => y + h,
         }
     }
@@ -414,7 +482,6 @@ impl Compo<'_> {
         let corps = self.corps(taille, 0.0);
         let (px, py) = (0.75 * taille, 0.45 * taille);
         let lh = taille * 1.25;
-        let cols = t.columns().max(1);
         let base = |entete: bool| Base {
             police: Police {
                 gras: entete,
@@ -423,27 +490,7 @@ impl Compo<'_> {
             couleur: if entete { pal.title } else { pal.text },
             majuscules: false,
         };
-        // Largeurs naturelles des colonnes, puis réparties sur toute la largeur.
-        let mut naturelles = vec![0.0f32; cols];
-        // Les premiers rangs suffisent à estimer les proportions.
-        for (ri, row) in t.rows.iter().enumerate().take(200) {
-            for (c, cell) in row.iter().enumerate().take(cols) {
-                let w: f32 = mots(cell, base(ri == 0 && t.header), corps, self.largeur * 2.0)
-                    .iter()
-                    .map(|m| m.largeur)
-                    .sum();
-                naturelles[c] = naturelles[c].max(w + 2.0 * px);
-            }
-        }
-        let total: f32 = naturelles.iter().sum();
-        let largeurs: Vec<f32> = if total > 0.0 {
-            naturelles
-                .iter()
-                .map(|w| self.largeur * w / total)
-                .collect()
-        } else {
-            vec![self.largeur / cols as f32; cols]
-        };
+        let largeurs = colonnes(t, hab.base.police, taille, px, self.largeur).0;
         let mut h = 0.0;
         for (ri, row) in t.rows.iter().enumerate() {
             if y + h > self.limite {
@@ -576,29 +623,41 @@ impl Compo<'_> {
                         Align::Left,
                     );
                     let lh = taille * hab.interligne;
-                    let label = crate::html::puce(*number, *depth);
-                    let base = Base {
-                        police: Police {
-                            gras: true,
-                            ..hab.base.police
-                        },
-                        couleur: pal.accent,
-                        majuscules: false,
-                    };
-                    let run = Run::Text {
-                        text: label,
-                        style: Default::default(),
-                    };
-                    let c = self.corps(taille, 0.0);
-                    let puce = couper(mots(&[run], base, c, largeur), largeur, c);
-                    if let Some(l) = puce.into_iter().next() {
-                        self.prims.push(Prim::Ligne {
-                            ligne: l,
-                            x: (pas * d).min(largeur * 0.5),
+                    let x = (pas * d).min(largeur * 0.5);
+                    match number {
+                        Some(_) => {
+                            let base = Base {
+                                police: Police {
+                                    gras: true,
+                                    ..hab.base.police
+                                },
+                                couleur: pal.accent,
+                                majuscules: false,
+                            };
+                            let run = Run::Text {
+                                text: crate::html::puce(*number, *depth),
+                                style: Default::default(),
+                            };
+                            let c = self.corps(taille, 0.0);
+                            let label = couper(mots(&[run], base, c, largeur), largeur, c);
+                            if let Some(l) = label.into_iter().next() {
+                                self.prims.push(Prim::Ligne {
+                                    ligne: l,
+                                    x,
+                                    haut: y,
+                                    hauteur: lh,
+                                    corps: c,
+                                });
+                            }
+                        }
+                        None => self.prims.push(Prim::Puce {
+                            x,
                             haut: y,
                             hauteur: lh,
-                            corps: c,
-                        });
+                            taille,
+                            profondeur: *depth,
+                            couleur: pal.accent,
+                        }),
                     }
                     y += h.max(lh);
                     attente = marge;
@@ -715,7 +774,15 @@ fn hex(b: &[u8]) -> String {
 }
 
 /// Écrit une ligne dont le haut est à `haut` points sous le haut de la page.
-fn dessiner_ligne(out: &mut String, l: &Ligne, x: f32, haut: f32, hauteur: f32, corps: Corps, ph: f32) {
+fn dessiner_ligne(
+    out: &mut String,
+    l: &Ligne,
+    x: f32,
+    haut: f32,
+    hauteur: f32,
+    corps: Corps,
+    ph: f32,
+) {
     let t = corps.taille;
     let base = haut + (hauteur - HAUTEUR_TEXTE * t) / 2.0 + ASCENDANTE * t;
     let y = ph - base;
@@ -771,7 +838,13 @@ fn dessiner(out: &mut String, p: &Prim, x0: f32, y0: f32, ph: f32) {
             hauteur,
             corps,
         } => dessiner_ligne(out, ligne, x0 + x, y0 + haut, *hauteur, *corps, ph),
-        Prim::Rect { x, y, w, h, couleur } => {
+        Prim::Rect {
+            x,
+            y,
+            w,
+            h,
+            couleur,
+        } => {
             let _ = writeln!(
                 out,
                 "{} rg {} {} {} {} re f",
@@ -782,7 +855,85 @@ fn dessiner(out: &mut String, p: &Prim, x0: f32, y0: f32, ph: f32) {
                 n(*h)
             );
         }
+        Prim::Puce {
+            x,
+            haut,
+            hauteur,
+            taille: t,
+            profondeur,
+            couleur,
+        } => {
+            // Centre à mi-hauteur des minuscules de la première ligne.
+            let base = y0 + haut + (hauteur - HAUTEUR_TEXTE * t) / 2.0 + ASCENDANTE * t;
+            let cy = ph - (base - 0.3 * t);
+            let x = x0 + x;
+            match profondeur % 3 {
+                0 => {
+                    let _ = writeln!(
+                        out,
+                        "{} rg {} f",
+                        rgb(*couleur),
+                        cercle(x + 0.2 * t, cy, 0.135 * t)
+                    );
+                }
+                1 => {
+                    let e = 0.075 * t;
+                    let _ = writeln!(
+                        out,
+                        "{} rg {} {} {} {} re f",
+                        rgb(*couleur),
+                        n(x + 0.04 * t),
+                        n(cy - e / 2.0),
+                        n(0.42 * t),
+                        n(e)
+                    );
+                }
+                _ => {
+                    let _ = writeln!(
+                        out,
+                        "{} RG {} w {} S",
+                        rgb(*couleur),
+                        n(0.055 * t),
+                        cercle(x + 0.2 * t, cy, 0.1 * t)
+                    );
+                }
+            }
+        }
     }
+}
+
+/// Chemin d'un cercle (quatre arcs de Bézier).
+fn cercle(cx: f32, cy: f32, r: f32) -> String {
+    let k = 0.552_284_8 * r;
+    format!(
+        "{} {} m {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c h",
+        n(cx + r),
+        n(cy),
+        n(cx + r),
+        n(cy + k),
+        n(cx + k),
+        n(cy + r),
+        n(cx),
+        n(cy + r),
+        n(cx - k),
+        n(cy + r),
+        n(cx - r),
+        n(cy + k),
+        n(cx - r),
+        n(cy),
+        n(cx - r),
+        n(cy - k),
+        n(cx - k),
+        n(cy - r),
+        n(cx),
+        n(cy - r),
+        n(cx + k),
+        n(cy - r),
+        n(cx + r),
+        n(cy - k),
+        n(cx + r),
+        n(cy)
+    )
 }
 
 /// Compose une zone, réduit le texte jusqu'à ce qu'il tienne, puis le dessine.
@@ -899,7 +1050,11 @@ fn page(r: &Rendu, s: &Slide, pw: f32, ph: f32) -> String {
         couleur,
         majuscules: false,
     };
-    let align = if b.centered { Align::Center } else { Align::Left };
+    let align = if b.centered {
+        Align::Center
+    } else {
+        Align::Left
+    };
     let grand = matches!(s.layout, Layout::Title | Layout::Section);
     if let Some(f) = b.title {
         let hab = Habillage {
@@ -968,7 +1123,16 @@ fn page(r: &Rendu, s: &Slide, pw: f32, ph: f32) -> String {
         approche: 0.03 * FOOTER_SIZE * ph,
     };
     if !r.footer.is_empty() {
-        ligne_seule(&mut out, &r.footer, footer_frame(), pied, corps, false, pw, ph);
+        ligne_seule(
+            &mut out,
+            &r.footer,
+            footer_frame(),
+            pied,
+            corps,
+            false,
+            pw,
+            ph,
+        );
     }
     if let Some(num) = r.number {
         let run = Run::Text {

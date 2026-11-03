@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use egui::text::LayoutJob;
 use egui::{Align2, Color32, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use varium_core::{DocFont, Para, Run, Values};
-use varium_slides::{Aspect, Deck, Frame, Layout, Slide, Theme, Transition};
+use varium_slides::{Aspect, Deck, Frame, Layout, Theme, Transition};
 
 use crate::io::{Event, Io, OpenKind};
 
@@ -95,10 +95,20 @@ impl SlidesApp {
             .title
             .trim()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect();
         let s = s.trim_matches('-').to_string();
-        if s.is_empty() { "presentation".into() } else { s }
+        if s.is_empty() {
+            "presentation".into()
+        } else {
+            s
+        }
     }
 
     fn handle_io(&mut self, ctx: &egui::Context) {
@@ -154,7 +164,11 @@ impl SlidesApp {
                 "application/vnd.oasis.opendocument.presentation",
                 self.deck.to_odp(),
             ),
-            _ => (format!("{stem}.html"), "text/html", self.deck.to_html().into_bytes()),
+            _ => (
+                format!("{stem}.html"),
+                "text/html",
+                self.deck.to_html().into_bytes(),
+            ),
         };
         self.io.save(ctx, name, mime, bytes, false);
     }
@@ -271,26 +285,36 @@ impl SlidesApp {
             });
         });
         ui.menu_button("Édition", |ui| {
-            if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("Annuler")).clicked()
+            if ui
+                .add_enabled(!self.undo.is_empty(), egui::Button::new("Annuler"))
+                .clicked()
                 && let Some(prev) = self.undo.pop()
             {
                 self.redo.push(std::mem::replace(&mut self.deck, prev));
             }
-            if ui.add_enabled(!self.redo.is_empty(), egui::Button::new("Rétablir")).clicked()
+            if ui
+                .add_enabled(!self.redo.is_empty(), egui::Button::new("Rétablir"))
+                .clicked()
                 && let Some(next) = self.redo.pop()
             {
                 self.undo.push(std::mem::replace(&mut self.deck, next));
             }
         });
         ui.menu_button("Diapositive", |ui| {
-            if ui.add(egui::Button::new("Nouvelle diapositive").shortcut_text("Ctrl+M")).clicked() {
+            if ui
+                .add(egui::Button::new("Nouvelle diapositive").shortcut_text("Ctrl+M"))
+                .clicked()
+            {
                 self.add(&ctx);
             }
             if ui.button("Dupliquer").clicked() {
                 self.snapshot(now, false);
                 self.current = self.deck.duplicate(self.current);
             }
-            if ui.add_enabled(self.deck.slides.len() > 1, egui::Button::new("Supprimer")).clicked() {
+            if ui
+                .add_enabled(self.deck.slides.len() > 1, egui::Button::new("Supprimer"))
+                .clicked()
+            {
                 self.snapshot(now, false);
                 self.deck.remove(self.current);
             }
@@ -307,10 +331,16 @@ impl SlidesApp {
             }
         });
         ui.menu_button("Diaporama", |ui| {
-            if ui.add(egui::Button::new("Depuis la première diapositive").shortcut_text("F5")).clicked() {
+            if ui
+                .add(egui::Button::new("Depuis la première diapositive").shortcut_text("F5"))
+                .clicked()
+            {
                 self.start(&ctx, 0);
             }
-            if ui.add(egui::Button::new("Depuis la diapositive actuelle").shortcut_text("Maj+F5")).clicked() {
+            if ui
+                .add(egui::Button::new("Depuis la diapositive actuelle").shortcut_text("Maj+F5"))
+                .clicked()
+            {
                 self.start(&ctx, self.current);
             }
         });
@@ -320,7 +350,11 @@ impl SlidesApp {
         let ctx = ui.ctx().clone();
         let now = ctx.input(|i| i.time);
         ui.horizontal_wrapped(|ui| {
-            if ui.button("➕ Diapositive").on_hover_text("Nouvelle diapositive (Ctrl+M)").clicked() {
+            if ui
+                .button("➕ Diapositive")
+                .on_hover_text("Nouvelle diapositive (Ctrl+M)")
+                .clicked()
+            {
                 self.add(&ctx);
             }
             egui::ComboBox::from_id_salt("new-layout")
@@ -348,7 +382,10 @@ impl SlidesApp {
                 .selected_text(format!("Thème : {}", self.deck.theme.label()))
                 .show_ui(ui, |ui| {
                     for t in Theme::ALL {
-                        if ui.selectable_label(self.deck.theme == t, t.label()).clicked() {
+                        if ui
+                            .selectable_label(self.deck.theme == t, t.label())
+                            .clicked()
+                        {
                             self.snapshot(now, false);
                             self.deck.theme = t;
                         }
@@ -362,8 +399,13 @@ impl SlidesApp {
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add(egui::Button::new(RichText::new("▶ Présenter").strong()).fill(Color32::from_rgb(0x1F, 0x5F, 0xBF)))
-                    .on_hover_text("Lancer le diaporama (F5 ; Maj+F5 depuis la diapositive actuelle)")
+                    .add(
+                        egui::Button::new(RichText::new("▶ Présenter").strong())
+                            .fill(Color32::from_rgb(0x1F, 0x5F, 0xBF)),
+                    )
+                    .on_hover_text(
+                        "Lancer le diaporama (F5 ; Maj+F5 depuis la diapositive actuelle)",
+                    )
                     .clicked()
                 {
                     self.start(&ctx, self.current);
@@ -376,32 +418,36 @@ impl SlidesApp {
         let values = self.deck.values();
         let ratio = self.deck.aspect.ratio();
         let mut select = None;
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            ui.add_space(6.0);
-            let w = ui.available_width() - 30.0;
-            for i in 0..self.deck.slides.len() {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{}", i + 1)).small().weak());
-                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, w / ratio), Sense::click());
-                    render_slide(ui, rect, &self.deck, i, &values);
-                    let stroke = if i == self.current {
-                        Stroke::new(3.0, Color32::from_rgb(0x2F, 0x74, 0xD6))
-                    } else {
-                        Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
-                    };
-                    ui.painter().rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Outside);
-                    if resp.clicked() {
-                        select = Some(i);
-                    }
-                    resp.context_menu(|ui| {
-                        if ui.button("Présenter à partir d'ici").clicked() {
-                            self.start(ui.ctx(), i);
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                ui.add_space(6.0);
+                let w = ui.available_width() - 30.0;
+                for i in 0..self.deck.slides.len() {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("{}", i + 1)).small().weak());
+                        let (rect, resp) =
+                            ui.allocate_exact_size(Vec2::new(w, w / ratio), Sense::click());
+                        render_slide(ui, rect, &self.deck, i, &values);
+                        let stroke = if i == self.current {
+                            Stroke::new(3.0, Color32::from_rgb(0x2F, 0x74, 0xD6))
+                        } else {
+                            Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
+                        };
+                        ui.painter()
+                            .rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Outside);
+                        if resp.clicked() {
+                            select = Some(i);
                         }
+                        resp.context_menu(|ui| {
+                            if ui.button("Présenter à partir d'ici").clicked() {
+                                self.start(ui.ctx(), i);
+                            }
+                        });
                     });
-                });
-                ui.add_space(8.0);
-            }
-        });
+                    ui.add_space(8.0);
+                }
+            });
         if let Some(i) = select {
             self.current = i;
         }
@@ -417,7 +463,11 @@ impl SlidesApp {
         let w = h * ratio;
         ui.vertical_centered(|ui| {
             let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
-            ui.painter().rect_filled(rect.translate(Vec2::new(0.0, 3.0)).expand(1.0), 4.0, Color32::from_black_alpha(50));
+            ui.painter().rect_filled(
+                rect.translate(Vec2::new(0.0, 3.0)).expand(1.0),
+                4.0,
+                Color32::from_black_alpha(50),
+            );
             render_slide(ui, rect, &self.deck, self.current, &values);
         });
         ui.add_space(8.0);
@@ -435,7 +485,11 @@ impl SlidesApp {
                 }
                 if bx.subtitle.is_some() {
                     ui.label("Sous-titre");
-                    ui.add(egui::TextEdit::singleline(&mut s.subtitle).desired_width(f32::INFINITY));
+                    ui.add(
+                        egui::TextEdit::multiline(&mut s.subtitle)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(2),
+                    );
                     ui.end_row();
                 }
                 if bx.body.is_some() {
@@ -473,113 +527,133 @@ impl SlidesApp {
 
     fn inspector(&mut self, ui: &mut egui::Ui) {
         let now = ui.input(|i| i.time);
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.label(RichText::new("Diapositive").strong());
-            let i = self.current;
-            let mut layout = self.deck.slides[i].layout;
-            egui::ComboBox::from_label("Disposition")
-                .selected_text(layout.label())
-                .show_ui(ui, |ui| {
-                    for l in Layout::ALL {
-                        ui.selectable_value(&mut layout, l, l.label());
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.label(RichText::new("Diapositive").strong());
+                let i = self.current;
+                let mut layout = self.deck.slides[i].layout;
+                egui::ComboBox::from_label("Disposition")
+                    .selected_text(layout.label())
+                    .show_ui(ui, |ui| {
+                        for l in Layout::ALL {
+                            ui.selectable_value(&mut layout, l, l.label());
+                        }
+                    });
+                if layout != self.deck.slides[i].layout {
+                    self.snapshot(now, false);
+                    self.deck.slides[i].layout = layout;
+                }
+                let mut tr = self.deck.slides[i].transition;
+                egui::ComboBox::from_label("Transition")
+                    .selected_text(tr.label())
+                    .show_ui(ui, |ui| {
+                        for t in Transition::ALL {
+                            ui.selectable_value(&mut tr, t, t.label());
+                        }
+                    });
+                if tr != self.deck.slides[i].transition {
+                    self.snapshot(now, false);
+                    self.deck.slides[i].transition = tr;
+                }
+                ui.label("Fond");
+                ui.horizontal_wrapped(|ui| {
+                    let theme_bg = self.deck.theme.palette().background;
+                    for (name, c) in [
+                        ("Thème", None),
+                        ("Blanc", Some([0xFF, 0xFF, 0xFF])),
+                        ("Nuit", Some([0x14, 0x1B, 0x2D])),
+                        ("Bleu", Some([0x1F, 0x5F, 0xBF])),
+                        ("Sable", Some([0xF4, 0xEC, 0xDC])),
+                        ("Vert", Some([0x1E, 0x5B, 0x46])),
+                        ("Corail", Some([0xF2, 0x6B, 0x5B])),
+                    ] {
+                        let fill = rgb(c.unwrap_or(theme_bg));
+                        let on = self.deck.slides[i].background == c;
+                        let (r, resp) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
+                        ui.painter().rect_filled(r, 4.0, fill);
+                        ui.painter().rect_stroke(
+                            r,
+                            4.0,
+                            Stroke::new(
+                                if on { 2.5 } else { 1.0 },
+                                if on {
+                                    Color32::from_rgb(0x2F, 0x74, 0xD6)
+                                } else {
+                                    Color32::GRAY
+                                },
+                            ),
+                            egui::StrokeKind::Outside,
+                        );
+                        if resp.on_hover_text(name).clicked() {
+                            self.snapshot(now, false);
+                            self.deck.slides[i].background = c;
+                        }
                     }
                 });
-            if layout != self.deck.slides[i].layout {
-                self.snapshot(now, false);
-                self.deck.slides[i].layout = layout;
-            }
-            let mut tr = self.deck.slides[i].transition;
-            egui::ComboBox::from_label("Transition")
-                .selected_text(tr.label())
-                .show_ui(ui, |ui| {
-                    for t in Transition::ALL {
-                        ui.selectable_value(&mut tr, t, t.label());
-                    }
+
+                ui.separator();
+                ui.label(RichText::new("Présentation").strong());
+                let mut aspect = self.deck.aspect;
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut aspect, Aspect::Large, "16:9");
+                    ui.selectable_value(&mut aspect, Aspect::Standard, "4:3");
                 });
-            if tr != self.deck.slides[i].transition {
-                self.snapshot(now, false);
-                self.deck.slides[i].transition = tr;
-            }
-            ui.label("Fond");
-            ui.horizontal_wrapped(|ui| {
-                let theme_bg = self.deck.theme.palette().background;
-                for (name, c) in [
-                    ("Thème", None),
-                    ("Blanc", Some([0xFF, 0xFF, 0xFF])),
-                    ("Nuit", Some([0x14, 0x1B, 0x2D])),
-                    ("Bleu", Some([0x1F, 0x5F, 0xBF])),
-                    ("Sable", Some([0xF4, 0xEC, 0xDC])),
-                    ("Vert", Some([0x1E, 0x5B, 0x46])),
-                    ("Corail", Some([0xF2, 0x6B, 0x5B])),
+                if aspect != self.deck.aspect {
+                    self.snapshot(now, false);
+                    self.deck.aspect = aspect;
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.deck.footer)
+                        .hint_text("Pied de page (ex. {{entreprise}})"),
+                );
+                ui.checkbox(&mut self.deck.slide_numbers, "Numéros de diapositive");
+
+                ui.separator();
+                ui.label(RichText::new("Champs").strong());
+                ui.label(
+                    RichText::new(
+                        "Écrivez {{nom}} dans une diapositive : la valeur s'affiche partout.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                let vars = self.deck.variables();
+                if vars.is_empty() {
+                    ui.label(RichText::new("Aucun champ.").weak());
+                }
+                for v in vars {
+                    ui.label(RichText::new(&v).monospace());
+                    let value = self.deck.values.entry(v.clone()).or_default();
+                    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
+                }
+                ui.separator();
+                ui.label(RichText::new("Mise en forme du contenu").strong());
+                for (k, d) in [
+                    ("- puce", "liste à puces (2 espaces = sous-puce)"),
+                    ("1. élément", "liste numérotée"),
+                    ("**gras** *italique*", "caractères"),
+                    ("> citation", "citation"),
+                    ("| a | b |", "tableau"),
+                    ("{{champ}}", "valeur partagée"),
+                    ("$x^2$", "formule"),
                 ] {
-                    let fill = rgb(c.unwrap_or(theme_bg));
-                    let on = self.deck.slides[i].background == c;
-                    let (r, resp) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
-                    ui.painter().rect_filled(r, 4.0, fill);
-                    ui.painter().rect_stroke(
-                        r,
-                        4.0,
-                        Stroke::new(if on { 2.5 } else { 1.0 }, if on { Color32::from_rgb(0x2F, 0x74, 0xD6) } else { Color32::GRAY }),
-                        egui::StrokeKind::Outside,
-                    );
-                    if resp.on_hover_text(name).clicked() {
-                        self.snapshot(now, false);
-                        self.deck.slides[i].background = c;
-                    }
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(k).monospace().small());
+                        ui.label(RichText::new(d).small().weak());
+                    });
                 }
             });
-
-            ui.separator();
-            ui.label(RichText::new("Présentation").strong());
-            let mut aspect = self.deck.aspect;
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut aspect, Aspect::Large, "16:9");
-                ui.selectable_value(&mut aspect, Aspect::Standard, "4:3");
-            });
-            if aspect != self.deck.aspect {
-                self.snapshot(now, false);
-                self.deck.aspect = aspect;
-            }
-            ui.add(egui::TextEdit::singleline(&mut self.deck.footer).hint_text("Pied de page (ex. {{entreprise}})"));
-            ui.checkbox(&mut self.deck.slide_numbers, "Numéros de diapositive");
-
-            ui.separator();
-            ui.label(RichText::new("Champs").strong());
-            ui.label(RichText::new("Écrivez {{nom}} dans une diapositive : la valeur s'affiche partout.").small().weak());
-            let vars = self.deck.variables();
-            if vars.is_empty() {
-                ui.label(RichText::new("Aucun champ.").weak());
-            }
-            for v in vars {
-                ui.label(RichText::new(&v).monospace());
-                let value = self.deck.values.entry(v.clone()).or_default();
-                ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
-            }
-            ui.separator();
-            ui.label(RichText::new("Mise en forme du contenu").strong());
-            for (k, d) in [
-                ("- puce", "liste à puces (2 espaces = sous-puce)"),
-                ("1. élément", "liste numérotée"),
-                ("**gras** *italique*", "caractères"),
-                ("> citation", "citation"),
-                ("| a | b |", "tableau"),
-                ("{{champ}}", "valeur partagée"),
-                ("$x^2$", "formule"),
-            ] {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(k).monospace().small());
-                    ui.label(RichText::new(d).small().weak());
-                });
-            }
-        });
     }
 
     // ---------------- Mode présentation ----------------
 
     fn present(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
-        let Some((mut i, mut since)) = self.presenting else { return };
+        let Some((mut i, mut since)) = self.presenting else {
+            return;
+        };
         let n = self.deck.slides.len();
         let now = ctx.input(|i| i.time);
         let (next, prev, esc, home, end, notes) = ctx.input(|inp| {
@@ -589,7 +663,9 @@ impl SlidesApp {
                     || inp.key_pressed(Key::PageDown)
                     || inp.key_pressed(Key::Enter)
                     || inp.pointer.primary_clicked(),
-                inp.key_pressed(Key::ArrowLeft) || inp.key_pressed(Key::PageUp) || inp.key_pressed(Key::Backspace),
+                inp.key_pressed(Key::ArrowLeft)
+                    || inp.key_pressed(Key::PageUp)
+                    || inp.key_pressed(Key::Backspace),
                 inp.key_pressed(Key::Escape),
                 inp.key_pressed(Key::Home),
                 inp.key_pressed(Key::End),
@@ -642,18 +718,33 @@ impl SlidesApp {
                 let ease = 1.0 - (1.0 - t).powi(3);
                 let tr = self.deck.slides[i].transition;
                 match tr {
-                    Transition::Glissement => rect = rect.translate(Vec2::new((1.0 - ease) * w * 0.25, 0.0)),
-                    Transition::Zoom => rect = Rect::from_center_size(rect.center(), rect.size() * (0.85 + 0.15 * ease)),
+                    Transition::Glissement => {
+                        rect = rect.translate(Vec2::new((1.0 - ease) * w * 0.25, 0.0))
+                    }
+                    Transition::Zoom => {
+                        rect = Rect::from_center_size(
+                            rect.center(),
+                            rect.size() * (0.85 + 0.15 * ease),
+                        )
+                    }
                     _ => {}
                 }
                 render_slide(ui, rect, &self.deck, i, &values);
                 if tr != Transition::Aucune && t < 1.0 {
-                    ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(((1.0 - ease) * 255.0) as u8));
+                    ui.painter().rect_filled(
+                        screen,
+                        0.0,
+                        Color32::from_black_alpha(((1.0 - ease) * 255.0) as u8),
+                    );
                     ctx.request_repaint();
                 }
                 if self.show_notes {
                     let notes = self.deck.slides[i].notes.clone();
-                    let text = if notes.trim().is_empty() { "(pas de notes)".to_string() } else { notes };
+                    let text = if notes.trim().is_empty() {
+                        "(pas de notes)".to_string()
+                    } else {
+                        notes
+                    };
                     let galley = ui.painter().layout(
                         format!("{}/{} — {}", i + 1, n, text),
                         FontId::proportional(18.0),
@@ -661,17 +752,24 @@ impl SlidesApp {
                         screen.width() - 80.0,
                     );
                     let r = Rect::from_min_size(
-                        Pos2::new(screen.left() + 30.0, screen.bottom() - galley.size().y - 40.0),
+                        Pos2::new(
+                            screen.left() + 30.0,
+                            screen.bottom() - galley.size().y - 40.0,
+                        ),
                         galley.size() + Vec2::splat(20.0),
                     );
-                    ui.painter().rect_filled(r, 8.0, Color32::from_black_alpha(200));
-                    ui.painter().galley(r.min + Vec2::splat(10.0), galley, Color32::WHITE);
+                    ui.painter()
+                        .rect_filled(r, 8.0, Color32::from_black_alpha(200));
+                    ui.painter()
+                        .galley(r.min + Vec2::splat(10.0), galley, Color32::WHITE);
                 }
             });
     }
 
     fn toast_ui(&mut self, ctx: &egui::Context) {
-        let Some((msg, at, error)) = self.toast.clone() else { return };
+        let Some((msg, at, error)) = self.toast.clone() else {
+            return;
+        };
         if ctx.input(|i| i.time) - at > 4.0 {
             self.toast = None;
             return;
@@ -682,7 +780,11 @@ impl SlidesApp {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    let c = if error { Color32::from_rgb(0xD0, 0x30, 0x2A) } else { ui.visuals().text_color() };
+                    let c = if error {
+                        Color32::from_rgb(0xD0, 0x30, 0x2A)
+                    } else {
+                        ui.visuals().text_color()
+                    };
                     ui.label(RichText::new(msg).color(c));
                 });
             });
@@ -707,7 +809,14 @@ struct Ink {
     size: f32,
 }
 
-fn runs_job(runs: &[Run], ink: &Ink, bold: bool, italic: bool, size: f32, color: Color32) -> LayoutJob {
+fn runs_job(
+    runs: &[Run],
+    ink: &Ink,
+    bold: bool,
+    italic: bool,
+    size: f32,
+    color: Color32,
+) -> LayoutJob {
     let mut job = LayoutJob::default();
     for r in runs {
         let st = r.style();
@@ -736,7 +845,14 @@ fn runs_job(runs: &[Run], ink: &Ink, bold: bool, italic: bool, size: f32, color:
         job.append(&text, 0.0, f);
     }
     if job.is_empty() {
-        job.append(" ", 0.0, egui::TextFormat { font_id: FontId::proportional(size), ..Default::default() });
+        job.append(
+            " ",
+            0.0,
+            egui::TextFormat {
+                font_id: FontId::proportional(size),
+                ..Default::default()
+            },
+        );
     }
     job
 }
@@ -753,17 +869,40 @@ fn draw_body(ui: &egui::Ui, area: Rect, paras: &[Para], ink: &Ink, centered: boo
         let (mut job, indent, bullet) = match p {
             Para::Heading { runs, level } => {
                 let k = [1.35, 1.2, 1.1][(*level as usize).clamp(1, 3) - 1];
-                (runs_job(runs, ink, true, false, s * k, ink.color), 0.0, None)
+                (
+                    runs_job(runs, ink, true, false, s * k, ink.color),
+                    0.0,
+                    None,
+                )
             }
-            Para::Item { number, depth, runs } => {
+            Para::Item {
+                number,
+                depth,
+                runs,
+            } => {
                 let label = match number {
                     Some(n) => format!("{n}."),
                     None => ["•", "–", "◦"][*depth as usize % 3].to_string(),
                 };
                 let ind = s * 1.3 * (*depth as f32 + 1.0);
-                (runs_job(runs, ink, false, false, s * if *depth > 0 { 0.9 } else { 1.0 }, ink.color), ind, Some(label))
+                (
+                    runs_job(
+                        runs,
+                        ink,
+                        false,
+                        false,
+                        s * if *depth > 0 { 0.9 } else { 1.0 },
+                        ink.color,
+                    ),
+                    ind,
+                    Some(label),
+                )
             }
-            Para::Quote { runs } => (runs_job(runs, ink, false, true, s * 1.1, ink.color), s, None),
+            Para::Quote { runs } => (
+                runs_job(runs, ink, false, true, s * 1.1, ink.color),
+                s,
+                None,
+            ),
             Para::Text { runs, .. } if runs.is_empty() => {
                 y += s * 0.6;
                 continue;
@@ -783,17 +922,36 @@ fn draw_body(ui: &egui::Ui, area: Rect, paras: &[Para], ink: &Ink, centered: boo
                 for (ri, row) in t.rows.iter().enumerate() {
                     let rh = s * 1.5;
                     for c in 0..cols {
-                        let cell = Rect::from_min_size(Pos2::new(area.left() + cw * c as f32, y), Vec2::new(cw, rh));
+                        let cell = Rect::from_min_size(
+                            Pos2::new(area.left() + cw * c as f32, y),
+                            Vec2::new(cw, rh),
+                        );
                         let head = ri == 0 && t.header;
                         if head {
                             painter.rect_filled(cell, 0.0, ink.accent.gamma_multiply(0.25));
                         }
-                        painter.rect_stroke(cell, 0.0, Stroke::new(1.0, ink.color.gamma_multiply(0.4)), egui::StrokeKind::Inside);
+                        painter.rect_stroke(
+                            cell,
+                            0.0,
+                            Stroke::new(1.0, ink.color.gamma_multiply(0.4)),
+                            egui::StrokeKind::Inside,
+                        );
                         let empty = Vec::new();
-                        let mut job = runs_job(row.get(c).unwrap_or(&empty), ink, head, false, s * 0.8, ink.color);
+                        let mut job = runs_job(
+                            row.get(c).unwrap_or(&empty),
+                            ink,
+                            head,
+                            false,
+                            s * 0.8,
+                            ink.color,
+                        );
                         job.wrap.max_width = cw - 8.0;
                         let g = ui.ctx().fonts_mut(|f| f.layout_job(job));
-                        painter.galley(Pos2::new(cell.left() + 4.0, cell.center().y - g.size().y / 2.0), g, ink.color);
+                        painter.galley(
+                            Pos2::new(cell.left() + 4.0, cell.center().y - g.size().y / 2.0),
+                            g,
+                            ink.color,
+                        );
                     }
                     y += rh;
                 }
@@ -801,7 +959,13 @@ fn draw_body(ui: &egui::Ui, area: Rect, paras: &[Para], ink: &Ink, centered: boo
                 continue;
             }
             Para::Rule => {
-                painter.line_segment([Pos2::new(area.left(), y + s * 0.3), Pos2::new(area.right(), y + s * 0.3)], Stroke::new(1.5, ink.accent));
+                painter.line_segment(
+                    [
+                        Pos2::new(area.left(), y + s * 0.3),
+                        Pos2::new(area.right(), y + s * 0.3),
+                    ],
+                    Stroke::new(1.5, ink.accent),
+                );
                 y += s * 0.7;
                 continue;
             }
@@ -812,12 +976,28 @@ fn draw_body(ui: &egui::Ui, area: Rect, paras: &[Para], ink: &Ink, centered: boo
             job.halign = egui::Align::Center;
         }
         let g = ui.ctx().fonts_mut(|f| f.layout_job(job));
-        let x = if centered { area.center().x } else { area.left() + indent };
+        let x = if centered {
+            area.center().x
+        } else {
+            area.left() + indent
+        };
         if let Some(label) = bullet {
-            painter.text(Pos2::new(area.left() + indent - s * 1.1, y), Align2::LEFT_TOP, label, FontId::new(s, crate::fonts::family(ink.font, true, false)), ink.accent);
+            painter.text(
+                Pos2::new(area.left() + indent - s * 1.1, y),
+                Align2::LEFT_TOP,
+                label,
+                FontId::new(s, crate::fonts::family(ink.font, true, false)),
+                ink.accent,
+            );
         }
         if matches!(p, Para::Quote { .. }) {
-            painter.line_segment([Pos2::new(area.left() + s * 0.3, y), Pos2::new(area.left() + s * 0.3, y + g.size().y)], Stroke::new(s * 0.12, ink.accent));
+            painter.line_segment(
+                [
+                    Pos2::new(area.left() + s * 0.3, y),
+                    Pos2::new(area.left() + s * 0.3, y + g.size().y),
+                ],
+                Stroke::new(s * 0.12, ink.accent),
+            );
         }
         let h = g.size().y;
         painter.galley(Pos2::new(x, y), g, ink.color);
@@ -827,29 +1007,35 @@ fn draw_body(ui: &egui::Ui, area: Rect, paras: &[Para], ink: &Ink, centered: boo
 
 /// Dessine la diapositive `i` du diaporama dans `rect`.
 pub fn render_slide(ui: &egui::Ui, rect: Rect, deck: &Deck, i: usize, values: &Values) {
-    let Some(slide) = deck.slides.get(i) else { return };
-    let pal = deck.theme.palette();
-    let bg = rgb(slide.background.unwrap_or(pal.background));
+    let Some(slide) = deck.slides.get(i) else {
+        return;
+    };
+    // La palette de la diapositive : sur un fond personnalisé, le moteur ajuste les
+    // couleurs du texte pour qu'il reste lisible.
+    let pal = deck.slide_palette(i);
+    let bg = rgb(pal.background);
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 2.0, bg);
-    // Sur un fond personnalisé, le texte reste lisible.
-    let dark_bg = (bg.r() as u32 + bg.g() as u32 + bg.b() as u32) < 380;
-    let pal_dark = (pal.background[0] as u32 + pal.background[1] as u32 + pal.background[2] as u32) < 380;
-    let (text, title) = if slide.background.is_some() && dark_bg != pal_dark {
-        if dark_bg { (Color32::from_gray(240), Color32::WHITE) } else { (Color32::from_gray(30), Color32::from_gray(15)) }
-    } else {
-        (rgb(pal.text), rgb(pal.title))
-    };
+    let (text, title) = (rgb(pal.text), rgb(pal.title));
     let accent = rgb(pal.accent);
     let h = rect.height();
     let layout = slide.layout;
     let bx = varium_slides::boxes(layout);
-    let title_font = if pal.serif_titles { DocFont::Serif } else { DocFont::Sans };
+    let title_font = if pal.serif_titles {
+        DocFont::Serif
+    } else {
+        DocFont::Sans
+    };
     let centered = matches!(layout, Layout::Title | Layout::Section | Layout::Quote);
 
     if let Some(f) = bx.title {
         let r = frame_rect(rect, f);
-        let ink = Ink { font: title_font, color: title, accent, size: varium_slides::title_size(layout) * h };
+        let ink = Ink {
+            font: title_font,
+            color: title,
+            accent,
+            size: varium_slides::title_size(layout) * h,
+        };
         let runs = varium_core::doc::inline(&slide.title, values);
         let mut job = runs_job(&runs, &ink, true, false, ink.size, title);
         job.wrap.max_width = r.width();
@@ -858,20 +1044,41 @@ pub fn render_slide(ui: &egui::Ui, rect: Rect, deck: &Deck, i: usize, values: &V
         }
         let g = ui.ctx().fonts_mut(|fo| fo.layout_job(job));
         let x = if centered { r.center().x } else { r.left() };
-        let y = if matches!(layout, Layout::Title | Layout::Section) { r.bottom() - g.size().y } else { r.top() };
-        painter.with_clip_rect(rect).galley(Pos2::new(x, y.max(r.top())), g, title);
+        let y = if matches!(layout, Layout::Title | Layout::Section) {
+            r.bottom() - g.size().y
+        } else {
+            r.top()
+        };
+        painter
+            .with_clip_rect(rect)
+            .galley(Pos2::new(x, y.max(r.top())), g, title);
         if layout == Layout::Section {
             painter.line_segment(
-                [Pos2::new(r.center().x - r.width() * 0.08, r.bottom() + h * 0.03), Pos2::new(r.center().x + r.width() * 0.08, r.bottom() + h * 0.03)],
+                [
+                    Pos2::new(r.center().x - r.width() * 0.08, r.bottom() + h * 0.03),
+                    Pos2::new(r.center().x + r.width() * 0.08, r.bottom() + h * 0.03),
+                ],
                 Stroke::new(h * 0.008, accent),
             );
         }
     }
     if let Some(f) = bx.subtitle {
         let r = frame_rect(rect, f);
-        let ink = Ink { font: DocFont::Sans, color: text, accent, size: varium_slides::body_size(layout) * h * 1.05 };
+        let ink = Ink {
+            font: DocFont::Sans,
+            color: text,
+            accent,
+            size: varium_slides::subtitle_size(layout) * h,
+        };
         let runs = varium_core::doc::inline(&slide.subtitle, values);
-        let mut job = runs_job(&runs, &ink, false, false, ink.size, text.gamma_multiply(0.85));
+        let mut job = runs_job(
+            &runs,
+            &ink,
+            false,
+            false,
+            ink.size,
+            text.gamma_multiply(0.85),
+        );
         job.wrap.max_width = r.width();
         if centered {
             job.halign = egui::Align::Center;
@@ -881,7 +1088,11 @@ pub fn render_slide(ui: &egui::Ui, rect: Rect, deck: &Deck, i: usize, values: &V
         painter.galley(Pos2::new(x, r.top()), g, text);
     }
     let body_ink = Ink {
-        font: if layout == Layout::Quote { DocFont::Serif } else { DocFont::Sans },
+        font: if layout == Layout::Quote {
+            DocFont::Serif
+        } else {
+            DocFont::Sans
+        },
         color: text,
         accent,
         size: varium_slides::body_size(layout) * h,
@@ -889,20 +1100,40 @@ pub fn render_slide(ui: &egui::Ui, rect: Rect, deck: &Deck, i: usize, values: &V
     for (f, src) in [(bx.body, &slide.body), (bx.body2, &slide.body2)] {
         if let Some(f) = f {
             let paras = varium_core::document(src, values);
-            draw_body(ui, frame_rect(rect, f), &paras, &body_ink, layout == Layout::Quote);
+            draw_body(
+                ui,
+                frame_rect(rect, f),
+                &paras,
+                &body_ink,
+                layout == Layout::Quote,
+            );
         }
     }
-    // Pied de page et numéro
-    let small = FontId::new(h * 0.028, crate::fonts::family(DocFont::Sans, false, false));
+    // Pied de page et numéro, aux places que le moteur leur donne dans les exports.
+    if !bx.footer {
+        return;
+    }
+    let small = FontId::new(
+        h * varium_slides::FOOTER_SIZE,
+        crate::fonts::family(DocFont::Sans, false, false),
+    );
     let muted = rgb(pal.muted);
     if !deck.footer.trim().is_empty() {
+        let f = frame_rect(rect, varium_slides::footer_frame());
         let foot = varium_core::doc::plain(&varium_core::doc::inline(&deck.footer, values));
-        painter.text(Pos2::new(rect.left() + rect.width() * 0.05, rect.bottom() - h * 0.04), Align2::LEFT_BOTTOM, foot, small.clone(), muted);
+        painter.text(
+            f.left_center(),
+            Align2::LEFT_CENTER,
+            foot,
+            small.clone(),
+            muted,
+        );
     }
     if deck.slide_numbers {
+        let f = frame_rect(rect, varium_slides::number_frame());
         painter.text(
-            Pos2::new(rect.right() - rect.width() * 0.05, rect.bottom() - h * 0.04),
-            Align2::RIGHT_BOTTOM,
+            f.right_center(),
+            Align2::RIGHT_CENTER,
             format!("{}", i + 1),
             small,
             muted,
@@ -914,6 +1145,7 @@ pub fn render_slide(ui: &egui::Ui, rect: Rect, deck: &Deck, i: usize, values: &V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use varium_slides::Slide;
 
     #[test]
     fn les_cadres_restent_dans_la_diapositive() {

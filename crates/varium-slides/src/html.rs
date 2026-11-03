@@ -198,7 +198,11 @@ fn diapositive(out: &mut String, i: usize, total: usize, r: &Rendu, s: &Slide) {
         if p.serif_titles { "serif" } else { "sans" },
     );
     if let Some(f) = b.title {
-        let balise = if s.layout == Layout::Title { "h1" } else { "h2" };
+        let balise = if s.layout == Layout::Title {
+            "h1"
+        } else {
+            "h2"
+        };
         let inner = format!("<{balise}>{}</{balise}>", lignes_html(&r.title));
         boite(
             out,
@@ -210,11 +214,7 @@ fn diapositive(out: &mut String, i: usize, total: usize, r: &Rendu, s: &Slide) {
         );
     }
     if let Some(f) = b.accent {
-        let _ = writeln!(
-            out,
-            "<div class=\"barre\" style=\"{}\"></div>",
-            position(f)
-        );
+        let _ = writeln!(out, "<div class=\"barre\" style=\"{}\"></div>", position(f));
     }
     if let Some(f) = b.subtitle {
         let inner = format!("<p>{}</p>", lignes_html(&r.subtitle));
@@ -310,7 +310,7 @@ fn css(aspect: crate::Aspect) -> String {
 
 const CSS: &str = r#"*{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{background:#0c0d10;overflow:hidden;font-family:var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;font-kerning:normal;font-feature-settings:"kern","liga";cursor:default;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+body{background:#0c0d10;overflow:hidden;font-family:var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;font-kerning:normal;font-variant-ligatures:common-ligatures no-contextual;cursor:default;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 .scene{--vh:100vh;--h:min(var(--vh),calc(100vw / var(--r)));position:fixed;left:50%;top:50%;width:calc(var(--h) * var(--r));height:var(--h);transform:translate(-50%,-50%);overflow:hidden}
 @supports (height:100dvh){.scene{--vh:100dvh}}
 .slide{position:absolute;inset:0;background:var(--bg);color:var(--fg);visibility:hidden;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
