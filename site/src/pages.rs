@@ -244,7 +244,7 @@ pub async fn accueil(req: Request) -> Page {
 // Syntaxe
 // ---------------------------------------------------------------------------------
 
-const SYNTAXE: [(&str, &str); 19] = [
+const SYNTAXE: [(&str, &str); 20] = [
     ("{{nom}}", "un champ : la même valeur partout"),
     (
         "{{ nom | upper | trim }}",
@@ -282,6 +282,10 @@ const SYNTAXE: [(&str, &str); 19] = [
         "un tableau, son en-tête et l'alignement des colonnes",
     ),
     ("---, \\newpage", "ligne horizontale, saut de page"),
+    (
+        "\\sommaire",
+        "une table des matières générée depuis les titres",
+    ),
     (
         "$E = mc^2$, $$ \\sum_i x_i $$",
         "des formules LaTeX, en ligne ou centrées",
