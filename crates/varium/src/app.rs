@@ -11,7 +11,8 @@ use varium_core::merge::{self, Sheet};
 use varium_core::{DocFont, PageSetup, Paper, Project, Values, VarType, docx, filters, odt, stats};
 
 use crate::editor::{self, LineStyle, Palette, Sel};
-use crate::io::{Event, Io, OpenKind};
+use crate::files;
+use crate::io::{self, Event, Io, OpenKind};
 use crate::pageview::{self, View};
 use crate::templates;
 
@@ -30,8 +31,12 @@ const TODAY: &str = "aujourdhui";
 enum Act {
     New,
     Templates,
+    NewBlank,
     Open,
+    OpenRecent(usize),
     Save,
+    SaveAs,
+    Quit,
     Export(Format),
     Print,
     Merge,
@@ -86,6 +91,7 @@ const CMD_SHIFT: Modifiers = Modifiers::COMMAND.plus(Modifiers::SHIFT);
 const SHORTCUTS: &[(KeyboardShortcut, Act)] = &[
     (sc(CMD_SHIFT, Key::Z), Act::Redo),
     (sc(CMD_SHIFT, Key::N), Act::Templates),
+    (sc(CMD_SHIFT, Key::S), Act::SaveAs),
     (sc(CMD_SHIFT, Key::V), Act::InsertField),
     (
         sc(Modifiers::SHIFT, Key::F12),
@@ -152,6 +158,8 @@ struct Prefs {
     fields_panel: bool,
     toolbar: bool,
     status_bar: bool,
+    /// Documents récents, du plus récent au plus ancien.
+    recent: Vec<String>,
 }
 
 impl Default for Prefs {
@@ -163,6 +171,7 @@ impl Default for Prefs {
             fields_panel: true,
             toolbar: true,
             status_bar: true,
+            recent: Vec::new(),
         }
     }
 }
@@ -188,13 +197,40 @@ enum Dialog {
     Templates,
     PageSetup,
     Merge,
-    Table { rows: usize, cols: usize },
-    Field { name: String, ty: VarType },
-    Formula { expr: String },
+    Table {
+        rows: usize,
+        cols: usize,
+    },
+    Field {
+        name: String,
+        ty: VarType,
+    },
+    Formula {
+        expr: String,
+    },
     Stats,
     Shortcuts,
     Syntax,
     About,
+    /// Modifications non enregistrées : que faire avant de continuer ?
+    Confirm(Pending),
+}
+
+/// Action différée jusqu'à la réponse à « Enregistrer les modifications ? ».
+#[derive(Clone, PartialEq, Debug)]
+enum Pending {
+    New,
+    Templates,
+    Open,
+    Recent(String),
+    Quit,
+}
+
+enum SaveOutcome {
+    Done,
+    /// Le dialogue « Enregistrer sous » est ouvert.
+    Asking,
+    Failed,
 }
 
 #[derive(Default)]
@@ -240,6 +276,16 @@ pub struct VariumApp {
     io: Io,
     pages: usize,
     mobile_style: Option<bool>,
+    /// Fichier du document ouvert (Ctrl+S le réécrit).
+    path: Option<std::path::PathBuf>,
+    /// État au dernier enregistrement (pour l'indicateur de modifications).
+    saved: Snapshot,
+    /// État envoyé au dialogue « Enregistrer sous » en cours.
+    saving: Option<Snapshot>,
+    /// À exécuter quand l'enregistrement demandé par la confirmation aboutit.
+    after_save: Option<Pending>,
+    last_window_title: String,
+    allow_close: bool,
 }
 
 fn today() -> String {
@@ -288,8 +334,20 @@ impl VariumApp {
             io: Io::default(),
             pages: 1,
             mobile_style: None,
+            path: None,
+            saved: Snapshot {
+                title: String::new(),
+                source: String::new(),
+                values: Values::default(),
+                page: PageSetup::default(),
+            },
+            saving: None,
+            after_save: None,
+            last_window_title: String::new(),
+            allow_close: false,
         };
         app.restore(app.history.current.clone());
+        app.saved = app.snapshot();
         app
     }
 
@@ -324,6 +382,82 @@ impl VariumApp {
         self.sel = (0, 0);
         self.pending_sel = Some((0, 0));
         self.merge = None;
+        self.path = None;
+        self.saved = self.snapshot();
+    }
+
+    /// Des modifications ne sont-elles pas enregistrées ?
+    fn is_dirty(&self) -> bool {
+        self.saved.source != self.source
+            || self.saved.title != self.title
+            || self.saved.page != self.page
+            || self.saved.values != self.values
+    }
+
+    /// Exécute `p` tout de suite, ou demande confirmation s'il y a des
+    /// modifications non enregistrées.
+    fn guard(&mut self, ctx: &egui::Context, p: Pending) {
+        if self.is_dirty() {
+            self.dialog = Some(Dialog::Confirm(p));
+        } else {
+            self.proceed(ctx, p);
+        }
+    }
+
+    fn proceed(&mut self, ctx: &egui::Context, p: Pending) {
+        match p {
+            Pending::New => self.run(ctx, Act::NewBlank),
+            Pending::Templates => self.dialog = Some(Dialog::Templates),
+            Pending::Open => self.io.open(ctx, OpenKind::Document),
+            Pending::Recent(path) => {
+                let path = std::path::PathBuf::from(path);
+                if path.exists() {
+                    self.io.open_path(ctx, OpenKind::Document, &path);
+                } else {
+                    files::forget_recent(&mut self.prefs.recent, &path.display().to_string());
+                    self.notify(
+                        ctx,
+                        format!(
+                            "« {} » est introuvable (déplacé ou supprimé)",
+                            path.display()
+                        ),
+                        true,
+                    );
+                }
+            }
+            Pending::Quit => {
+                self.allow_close = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    /// Enregistre le projet : réécrit le fichier courant, ou ouvre « Enregistrer sous ».
+    fn save_project(&mut self, ctx: &egui::Context, as_new: bool) -> SaveOutcome {
+        self.after_save = None;
+        let bytes = self.project().to_json().into_bytes();
+        let snap = self.snapshot();
+        match (&self.path, as_new) {
+            (Some(path), false) => match io::write_atomic(path, &bytes) {
+                Ok(()) => {
+                    let path = path.clone();
+                    self.saved = snap;
+                    files::push_recent(&mut self.prefs.recent, &path);
+                    self.notify(ctx, format!("Enregistré : {}", path.display()), false);
+                    SaveOutcome::Done
+                }
+                Err(e) => {
+                    self.notify(ctx, format!("Écriture impossible : {e}"), true);
+                    SaveOutcome::Failed
+                }
+            },
+            _ => {
+                self.saving = Some(snap);
+                let name = format!("{}.varium.json", self.base_stem());
+                self.io.save(ctx, name, "application/json", bytes, true);
+                SaveOutcome::Asking
+            }
+        }
     }
 
     fn project(&self) -> Project {
@@ -422,7 +556,7 @@ impl VariumApp {
         }
     }
 
-    fn file_stem(&self) -> String {
+    fn base_stem(&self) -> String {
         let s: String = self
             .title
             .trim()
@@ -436,7 +570,11 @@ impl VariumApp {
             })
             .collect();
         let s = s.trim_matches('-').to_string();
-        let s = if s.is_empty() { "document".into() } else { s };
+        if s.is_empty() { "document".into() } else { s }
+    }
+
+    fn file_stem(&self) -> String {
+        let s = self.base_stem();
         if self.merge.is_some() {
             format!("{s}-publipostage")
         } else {
@@ -474,7 +612,8 @@ impl VariumApp {
 
     fn run(&mut self, ctx: &egui::Context, act: Act) {
         match act {
-            Act::New => {
+            Act::New => self.guard(ctx, Pending::New),
+            Act::NewBlank => {
                 self.load(Project::new("Sans titre", "", &Values::default()));
                 self.notify(
                     ctx,
@@ -482,17 +621,20 @@ impl VariumApp {
                     false,
                 );
             }
-            Act::Templates => self.dialog = Some(Dialog::Templates),
-            Act::Open => self.io.open(ctx, OpenKind::Document),
-            Act::Save => {
-                let name = format!("{}.varium.json", self.file_stem());
-                self.io.save(
-                    ctx,
-                    name,
-                    "application/json",
-                    self.project().to_json().into_bytes(),
-                );
+            Act::Templates => self.guard(ctx, Pending::Templates),
+            Act::Open => self.guard(ctx, Pending::Open),
+            Act::OpenRecent(i) => {
+                if let Some(path) = self.prefs.recent.get(i).cloned() {
+                    self.guard(ctx, Pending::Recent(path));
+                }
             }
+            Act::Save => {
+                self.save_project(ctx, false);
+            }
+            Act::SaveAs => {
+                self.save_project(ctx, true);
+            }
+            Act::Quit => self.guard(ctx, Pending::Quit),
             Act::Export(f) => self.export(ctx, f),
             Act::Print => {
                 let html = export::html(&self.title, &self.rendered(), &self.page);
@@ -602,7 +744,7 @@ impl VariumApp {
                 self.source.clone().into_bytes(),
             ),
         };
-        self.io.save(ctx, name, mime, bytes);
+        self.io.save(ctx, name, mime, bytes, false);
     }
 
     fn handle_io(&mut self, ctx: &egui::Context) {
@@ -612,6 +754,7 @@ impl VariumApp {
                     kind: OpenKind::Data,
                     name,
                     content,
+                    ..
                 } => match merge::parse_csv(&content) {
                     Ok(sheet) if sheet.rows.is_empty() => self.notify(
                         ctx,
@@ -638,11 +781,16 @@ impl VariumApp {
                     kind: OpenKind::Document,
                     name,
                     content,
+                    path,
                 } => {
-                    if name.ends_with(".json") || name.ends_with(".varium") {
+                    if files::is_project_file(&name) {
                         match Project::from_json(&content) {
                             Ok(p) => {
                                 self.load(p);
+                                if let Some(path) = path {
+                                    files::push_recent(&mut self.prefs.recent, &path);
+                                    self.path = Some(path);
+                                }
                                 self.notify(ctx, format!("« {name} » ouvert"), false);
                             }
                             Err(e) => self.notify(ctx, e, true),
@@ -662,7 +810,17 @@ impl VariumApp {
                         );
                     }
                 }
-                Event::Saved(path) => self.notify(ctx, format!("Enregistré : {path}"), false),
+                Event::Saved { path, project } => {
+                    self.notify(ctx, format!("Enregistré : {}", path.display()), false);
+                    if project {
+                        self.saved = self.saving.take().unwrap_or_else(|| self.snapshot());
+                        files::push_recent(&mut self.prefs.recent, &path);
+                        self.path = Some(path);
+                        if let Some(p) = self.after_save.take() {
+                            self.proceed(ctx, p);
+                        }
+                    }
+                }
                 Event::Info(msg) => self.notify(ctx, msg, false),
                 Event::Error(e) => self.notify(ctx, e, true),
             }
@@ -696,8 +854,19 @@ impl VariumApp {
             self.item(ui, "Nouveau", Act::New);
             self.item(ui, "Nouveau à partir d'un modèle…", Act::Templates);
             self.item(ui, "Ouvrir…", Act::Open);
+            ui.add_enabled_ui(!self.prefs.recent.is_empty(), |ui| {
+                ui.menu_button("Documents récents", |ui| {
+                    for (i, p) in self.prefs.recent.clone().iter().enumerate() {
+                        if ui.button(files::short_name(p)).on_hover_text(p).clicked() {
+                            self.queue.push(Act::OpenRecent(i));
+                            ui.close();
+                        }
+                    }
+                });
+            });
             ui.separator();
-            self.item(ui, "Enregistrer le projet", Act::Save);
+            self.item(ui, "Enregistrer", Act::Save);
+            self.item(ui, "Enregistrer sous…", Act::SaveAs);
             ui.menu_button("Exporter", |ui| {
                 self.item(
                     ui,
@@ -713,6 +882,8 @@ impl VariumApp {
             self.item(ui, "Exporter en PDF / Imprimer…", Act::Print);
             ui.separator();
             self.item(ui, "Publipostage…", Act::Merge);
+            ui.separator();
+            self.item(ui, "Quitter", Act::Quit);
         });
         ui.menu_button("Édition", |ui| {
             let (u, r) = (!self.history.undo.is_empty(), !self.history.redo.is_empty());
@@ -860,7 +1031,7 @@ impl VariumApp {
             if !mobile {
                 self.tool(ui, Icon::New, "Nouveau", Act::New, false);
                 self.tool(ui, Icon::Open, "Ouvrir", Act::Open, false);
-                self.tool(ui, Icon::Save, "Enregistrer le projet", Act::Save, false);
+                self.tool(ui, Icon::Save, "Enregistrer (Ctrl+S)", Act::Save, false);
                 sep(ui);
                 self.tool(
                     ui,
@@ -1723,6 +1894,32 @@ impl VariumApp {
                     });
                     keep = !ui.button("Fermer").clicked();
                 }
+                Dialog::Confirm(p) => {
+                    ui.heading("Enregistrer les modifications ?");
+                    ui.label(format!(
+                        "« {} » contient des modifications non enregistrées.",
+                        self.title.trim()
+                    ));
+                    ui.label(RichText::new("Sans enregistrement, elles seront perdues.").weak());
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Enregistrer").clicked() {
+                            keep = false;
+                            match self.save_project(ctx, false) {
+                                SaveOutcome::Done => self.proceed(ctx, p.clone()),
+                                SaveOutcome::Asking => self.after_save = Some(p.clone()),
+                                SaveOutcome::Failed => {}
+                            }
+                        }
+                        if ui.button("Ne pas enregistrer").clicked() {
+                            keep = false;
+                            self.proceed(ctx, p.clone());
+                        }
+                        if ui.button("Annuler").clicked() {
+                            keep = false;
+                        }
+                    });
+                }
                 Dialog::About => {
                     ui.heading("Varium");
                     ui.label(RichText::new("Un document. Toutes ses possibilités.").italics());
@@ -1787,7 +1984,7 @@ impl VariumApp {
         let mut keep = true;
         ui.horizontal(|ui| {
             if ui.button("Document vierge").clicked() {
-                self.queue.push(Act::New);
+                self.queue.push(Act::NewBlank);
                 keep = false;
             }
             if ui.button("Annuler").clicked() {
@@ -2224,6 +2421,19 @@ impl eframe::App for VariumApp {
         let ctx = ui.ctx().clone();
         self.handle_io(&ctx);
 
+        // Fermeture de la fenêtre : confirmation s'il reste des modifications.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.is_dirty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            if self.dialog.is_none() {
+                self.dialog = Some(Dialog::Confirm(Pending::Quit));
+            }
+        }
+        let wt = files::window_title(&self.title, self.path.as_deref(), self.is_dirty());
+        if wt != self.last_window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(wt.clone()));
+            self.last_window_title = wt;
+        }
+
         // Raccourcis (avant les widgets, pour que l'éditeur ne les reçoive pas)
         if self.dialog.is_none() {
             for (s, act) in SHORTCUTS {
@@ -2626,7 +2836,8 @@ fn act_label(a: Act) -> &'static str {
         Act::New => "Nouveau document",
         Act::Templates => "Nouveau à partir d'un modèle",
         Act::Open => "Ouvrir",
-        Act::Save => "Enregistrer le projet",
+        Act::Save => "Enregistrer",
+        Act::SaveAs => "Enregistrer sous",
         Act::Export(Format::Odt) => "Exporter pour LibreOffice (.odt)",
         Act::Export(_) => "Exporter",
         Act::Print => "Exporter en PDF / Imprimer",

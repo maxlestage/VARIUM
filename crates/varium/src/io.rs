@@ -1,5 +1,6 @@
 //! Ouverture, enregistrement et impression (dialogues natifs rfd).
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// Ce que l'utilisateur ouvre.
@@ -16,8 +17,15 @@ pub enum Event {
         kind: OpenKind,
         name: String,
         content: String,
+        /// Chemin du fichier (toujours connu avec les dialogues natifs).
+        path: Option<PathBuf>,
     },
-    Saved(String),
+    /// Un fichier a été écrit ; `project` : c'est le document lui-même
+    /// (et non un export), il devient le fichier courant.
+    Saved {
+        path: PathBuf,
+        project: bool,
+    },
     Info(String),
     Error(String),
 }
@@ -32,11 +40,11 @@ pub const DATA_EXTENSIONS: &[&str] = &["csv", "tsv", "txt"];
 
 impl Io {
     pub fn drain(&self) -> Vec<Event> {
-        std::mem::take(&mut *self.inbox.lock().unwrap())
+        std::mem::take(&mut *self.inbox.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     fn push(inbox: &Arc<Mutex<Vec<Event>>>, ctx: &egui::Context, e: Event) {
-        inbox.lock().unwrap().push(e);
+        inbox.lock().unwrap_or_else(|e| e.into_inner()).push(e);
         ctx.request_repaint();
     }
 
@@ -56,9 +64,23 @@ impl Io {
                 return;
             };
             let name = file.file_name();
+            let path = Some(file.path().to_path_buf());
             let bytes = file.read().await;
-            Self::push(&inbox, &ctx, decode(kind, name, bytes));
+            Self::push(&inbox, &ctx, decode(kind, name, path, bytes));
         });
+    }
+
+    /// Ouvre directement un fichier connu (documents récents).
+    pub fn open_path(&self, ctx: &egui::Context, kind: OpenKind, path: &Path) {
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into(),
+        );
+        let ev = match std::fs::read(path) {
+            Ok(bytes) => decode(kind, name, Some(path.to_path_buf()), bytes),
+            Err(e) => Event::Error(format!("Ouverture impossible de « {name} » : {e}")),
+        };
+        Self::push(&self.inbox, ctx, ev);
     }
 
     pub fn save(
@@ -67,6 +89,7 @@ impl Io {
         file_name: String,
         mime: &'static str,
         content: Vec<u8>,
+        project: bool,
     ) {
         let _ = mime;
         let inbox = self.inbox.clone();
@@ -79,8 +102,8 @@ impl Io {
                 return;
             };
             let path = handle.path().to_path_buf();
-            let ev = match std::fs::write(&path, content) {
-                Ok(()) => Event::Saved(path.display().to_string()),
+            let ev = match write_atomic(&path, &content) {
+                Ok(()) => Event::Saved { path, project },
                 Err(e) => Event::Error(format!("Écriture impossible : {e}")),
             };
             Self::push(&inbox, &ctx, ev);
@@ -114,21 +137,36 @@ impl Io {
 }
 
 /// Le contenu d'un fichier ouvert, en texte.
-fn decode(kind: OpenKind, name: String, bytes: Vec<u8>) -> Event {
+fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -> Event {
     match String::from_utf8(bytes) {
         Ok(content) => Event::Opened {
             kind,
             name,
             content,
+            path,
         },
         // Les CSV d'Excel sont souvent en Windows-1252 : on les convertit.
         Err(e) if kind == OpenKind::Data => Event::Opened {
             kind,
             name,
             content: e.into_bytes().iter().map(|&b| cp1252(b)).collect(),
+            path,
         },
         Err(_) => Event::Error(format!("« {name} » n'est pas un fichier texte UTF-8")),
     }
+}
+
+/// Écrit dans un fichier temporaire voisin puis le renomme : un plantage ou un
+/// disque plein ne laisse jamais un document à moitié écrit.
+pub fn write_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".varium-tmp");
+    let tmp = PathBuf::from(tmp);
+    let res = std::fs::write(&tmp, content).and_then(|()| std::fs::rename(&tmp, path));
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
 }
 
 /// Windows-1252 → caractère (pour les CSV enregistrés par Excel).
@@ -180,6 +218,41 @@ fn pollster_block_on<F: std::future::Future>(fut: F) -> F::Output {
         match fut.as_mut().poll(&mut cx) {
             Poll::Ready(v) => return v,
             Poll::Pending => std::thread::park(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ecriture_atomique_remplace_le_fichier() {
+        let dir = std::env::temp_dir().join(format!("varium-io-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("doc.varium.json");
+        write_atomic(&f, b"un").unwrap();
+        write_atomic(&f, b"deux").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"deux");
+        assert!(!dir.join("doc.varium.json.varium-tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn ecriture_dans_un_dossier_absent_echoue_proprement() {
+        let f = std::env::temp_dir().join("varium-absent-xyz/dossier/doc.json");
+        assert!(write_atomic(&f, b"x").is_err());
+    }
+
+    #[test]
+    fn decode_refuse_le_binaire_mais_accepte_le_csv_windows() {
+        assert!(matches!(
+            decode(OpenKind::Document, "a.txt".into(), None, vec![0xff, 0xfe]),
+            Event::Error(_)
+        ));
+        match decode(OpenKind::Data, "a.csv".into(), None, vec![b'a', 0x80]) {
+            Event::Opened { content, .. } => assert_eq!(content, "a€"),
+            _ => panic!("CSV Windows-1252 attendu"),
         }
     }
 }
