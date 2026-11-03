@@ -71,11 +71,15 @@ fn parse_filters(s: &str) -> Vec<Filter> {
 /// Renvoie (nom, filtres, fin) si la syntaxe est valide.
 fn try_token(src: &str, start: usize) -> Option<(String, Vec<Filter>, usize)> {
     let inner_start = start + 2;
-    let close = src[inner_start..].find("}}")? + inner_start;
-    let inner = &src[inner_start..close];
-    if inner.contains('{') || inner.contains('}') || inner.contains('\n') {
+    // Le contenu ne peut contenir ni `{`, ni `}`, ni saut de ligne : on s'arrête au
+    // premier de ces caractères (parcours borné, pas quadratique sur `{{{{{{…`).
+    let reste = src.get(inner_start..)?;
+    let off = reste.find(['{', '}', '\n'])?;
+    if !reste[off..].starts_with("}}") {
         return None;
     }
+    let close = inner_start + off;
+    let inner = &reste[..off];
     let (name, filters) = match inner.split_once('|') {
         Some((n, f)) => (n.trim(), parse_filters(f)),
         None => (inner.trim(), Vec::new()),
