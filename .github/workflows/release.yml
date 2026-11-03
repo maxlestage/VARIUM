@@ -6,7 +6,7 @@
 #
 #   varium-windows-x86_64.zip     varium.exe
 #   varium-macos.zip              Varium.app (Apple Silicon et Intel)
-#   varium-linux-x86_64.tar.gz    varium, varium.desktop, varium.svg
+#   varium-linux-x86_64.tar.gz    varium, varium.desktop, varium.svg, varium.png
 
 name: Release
 
@@ -73,6 +73,13 @@ jobs:
             target/aarch64-apple-darwin/release/varium target/x86_64-apple-darwin/release/varium
           sed "s/VERSION/$version/g" packaging/Info.plist > "$app/Info.plist"
           cp crates/varium/assets/fonts/LICENSE-OFL.txt "$app/Resources/"
+          # Icône .icns à partir de l'image 1024 px
+          iconset=$(mktemp -d)/Varium.iconset && mkdir -p "$iconset"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size crates/varium/assets/icon-1024.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size*2)) $((size*2)) crates/varium/assets/icon-1024.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o "$app/Resources/Varium.icns"
           # Signature ad hoc : nécessaire pour lancer un binaire arm64.
           codesign --force --deep --sign - dist/Varium.app
           (cd dist && ditto -c -k --keepParent Varium.app ../varium-macos.zip)
@@ -86,6 +93,7 @@ jobs:
           cp target/release/varium dist/varium/
           cp packaging/varium.desktop dist/varium/
           cp crates/varium/assets/icon.svg dist/varium/varium.svg
+          cp crates/varium/assets/icon-256.png dist/varium/varium.png
           cp crates/varium/assets/fonts/LICENSE-OFL.txt dist/varium/
           tar -czf varium-linux-x86_64.tar.gz -C dist varium
 
