@@ -5,13 +5,13 @@ members = ["crates/varium-core", "crates/varium"]
 exclude = ["site"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.92"
 repository = "https://github.com/maxlestage/varium"
 
 [workspace.dependencies]
-varium-core = { path = "crates/varium-core", version = "0.2.0" }
+varium-core = { path = "crates/varium-core", version = "0.3.0" }
 eframe = "0.37.0"
 egui = "0.37.0"
 egui_extras = "0.37.0"

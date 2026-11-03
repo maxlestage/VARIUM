@@ -19,3 +19,10 @@ rfd.workspace = true
 
 env_logger.workspace = true
 
+
+# Barre de menus native de macOS (en haut de l'écran), comme Pages.
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.17", default-features = false }
+
+[build-dependencies]
+winresource = "0.1"
