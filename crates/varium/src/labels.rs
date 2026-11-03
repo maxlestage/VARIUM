@@ -19,6 +19,16 @@ pub fn lang(l: Lang) -> &'static str {
     }
 }
 
+/// Le nom d'une langue au milieu d'une phrase (« dictionnaire français (france) » :
+/// en minuscules en français, tel quel ailleurs).
+pub fn lang_inline(l: Lang) -> String {
+    if crate::tr::lang() == Lang::Fr {
+        lang(l).to_lowercase()
+    } else {
+        lang(l).to_string()
+    }
+}
+
 pub fn paper(p: Paper) -> &'static str {
     match p {
         Paper::A4 => "A4 (21 × 29,7 cm)",

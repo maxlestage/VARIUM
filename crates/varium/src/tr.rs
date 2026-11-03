@@ -194,6 +194,20 @@ mod tests {
     }
 
     #[test]
+    fn traductions() {
+        assert_eq!(tr_in(Lang::En, "Fichier"), "File");
+        assert_eq!(tr_in(Lang::De, "Diaporama"), "Bildschirmpräsentation");
+        assert_eq!(tr_in(Lang::Fr, "Fichier"), "Fichier");
+        assert_eq!(
+            tr_in(Lang::It, "texte absent des tables"),
+            "texte absent des tables"
+        );
+        assert_eq!(parse_choice("es"), Some(Lang::Es));
+        assert_eq!(parse_choice("auto"), None);
+        assert_eq!(choice_code(Some(Lang::Pt)), "pt");
+    }
+
+    #[test]
     fn locales() {
         assert_eq!(from_locale("de_DE.UTF-8"), Some(Lang::De));
         assert_eq!(from_locale("pt-BR"), Some(Lang::Pt));
@@ -250,7 +264,10 @@ mod tests {
         for f in files {
             let full = std::fs::read_to_string(&f).unwrap();
             // Sans les tests ni les commentaires.
-            let code = full.split("#[cfg(test)]\nmod tests").next().unwrap_or_default();
+            let code = full
+                .split("#[cfg(test)]\nmod tests")
+                .next()
+                .unwrap_or_default();
             let src: String = code
                 .lines()
                 .filter(|l| !l.trim_start().starts_with("//"))
