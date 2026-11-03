@@ -246,6 +246,10 @@ pub const TEXTES: Textes = Textes {
             effet: "horizontale Linie, Seitenumbruch",
         },
         Ligne {
+            code: "\\sommaire",
+            effet: "ein aus den Überschriften erzeugtes Inhaltsverzeichnis",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "LaTeX-Formeln, im Text oder zentriert",
         },

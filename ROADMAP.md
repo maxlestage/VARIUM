@@ -33,7 +33,9 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 
 ## 5. Proche de Writer
 - [x] Texte conditionnel `{{si champ}}…{{sinon}}…{{fin}}` (conditions.rs) — « Texte conditionnel »
-- [ ] Table des matières, notes de bas de page
+- [x] Table des matières `\sommaire` (liste des titres, sans numéros de page) — « Table des matières »
+- [ ] Numéros de page dans la table des matières (nécessite la pagination)
+- [ ] Notes de bas de page
 - [ ] Retraits, couleurs/surlignage, interligne par paragraphe
 - [ ] Import .odt / .docx simples
 - [ ] Détection des doubles espaces / correcteur orthographique
@@ -59,6 +61,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Module Présentation (varium-slides + slides_ui) : dispositions, thèmes, transitions, notes, diaporama plein écran, PDF/ODP/HTML
 - [x] Langue du document : formats, typographie, révision, aide par langue
 - [x] Site traduit (fr, en, es, de, it, pt)
+- [x] Révision de l'écriture par langue (espaces, ponctuation, majuscules, accords a/an, ¿ ¡) — version 0.4.0
 - [ ] Classeur : mise en forme conditionnelle, figer les volets, import XLSX/ODS, plus de types de graphiques
 - [ ] Présentation : images, formes, mode présentateur sur deuxième écran, import ODP/PPTX
 - [ ] Dictionnaires orthographiques (Hunspell) par langue

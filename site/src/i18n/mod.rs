@@ -230,7 +230,7 @@ pub struct Textes {
     pub ecrire_texte: &'static str,
     /// « Écriture », « Effet ».
     pub syntaxe_colonnes: [&'static str; 2],
-    pub syntaxe: [Ligne; 20],
+    pub syntaxe: [Ligne; 21],
     pub filtres_titre: &'static str,
     pub filtres_texte: &'static str,
     /// « Filtre », « Valeur », « Résultat ».

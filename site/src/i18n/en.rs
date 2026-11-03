@@ -246,6 +246,10 @@ pub const TEXTES: Textes = Textes {
             effet: "horizontal rule, page break",
         },
         Ligne {
+            code: "\\sommaire",
+            effet: "a table of contents generated from the headings",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "LaTeX formulas, inline or centered",
         },

@@ -430,7 +430,7 @@ pub fn highlight(
             }
         }
         let t = line.trim();
-        if t == "\\newpage" || (t.len() >= 3 && t.chars().all(|c| c == '-')) {
+        if t == "\\newpage" || t == "\\sommaire" || (t.len() >= 3 && t.chars().all(|c| c == '-')) {
             for a in &mut attrs[start..end] {
                 a.color = pal.dim;
             }
