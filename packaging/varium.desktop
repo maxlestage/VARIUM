@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Varium
+GenericName=Éditeur de documents
+Comment=Un document. Toutes ses possibilités.
+Exec=varium
+Icon=varium
+Terminal=false
+Categories=Office;WordProcessor;
+Keywords=document;modèle;publipostage;facture;
