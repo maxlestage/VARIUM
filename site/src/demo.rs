@@ -397,7 +397,7 @@ fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Pa
         (
             "Le courrier d'exemple de Varium : le modèle et ses valeurs à gauche, le document calculé par le vrai moteur (varium-core) à droite.",
             modele_lu(src, valeurs),
-            "Un modèle avec des {{variables}}, leurs valeurs et le document rendu par Varium. L'éditeur complet tourne dans le navigateur.",
+            "Un modèle avec des {{variables}}, leurs valeurs et le document rendu par Varium. L'éditeur complet s'installe sur votre ordinateur.",
         )
     } else {
         (
@@ -410,13 +410,13 @@ fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Pa
         div()
             .class("card ouvrir")
             .child(
-                p().child(strong().text("Pour écrire vos propres modèles, ouvrez l'application."))
-                    .child(text(" L'éditeur complet de Varium tourne dans votre navigateur, compilé en WebAssembly : variables typées, filtres, formules, exports et sauvegarde automatique, sans rien installer.")),
+                p().child(strong().text("Pour écrire vos propres modèles, installez Varium."))
+                    .child(text(" L'éditeur complet est une application de bureau pour Linux, macOS et Windows : mise en page, champs calculés, publipostage, exports ODT, DOCX et PDF. Vos documents restent sur votre ordinateur.")),
             )
             .child(
                 div()
                     .class("row")
-                    .child(a().class("button").href(o.lien_application()).text("Ouvrir l'application"))
+                    .child(a().class("button").href(o.lien_application()).text("Installer Varium"))
                     .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
             )
     });

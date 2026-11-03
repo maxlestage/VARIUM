@@ -5,12 +5,9 @@ le serveur est une `paquets::App`, les pages sont des `paquets::Page` rendues pa
 (balises SEO, Open Graph, URL canonique, thème clair et sombre, Content-Security-Policy), et
 la démo fait tourner le vrai moteur `varium-core` côté serveur, sans une ligne de JavaScript.
 
-Il est publié sur GitHub Pages, avec l'application web à côté de lui :
-
-| Adresse | Contenu |
-|---|---|
-| <https://maxlestage.github.io/VARIUM/> | ce site, exporté en fichiers statiques |
-| <https://maxlestage.github.io/VARIUM/app/> | l'application web (egui, WebAssembly), le vrai produit |
+Il est publié sur GitHub Pages : <https://maxlestage.github.io/VARIUM/>. Varium n'a pas
+de version en ligne : la page `/installer/` explique comment installer l'application de
+bureau.
 
 | Route | Contenu |
 |---|---|
@@ -47,7 +44,7 @@ cargo run --release          # http://localhost:3000 (ou $PORT)
 |---|---|
 | `SITE_URL` | l'adresse publique, base comprise (URL canoniques, sitemap) ; sinon elle vient de la requête |
 | `BASE_PATH` | un chemin de base (`/VARIUM`) devant chaque lien interne ; le serveur répond aussi derrière lui |
-| `APP_URL` | l'adresse du bouton « Ouvrir l'application » ; par défaut, l'application publiée sur GitHub Pages pour le serveur, `{BASE_PATH}/app/` pour l'export |
+| `APP_URL` | l'adresse du bouton « Installer Varium » ; par défaut, la page `{BASE_PATH}/installer/` |
 
 ## Export statique (GitHub Pages)
 
@@ -75,9 +72,8 @@ python3 -m http.server -d /tmp/pages 8000   # http://localhost:8000/VARIUM/
 ```
 
 Le workflow `.github/workflows/pages.yml` le fait à chaque push sur `master` : il exporte le
-site dans `site/dist` (`BASE_PATH` et `SITE_URL` donnés par `actions/configure-pages`),
-construit l'application avec `trunk build --release --public-url /VARIUM/app/`, la copie
-dans `site/dist/app` et publie le tout. À activer une seule fois : *Settings → Pages →
+site dans `site/dist` (`BASE_PATH` et `SITE_URL` donnés par `actions/configure-pages`) et
+le publie. À activer une seule fois : *Settings → Pages →
 Source : GitHub Actions*.
 
 ## Vérifier
