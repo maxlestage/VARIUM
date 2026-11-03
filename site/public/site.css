@@ -64,6 +64,7 @@ body {
 .entete nav a { color: var(--muted); text-decoration: none; font-weight: 500; }
 .entete nav a:hover, .entete nav a.actif { color: var(--fg); }
 .entete nav a.actif { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: .35em; text-decoration-thickness: 2px; }
+.entete .actions { display: flex; gap: .5rem; align-items: center; }
 .button.petit { padding: .35rem .9rem; font-size: .9rem; }
 
 .contenu {
@@ -232,6 +233,8 @@ pre { overflow-x: auto; }
   border-radius: 10px;
 }
 details summary { cursor: pointer; color: var(--muted); }
+.ouvrir { margin: 0 0 1rem; border-color: var(--accent); }
+.ouvrir p { margin-top: 0; }
 
 /* ---- Syntaxe -------------------------------------------------------------------- */
 
@@ -266,5 +269,30 @@ table { display: block; overflow-x: auto; }
 @media (max-width: 560px) {
   .entete { gap: .5rem 1rem; }
   .entete nav { order: 3; flex-basis: 100%; justify-content: space-between; }
-  .entete .button.petit { margin-left: auto; }
+  .entete .actions { margin-left: auto; }
 }
+/* Le lien vers GitHub reste dans le pied de page. */
+@media (max-width: 420px) { .entete .actions .ghost { display: none; } }
+
+/* ---- Document mis en forme (titres, listes, tableaux…) -------------------------- */
+
+.document { white-space: normal; }
+.document p { margin: 0; white-space: pre-wrap; }
+.document p.vide { line-height: 1; }
+.document .c { text-align: center; }
+.document .r { text-align: right; }
+.document .j { text-align: justify; }
+.document .titre { margin: .5em 0 .2em; font-family: inherit; line-height: 1.25; }
+.document h3.titre { font-size: 1.45em; }
+.document h4.titre { font-size: 1.2em; }
+.document h5.titre { font-size: 1.05em; }
+.document .li { padding-left: 1.3em; text-indent: -1.3em; }
+.document .li .puce { display: inline-block; width: 1.3em; text-indent: 0; }
+.document blockquote { margin: .3em 0 .3em 1em; padding-left: .8em; border-left: 3px solid var(--line); font-style: italic; }
+.document table { display: table; width: 100%; border-collapse: collapse; margin: .4em 0; font-size: .95em; }
+.document th, .document td { border: 1px solid color-mix(in srgb, var(--fg) 35%, transparent); padding: .2em .45em; text-align: left; }
+.document th { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.document th.c, .document td.c { text-align: center; }
+.document th.r, .document td.r { text-align: right; }
+.document hr { border: 0; border-top: 1px solid color-mix(in srgb, var(--fg) 45%, transparent); margin: .5em 0; }
+.document .saut { border-top: 2px dashed var(--line); margin: .9em 0 .5em; text-align: center; font: .75rem var(--font); color: var(--muted); }

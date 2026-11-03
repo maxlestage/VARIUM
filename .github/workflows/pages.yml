@@ -1,4 +1,12 @@
-name: Site (GitHub Pages)
+# Publie sur GitHub Pages le site de présentation (site/, exporté en fichiers statiques)
+# à la racine, et l'application web (crates/varium, construite par Trunk) sous app/ :
+#
+#   https://maxlestage.github.io/VARIUM/      le site
+#   https://maxlestage.github.io/VARIUM/app/  l'application
+#
+# Lancé à chaque push sur master, et par la CI après chaque fusion automatique.
+
+name: Pages (site et application web)
 
 on:
   push:
@@ -25,18 +33,36 @@ jobs:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal -t wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Deux espaces de travail Cargo : celui de la racine et celui du site.
+          workspaces: |
+            . -> target
+            site -> target
       - name: Installer Trunk
         run: |
           curl -sSL "https://github.com/trunk-rs/trunk/releases/download/${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C /usr/local/bin
           trunk --version
       - uses: actions/configure-pages@v6
         id: pages
-      - name: Construire le site
+      - name: Exporter le site de présentation
+        working-directory: site
+        env:
+          # /VARIUM et https://maxlestage.github.io/VARIUM : chaque lien est derrière la
+          # base, chaque URL absolue (canonique, sitemap) sur l'adresse publique.
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+        run: cargo run --release -- export dist
+      - name: Construire l'application web
         working-directory: crates/varium
-        run: trunk build --release --public-url "${{ steps.pages.outputs.base_path }}/"
+        run: trunk build --release --public-url "${{ steps.pages.outputs.base_path }}/app/"
+      - name: Assembler le site et l'application
+        run: |
+          rm -rf site/dist/app
+          cp -r crates/varium/dist site/dist/app
+          find site/dist -type f | sort
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: crates/varium/dist
+          path: site/dist
 
   deploy:
     needs: build

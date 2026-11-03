@@ -109,6 +109,9 @@ impl Values {
 
     /// Valeur finale d'une occurrence, ou `None` si elle n'est pas renseignée.
     pub fn resolve(&self, v: &VarRef) -> Option<String> {
+        if let Some(formula) = &v.formula {
+            return self.resolve_formula(formula, &v.filters);
+        }
         let raw = self.get(&v.name);
         let has_default = v.filters.iter().any(|f| f.name == "default");
         if raw.is_empty() && !has_default {
@@ -120,6 +123,43 @@ impl Values {
             return Some(filters::apply(raw, &[f]));
         }
         Some(filters::apply(raw, &v.filters))
+    }
+
+    /// Valeur numérique d'une variable (sa saisie brute), pour les formules.
+    pub fn number(&self, name: &str) -> Option<f64> {
+        filters::parse_number(self.get(name))
+    }
+
+    /// Résultat d'un champ calculé, ou l'erreur qui l'empêche.
+    pub fn compute(&self, formula: &str) -> Result<f64, String> {
+        crate::calc::eval(formula, |n| self.number(n))
+    }
+
+    fn resolve_formula(&self, formula: &str, chain: &[Filter]) -> Option<String> {
+        let has_default = chain.iter().any(|f| f.name == "default");
+        let n = match self.compute(formula) {
+            Ok(n) => n,
+            Err(_) if has_default => return Some(filters::apply("", chain)),
+            Err(_) => return None,
+        };
+        // 10 décimales au plus : évite les 0,30000000000000004.
+        let plain = format!("{:.10}", n);
+        let plain = plain
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string();
+        if !chain.is_empty() {
+            return Some(filters::apply(&plain, chain));
+        }
+        // Sans filtre : un montant si la formule utilise un montant, sinon un nombre.
+        let money = crate::calc::identifiers(formula)
+            .iter()
+            .any(|i| self.ty(i) == VarType::Money);
+        Some(if money {
+            filters::format_money(n, "EUR")
+        } else {
+            filters::format_number(n, None)
+        })
     }
 }
 

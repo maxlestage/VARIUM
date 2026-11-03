@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 
 use paquets::prelude::*;
 use paquets::serde::{Deserialize, Serialize};
-use varium_core::{Block, Piece, Values, VarType, blocks, parse, render, render_pieces, tex};
+use varium_core::{Align, Para, Piece, Run, Values, VarType, parse, render, render_pieces, tex};
 
-use crate::layout;
+use crate::{Options, layout};
 
 /// Taille maximale d'une source, en caractères.
 pub const LIMITE: usize = 20_000;
@@ -92,70 +92,114 @@ pub fn source_coloree(src: &str) -> Element {
         })))
 }
 
-fn morceau(p: Piece) -> Node {
-    match p {
-        Piece::Text(t) => text(t),
-        Piece::Value { name, text: t } => mark()
+/// Un morceau de texte mis en forme : valeurs surlignées, champs sans valeur signalés,
+/// formules converties en Unicode.
+fn morceau_doc(r: Run) -> Node {
+    let st = r.style();
+    let mut n: Node = match r {
+        Run::Text { text: t, .. } => text(t),
+        Run::Value { name, text: t, .. } => mark()
             .class("valeur")
             .attr("title", format!("{{{{{name}}}}}"))
             .text(t)
             .into(),
-        Piece::Missing { name, raw } => span()
+        Run::Missing { name, raw, .. } => span()
             .class("manquante")
             .attr("title", format!("« {name} » n'a pas encore de valeur"))
             .text(raw)
             .into(),
+        Run::Math { tex: t, .. } => span()
+            .class("math")
+            .attr("title", t.clone())
+            .text(tex::to_unicode(&t))
+            .into(),
+    };
+    if st.bold {
+        n = strong().child(n).into();
+    }
+    if st.italic {
+        n = em().child(n).into();
+    }
+    if st.underline {
+        n = u().child(n).into();
+    }
+    if st.strike {
+        n = s().child(n).into();
+    }
+    n
+}
+
+fn morceaux(runs: Vec<Run>) -> Vec<Node> {
+    runs.into_iter().map(morceau_doc).collect()
+}
+
+fn classe(a: Align) -> &'static str {
+    match a {
+        Align::Center => "c",
+        Align::Right => "r",
+        Align::Justify => "j",
+        Align::Left => "g",
     }
 }
 
-/// Le document rendu : valeurs surlignées, variables sans valeur signalées, formules
-/// converties en Unicode.
-pub fn document(src: &str, valeurs: &Values) -> Element {
-    let mut liste = blocks(render_pieces(src, valeurs));
-    // Une formule centrée est déjà un bloc : on retire le saut de ligne qui l'entoure.
-    for i in 0..liste.len() {
-        if !matches!(liste[i], Block::Math { display: true, .. }) {
-            continue;
+fn paragraphe(para: Para) -> Node {
+    match para {
+        Para::Text { runs, .. } if runs.is_empty() => p().class("vide").child(br()).into(),
+        Para::Text { align, runs } => p().class(classe(align)).children(morceaux(runs)).into(),
+        Para::Heading { level, runs } => {
+            let titre = match level {
+                1 => h3(),
+                2 => h4(),
+                _ => h5(),
+            };
+            titre.class("titre").children(morceaux(runs)).into()
         }
-        if let Some(Block::Prose(avant)) = i.checked_sub(1).and_then(|j| liste.get_mut(j))
-            && let Some(Piece::Text(t)) = avant.last_mut()
-            && t.ends_with('\n')
-        {
-            t.pop();
+        Para::Item {
+            number,
+            depth,
+            runs,
+        } => {
+            let puce = match number {
+                Some(n) => format!("{n}."),
+                None => ["•", "◦", "▪"][depth as usize % 3].to_string(),
+            };
+            p().class("li")
+                .style(format!("margin-left:{}em", 1.4 * f32::from(depth)))
+                .child(span().class("puce").text(puce))
+                .children(morceaux(runs))
+                .into()
         }
-        if let Some(Block::Prose(apres)) = liste.get_mut(i + 1)
-            && let Some(Piece::Text(t)) = apres.first_mut()
-            && t.starts_with('\n')
-        {
-            t.remove(0);
+        Para::Quote { runs } => blockquote().children(morceaux(runs)).into(),
+        Para::Math { tex: t } => p()
+            .class("math bloc")
+            .attr("title", t.clone())
+            .text(tex::to_unicode(t.trim()))
+            .into(),
+        Para::Table(t) => {
+            let colonnes = t.columns();
+            table()
+                .children(t.rows.iter().enumerate().map(|(i, ligne)| {
+                    tr().children((0..colonnes).map(|c| {
+                        let cellule = if i == 0 && t.header { th() } else { td() };
+                        cellule
+                            .class(classe(t.align(c)))
+                            .children(morceaux(ligne.get(c).cloned().unwrap_or_default()))
+                    }))
+                }))
+                .into()
         }
+        Para::Rule => hr().into(),
+        Para::PageBreak => p().class("saut").text("saut de page").into(),
     }
-    div()
-        .class("document")
-        .children(liste.into_iter().map(|b| -> Node {
-            match b {
-                Block::Prose(pieces) => {
-                    fragment(pieces.into_iter().map(morceau).collect::<Vec<_>>())
-                }
-                Block::Math { display, pieces } => {
-                    let formule: String = pieces.iter().map(Piece::text).collect();
-                    let rendu = tex::to_unicode(&formule);
-                    if display {
-                        span()
-                            .class("math bloc")
-                            .attr("title", formule)
-                            .text(rendu)
-                            .into()
-                    } else {
-                        span()
-                            .class("math")
-                            .attr("title", formule)
-                            .text(rendu)
-                            .into()
-                    }
-                }
-            }
-        }))
+}
+
+/// Le document mis en forme par le moteur de Varium (titres, gras, listes, tableaux…).
+pub fn document(src: &str, valeurs: &Values) -> Element {
+    div().class("document").children(
+        varium_core::document(src, valeurs)
+            .into_iter()
+            .map(paragraphe),
+    )
 }
 
 // ---------------------------------------------------------------------------------
@@ -212,21 +256,31 @@ fn champ(nom: &str, valeurs: &Values) -> Element {
         .child(erreur.map(|e| p().class("erreur").text(e)))
 }
 
-fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Page {
+/// Les variables de `src`, leur nombre total d'occurrences et le nombre de variables
+/// sans valeur.
+fn compte(src: &str, valeurs: &Values) -> (Vec<varium_core::VarInfo>, usize, usize) {
     let vars = varium_core::variables(src);
     let total: usize = vars.iter().map(|v| v.count).sum();
     let manquantes = vars
         .iter()
-        .filter(|v| {
-            render_pieces(&format!("{{{{{}}}}}", v.name), valeurs)
-                .iter()
-                .any(|p| matches!(p, Piece::Missing { .. }))
-        })
+        .filter(|v| !renseignee(&v.name, valeurs))
         .count();
+    (vars, total, manquantes)
+}
 
-    let formulaire = form()
+/// `true` quand la variable s'affiche avec une valeur (les filtres `default` comptent).
+fn renseignee(nom: &str, valeurs: &Values) -> bool {
+    !render_pieces(&format!("{{{{{nom}}}}}"), valeurs)
+        .iter()
+        .any(|p| matches!(p, Piece::Missing { .. }))
+}
+
+/// Le formulaire de la démo, envoyé au serveur.
+fn formulaire(o: &Options, src: &str, valeurs: &Values) -> Element {
+    let vars = varium_core::variables(src);
+    form()
         .attr("method", "post")
-        .attr("action", "/essayer")
+        .attr("action", o.lien("/essayer/"))
         .class("stack")
         .child(
             label()
@@ -267,12 +321,52 @@ fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Pa
                 )
                 .child(
                     a().class("button ghost")
-                        .href("/essayer")
+                        .href(o.lien("/essayer/"))
                         .text("Réinitialiser"),
                 ),
-        );
+        )
+}
 
-    let resultat = div()
+/// Le modèle en lecture seule, pour l'export statique : la source colorée et la valeur
+/// de chaque variable.
+fn modele_lu(src: &str, valeurs: &Values) -> Element {
+    let vars = varium_core::variables(src);
+    div()
+        .class("stack")
+        .child(
+            div()
+                .class("row entre")
+                .child(strong().text("Modèle"))
+                .child(span().class("muted").text("lecture seule")),
+        )
+        .child(source_coloree(src))
+        .child(h3().text(format!("Variables ({})", vars.len())))
+        .child(
+            table()
+                .child(
+                    thead().child(
+                        tr().child(th().text("Variable"))
+                            .child(th().text("Type"))
+                            .child(th().text("Valeur")),
+                    ),
+                )
+                .child(tbody().children(vars.iter().map(|v| {
+                    let valeur = valeurs.get(&v.name);
+                    tr().child(td().child(code().text(format!("{{{{{}}}}}", v.name))))
+                        .child(td().text(valeurs.ty(&v.name).label()))
+                        .child(td().child(if valeur.is_empty() {
+                            span().class("manquante").text("à remplir")
+                        } else {
+                            span().text(valeur.to_string())
+                        }))
+                }))),
+        )
+}
+
+/// Le document rendu, avec ses compteurs et le texte brut.
+fn resultat(src: &str, valeurs: &Values) -> Element {
+    let (vars, total, manquantes) = compte(src, valeurs);
+    div()
         .class("stack")
         .child(
             div()
@@ -292,27 +386,58 @@ fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Pa
             details()
                 .child(summary().text("Texte brut"))
                 .child(pre().child(code().text(render(src, valeurs, varium_core::Missing::Keep)))),
-        );
+        )
+}
+
+fn vue(req: &Request, src: &str, valeurs: &Values, alerte: Option<String>) -> Page {
+    let o = Options::de(req);
+    // Un hôte statique ne reçoit pas de formulaire : l'exemple est montré tel quel, et
+    // l'éditeur complet est l'application web.
+    let (explication, gauche, description) = if o.est_statique() {
+        (
+            "Le courrier d'exemple de Varium : le modèle et ses valeurs à gauche, le document calculé par le vrai moteur (varium-core) à droite.",
+            modele_lu(src, valeurs),
+            "Un modèle avec des {{variables}}, leurs valeurs et le document rendu par Varium. L'éditeur complet tourne dans le navigateur.",
+        )
+    } else {
+        (
+            "Modifiez le modèle ou les valeurs puis mettez le document à jour. Le rendu est calculé par le vrai moteur de Varium (varium-core), sur le serveur.",
+            formulaire(o, src, valeurs),
+            "Écrivez un modèle avec des {{variables}}, donnez-leur une valeur et voyez le document se mettre à jour : la démo en ligne de Varium.",
+        )
+    };
+    let application = o.est_statique().then(|| {
+        div()
+            .class("card ouvrir")
+            .child(
+                p().child(strong().text("Pour écrire vos propres modèles, ouvrez l'application."))
+                    .child(text(" L'éditeur complet de Varium tourne dans votre navigateur, compilé en WebAssembly : variables typées, filtres, formules, exports et sauvegarde automatique, sans rien installer.")),
+            )
+            .child(
+                div()
+                    .class("row")
+                    .child(a().class("button").href(o.lien_application()).text("Ouvrir l'application"))
+                    .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
+            )
+    });
 
     let contenu = div()
         .child(
             section()
                 .class("intro")
                 .child(h1().text("Essayer Varium"))
-                .child(p().class("muted").text(
-                    "Modifiez le modèle ou les valeurs puis mettez le document à jour. Le rendu est calculé par le vrai moteur de Varium (varium-core), sur le serveur.",
-                )),
+                .child(p().class("muted").text(explication)),
         )
+        .child(application)
         .child(alerte.map(|m| p().class("alerte").text(m)))
-        .child(div().class("demo").child(div().class("card").child(formulaire)).child(div().class("card").child(resultat)));
+        .child(
+            div()
+                .class("demo")
+                .child(div().class("card").child(gauche))
+                .child(div().class("card").child(resultat(src, valeurs))),
+        );
 
-    layout::page(
-        req,
-        "Essayer",
-        "Écrivez un modèle avec des {{variables}}, donnez-leur une valeur et voyez le document se mettre à jour : la démo en ligne de Varium.",
-        "/essayer",
-        contenu.into(),
-    )
+    layout::page(req, "Essayer", description, "/essayer/", contenu.into())
 }
 
 /// `GET /essayer` : la démo, ouverte sur le courrier d'exemple.
