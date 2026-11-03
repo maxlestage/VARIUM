@@ -165,9 +165,9 @@ fn mots(runs: &[Run], base: Base, corps: Corps, budget: f32) -> Vec<Mot> {
         if base.majuscules {
             texte = texte.to_uppercase();
         }
-        let mut pousser = |out: &mut Vec<Mot>, octets: Vec<u8>, espace: bool, saut: bool| {
+        // Ajoute un mot et renvoie sa largeur.
+        let pousser = |out: &mut Vec<Mot>, octets: Vec<u8>, espace: bool, saut: bool| {
             let largeur = corps.largeur(encre.police, &octets);
-            cumul += largeur;
             out.push(Mot {
                 octets,
                 encre,
@@ -175,26 +175,27 @@ fn mots(runs: &[Run], base: Base, corps: Corps, budget: f32) -> Vec<Mot> {
                 espace,
                 saut,
             });
+            largeur
         };
         let mut mot: Vec<u8> = Vec::new();
         for c in texte.chars() {
             match c {
                 '\n' | ' ' | '\t' => {
                     if !mot.is_empty() {
-                        pousser(&mut out, std::mem::take(&mut mot), false, false);
+                        cumul += pousser(&mut out, std::mem::take(&mut mot), false, false);
                     }
-                    if c == '\n' {
-                        pousser(&mut out, Vec::new(), false, true);
+                    cumul += if c == '\n' {
+                        pousser(&mut out, Vec::new(), false, true)
                     } else {
-                        pousser(&mut out, vec![b' '], true, false);
-                    }
+                        pousser(&mut out, vec![b' '], true, false)
+                    };
                 }
                 c => {
                     if let Some(b) = winansi(c) {
                         mot.push(b);
                         // Mot démesuré : coupé en morceaux pour respecter le budget.
                         if mot.len() >= 256 {
-                            pousser(&mut out, std::mem::take(&mut mot), false, false);
+                            cumul += pousser(&mut out, std::mem::take(&mut mot), false, false);
                         }
                     }
                 }
@@ -204,7 +205,7 @@ fn mots(runs: &[Run], base: Base, corps: Corps, budget: f32) -> Vec<Mot> {
             }
         }
         if !mot.is_empty() {
-            pousser(&mut out, mot, false, false);
+            cumul += pousser(&mut out, mot, false, false);
         }
         if cumul > budget {
             break;
@@ -424,7 +425,8 @@ impl Compo<'_> {
         };
         // Largeurs naturelles des colonnes, puis réparties sur toute la largeur.
         let mut naturelles = vec![0.0f32; cols];
-        for (ri, row) in t.rows.iter().enumerate() {
+        // Les premiers rangs suffisent à estimer les proportions.
+        for (ri, row) in t.rows.iter().enumerate().take(200) {
             for (c, cell) in row.iter().enumerate().take(cols) {
                 let w: f32 = mots(cell, base(ri == 0 && t.header), corps, self.largeur * 2.0)
                     .iter()

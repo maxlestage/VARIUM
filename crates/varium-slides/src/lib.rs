@@ -20,7 +20,8 @@
 //! let i = deck.add_slide(0, Layout::TitleContent);
 //! deck.slides[i].title = "Bienvenue chez {{entreprise}}".into();
 //! deck.slides[i].body = "- Un **seul** format\n- Trois exports".into();
-//! assert!(deck.to_html().contains("Bienvenue chez Atelier Varium"));
+//! let html = deck.to_html();
+//! assert!(html.contains("Atelier Varium") && !html.contains("{{entreprise}}"));
 //! assert_eq!(deck.variables(), ["entreprise"]);
 //! ```
 
