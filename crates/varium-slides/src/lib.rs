@@ -636,6 +636,8 @@ pub(crate) struct Rendu {
     pub footer: Vec<varium_core::Run>,
     /// Numéro affiché (1 pour la première), ou `None`.
     pub number: Option<usize>,
+    /// Texte de chaque objet de la diapositive (lignes centrées), dans l'ordre.
+    pub objets: Vec<Vec<varium_core::Para>>,
 }
 
 impl Deck {
@@ -679,6 +681,17 @@ impl Deck {
                         Vec::new()
                     },
                     number: (boxes.footer && self.slide_numbers).then_some(i + 1),
+                    objets: s
+                        .objects
+                        .iter()
+                        .map(|o| {
+                            if o.kind.is_closed() {
+                                texte::paragraphes_centres(&o.text, &values)
+                            } else {
+                                Vec::new()
+                            }
+                        })
+                        .collect(),
                 }
             })
             .collect()

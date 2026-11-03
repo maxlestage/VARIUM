@@ -136,7 +136,7 @@ pub(crate) fn lire(xml: &str) -> Result<Noeud, String> {
             .map(|a| {
                 let k = a.key.as_ref().to_string();
                 let v = a
-                    .unescape_value()
+                    .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                     .map(|v| v.into_owned())
                     .unwrap_or_else(|_| a.value.to_string());
                 (k, v)
@@ -192,7 +192,7 @@ pub(crate) fn lire(xml: &str) -> Result<Noeud, String> {
                 }
             }
             Event::Text(t) => texte(&mut pile, &t.xml10_content()),
-            Event::CData(t) => texte(&mut pile, &String::from_utf8_lossy(&t)),
+            Event::CData(t) => texte(&mut pile, &t.into_inner()),
             Event::GeneralRef(r) => {
                 let c = match r.resolve_char_ref() {
                     Ok(Some(c)) => Some(c),

@@ -43,6 +43,17 @@ pub(crate) fn paragraphes_ligne(src: &str, values: &Values) -> Vec<Para> {
         .collect()
 }
 
+/// Les lignes du texte d'une forme : paragraphes centrés.
+pub(crate) fn paragraphes_centres(src: &str, values: &Values) -> Vec<Para> {
+    text_lines(src, values)
+        .into_iter()
+        .map(|runs| Para::Text {
+            align: Align::Center,
+            runs,
+        })
+        .collect()
+}
+
 /// Échappe un texte pour XML et HTML.
 pub(crate) fn echapper(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

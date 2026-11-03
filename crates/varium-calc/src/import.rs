@@ -292,9 +292,30 @@ pub(crate) fn finish(title: &str, sheets: Vec<Sheet>) -> Workbook {
     wb
 }
 
+/// Règle reconnue dans une formule de condition (celles qu'écrivent Varium,
+/// Excel et LibreOffice pour « vide », « non vide », « erreur »).
+pub(crate) fn expression_rule(f: &str) -> Option<crate::cond::CondRule> {
+    use crate::cond::CondRule;
+    let f = f.to_ascii_lowercase().replace(' ', "");
+    if f.starts_with("len(trim(") && f.ends_with(")=0") || f.starts_with("isblank(") {
+        Some(CondRule::Empty)
+    } else if f.starts_with("len(trim(") && f.ends_with(")>0")
+        || f.starts_with("not(isblank(")
+    {
+        Some(CondRule::NotEmpty)
+    } else if f.starts_with("iserror(") {
+        Some(CondRule::Error)
+    } else {
+        None
+    }
+}
+
 /// Couleur `RRGGBB` ou `AARRGGBB` (ou `#rrggbb`).
 pub(crate) fn parse_rgb(s: &str) -> Option<[u8; 3]> {
     let s = s.trim().trim_start_matches('#');
+    if !s.is_ascii() {
+        return None;
+    }
     let s = match s.len() {
         8 => &s[2..],
         6 => s,
