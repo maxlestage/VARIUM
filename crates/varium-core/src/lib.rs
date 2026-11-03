@@ -16,6 +16,7 @@ pub mod calc;
 pub mod conditions;
 pub mod doc;
 pub mod docx;
+pub mod epub;
 pub mod export;
 pub mod filters;
 pub mod merge;
@@ -25,7 +26,9 @@ pub mod parse;
 #[cfg(feature = "serde")]
 pub mod project;
 pub mod render;
+pub mod rtf;
 pub mod tex;
+pub mod typo;
 mod zip;
 
 pub use parse::{
