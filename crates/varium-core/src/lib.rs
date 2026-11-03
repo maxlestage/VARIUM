@@ -30,7 +30,7 @@ pub mod render;
 pub mod rtf;
 pub mod tex;
 pub mod typo;
-mod zip;
+pub mod zip;
 
 pub use parse::{
     Filter, Segment, VarInfo, VarRef, formulas, is_valid_name, parse, rename_variable, variables,
