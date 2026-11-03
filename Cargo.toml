@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/varium-core", "crates/varium"]
+members = ["crates/varium-core", "crates/varium-calc", "crates/varium-slides", "crates/varium"]
 # Le site de présentation (une app Paquets) a son propre workspace.
 exclude = ["site"]
 
@@ -12,6 +12,8 @@ repository = "https://github.com/maxlestage/varium"
 
 [workspace.dependencies]
 varium-core = { path = "crates/varium-core", version = "0.3.0" }
+varium-calc = { path = "crates/varium-calc", version = "0.3.0" }
+varium-slides = { path = "crates/varium-slides", version = "0.3.0" }
 eframe = "0.37.0"
 egui = "0.37.0"
 egui_extras = "0.37.0"
