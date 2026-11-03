@@ -9,9 +9,6 @@ use paquets::prelude::*;
 /// L'origine de GitHub Pages pour le dépôt, utilisée par l'export quand `SITE_URL` manque.
 const ORIGINE_PAGES: &str = "https://maxlestage.github.io";
 
-/// L'application web publiée sur GitHub Pages : le lien du serveur quand `APP_URL` manque.
-pub const APP_PUBLIQUE: &str = "https://maxlestage.github.io/VARIUM/app/";
-
 /// La configuration du site.
 ///
 /// ```
@@ -19,7 +16,7 @@ pub const APP_PUBLIQUE: &str = "https://maxlestage.github.io/VARIUM/app/";
 ///
 /// let o = Options::new().base("/VARIUM/");
 /// assert_eq!(o.lien("/syntaxe/"), "/VARIUM/syntaxe/");
-/// assert_eq!(o.lien_application(), "/VARIUM/app/");
+/// assert_eq!(o.lien_application(), "/VARIUM/installer/");
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct Options {
@@ -51,16 +48,9 @@ impl Options {
         o
     }
 
-    /// La configuration du serveur ([`Options::depuis_env`]) : sans `APP_URL`, le
-    /// bouton « Ouvrir l'application » mène à l'application publiée sur GitHub Pages,
-    /// que le serveur ne sert pas lui-même.
+    /// La configuration du serveur : celle des variables d'environnement.
     pub fn serveur() -> Options {
-        let o = Options::depuis_env();
-        if o.application.is_some() {
-            o
-        } else {
-            o.application(APP_PUBLIQUE)
-        }
+        Options::depuis_env()
     }
 
     /// Le chemin de base : `"/VARIUM"`, `"VARIUM/"` et `"/VARIUM/"` donnent `/VARIUM` ;
@@ -131,11 +121,11 @@ impl Options {
         format!("{}{chemin}", self.base)
     }
 
-    /// L'adresse de l'application web : `APP_URL`, sinon `{base}/app/`.
+    /// Où obtenir Varium (une application de bureau) : `APP_URL`, sinon la page `{base}/installer/`.
     pub fn lien_application(&self) -> String {
         self.application
             .clone()
-            .unwrap_or_else(|| self.lien("/app/"))
+            .unwrap_or_else(|| self.lien("/installer/"))
     }
 
     /// L'adresse publique du site, base comprise et sans `/` final : [`Options::site`],
@@ -177,7 +167,7 @@ mod tests {
 
     #[test]
     fn application_par_defaut() {
-        assert_eq!(Options::new().lien_application(), "/app/");
+        assert_eq!(Options::new().lien_application(), "/installer/");
         assert_eq!(
             Options::new()
                 .base("/VARIUM")

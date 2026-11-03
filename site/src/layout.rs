@@ -6,9 +6,10 @@ use crate::{Options, REPO};
 
 /// Les entrées de la navigation : (chemin, libellé). Les chemins finissent par `/`,
 /// comme les dossiers de l'export statique : GitHub Pages n'a pas à rediriger.
-const NAV: [(&str, &str); 3] = [
+const NAV: [(&str, &str); 4] = [
     ("/", "Présentation"),
     ("/syntaxe/", "Syntaxe"),
+    ("/installer/", "Installer"),
     ("/essayer/", "Essayer"),
 ];
 
@@ -71,7 +72,7 @@ fn entete(o: &Options, chemin: &str) -> Element {
                 .child(
                     a().class("button petit")
                         .href(o.lien_application())
-                        .text("Ouvrir l'application"),
+                        .text("Installer Varium"),
                 )
                 .child(a().class("button ghost petit").href(REPO).text("GitHub")),
         )
