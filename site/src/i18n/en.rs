@@ -34,6 +34,7 @@ pub const TEXTES: Textes = Textes {
                 "Global, calculated and conditional {{…}} fields, mail merge",
                 "A Writer-style toolbar and a Pages-style inspector",
                 "Export to PDF, DOCX, ODT, RTF, EPUB, HTML and LaTeX",
+                "Spell checking in six languages, with real Hunspell dictionaries",
             ],
         },
         Appli {
@@ -42,8 +43,9 @@ pub const TEXTES: Textes = Textes {
             points: [
                 "Cells, formulas and several sheets per workbook",
                 "Function names in French or English: SOMME or SUM, SI or IF, RECHERCHEV or VLOOKUP",
-                "Cell formats, sorting, fill and charts",
-                "Export to XLSX, ODS and CSV",
+                "Conditional formatting, colour scales, data bars and frozen panes",
+                "Eight charts: bars, stacked bars, lines, areas, pie, doughnut, scatter",
+                "Opens and saves Excel (XLSX) and LibreOffice (ODS) files, plus CSV",
             ],
         },
         Appli {
@@ -51,9 +53,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Presentations ready to project, with your fields inside.",
             points: [
                 "Layouts, themes and transitions",
-                "Speaker notes and a full-screen presenter mode",
-                "{{…}} fields on your slides",
-                "Export to HTML, ODP (Impress) and PDF",
+                "Images and shapes placed with the mouse, {{…}} fields on your slides",
+                "Presenter mode on a second screen: notes, next slide, timer",
+                "Opens PowerPoint (PPTX) and Impress (ODP) presentations",
+                "Export to HTML, ODP and PDF",
             ],
         },
     ],
@@ -72,8 +75,12 @@ pub const TEXTES: Textes = Textes {
             titre: "Dates, numbers and currencies",
             texte: "Each language has its own formats: 12\u{202f}500,50 in French, 12,500.50 in English, 12.500,50 in German; dates, month names and amounts follow the document's language.",
         },
+        Item {
+            titre: "Spelling",
+            texte: "Mistakes are underlined as you type, with suggestions on right-click. Varium uses the dictionaries already installed or downloads them from LibreOffice, and remembers your words in a personal dictionary.",
+        },
     ],
-    langues_note: "Varium's interface is in French; the language is chosen for each document.",
+    langues_note: "Varium's interface is available in these six languages; the language of the text is chosen for each document.",
     fonctions_titre: "Everything you need for repetitive documents",
     fonctions_intro: "Letters, quotes, contracts, certificates: one template, as many documents as you need.",
     fonctions: [
