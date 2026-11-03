@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::objets::{Media, Object, ObjectKind};
 use crate::texte::contraste;
 use crate::xml::{Enfant, Noeud, lire};
-use crate::{Aspect, Deck, Frame, Layout, Slide, Theme, boxes};
+use crate::{Aspect, Deck, Frame, Layout, Slide, Theme, Transition, boxes};
 
 // ---------------------------------------------------------------------------------
 // Représentation intermédiaire
@@ -60,6 +60,7 @@ pub(crate) struct Page {
     pub notes: Vec<Ligne>,
     pub objets: Vec<Object>,
     pub fond: Option<[u8; 3]>,
+    pub transition: Option<Transition>,
 }
 
 /// Morceau de texte et sa mise en forme.
@@ -92,6 +93,36 @@ impl Paragraphe {
 
     pub fn est_vide(&self) -> bool {
         self.morceaux.iter().all(|(t, _)| t.trim().is_empty())
+    }
+
+    /// Le texte d'un titre : le gras qui couvre tout le paragraphe est retiré (un
+    /// titre est gras par nature).
+    pub fn markup_titre(&self) -> String {
+        let plein = |t: &str| !t.trim().is_empty();
+        let tout_gras = self
+            .morceaux
+            .iter()
+            .filter(|(t, _)| plein(t))
+            .all(|(_, m)| m.gras);
+        if !tout_gras {
+            return self.markup();
+        }
+        let sans = Paragraphe {
+            morceaux: self
+                .morceaux
+                .iter()
+                .map(|(t, m)| {
+                    (
+                        t.clone(),
+                        Marques {
+                            gras: false,
+                            ..*m
+                        },
+                    )
+                })
+                .collect(),
+        };
+        sans.markup()
     }
 
     /// Le texte dans la syntaxe Varium. Les retours à la ligne sont conservés.
@@ -190,6 +221,7 @@ fn debut_sur(l: &str) -> String {
 pub(crate) fn corps_markup(lignes: &[Ligne]) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut compteurs = [0u32; 8];
+    let mut numerotes = [false; 8];
     for l in lignes {
         match l.liste {
             Some((d, num)) => {
@@ -198,6 +230,10 @@ pub(crate) fn corps_markup(lignes: &[Ligne]) -> String {
                 let texte = texte.trim();
                 if texte.is_empty() {
                     continue;
+                }
+                if numerotes[d] != num {
+                    compteurs[d] = 0;
+                    numerotes[d] = num;
                 }
                 compteurs[d] += 1;
                 for c in compteurs.iter_mut().skip(d + 1) {
@@ -453,6 +489,7 @@ fn diapositive(
     }
     s.body2 = corps2.join("\n\n");
     s.notes = corps_markup(&page.notes);
+    s.transition = page.transition.unwrap_or_default();
     s.background = match page.fond {
         Some(f) if Some(f) == fond_theme => None,
         Some(f) if fond_theme.is_none() && f == theme.palette().background => None,
@@ -643,6 +680,8 @@ impl<'a> Styles<'a> {
 /// Lecteur des paragraphes ODF.
 struct TexteOdf<'s, 'a> {
     styles: &'s Styles<'a>,
+    /// Zone de titre : le gras de tout un paragraphe est retiré.
+    titre: std::cell::Cell<bool>,
 }
 
 impl TexteOdf<'_, '_> {
@@ -709,13 +748,14 @@ impl TexteOdf<'_, '_> {
             match c.local() {
                 "p" | "h" => {
                     let mut p = Paragraphe::default();
-                    let m = Marques::default();
-                    let m = self.styles.marques(c.attr("text:style-name"), m);
-                    // La mise en forme du paragraphe entier est ignorée pour les
-                    // titres (gras par nature) : seule celle des morceaux compte.
-                    let _ = m;
+                    // La mise en forme du paragraphe entier est ignorée (les titres
+                    // sont gras par nature) : seule celle des morceaux compte.
                     self.morceaux(c, Marques::default(), &mut p, 0);
-                    let texte = p.markup();
+                    let texte = if self.titre.get() {
+                        p.markup_titre()
+                    } else {
+                        p.markup()
+                    };
                     out.push(Ligne {
                         texte,
                         liste: liste.map(|(d, style)| {
@@ -830,11 +870,26 @@ fn odp_zip(z: &varium_core::zip::ZipReader) -> Result<Deck, String> {
         couleur(styles.prop(nom, "drawing-page-properties", "draw:fill-color"))
     };
 
-    let lecteur = TexteOdf { styles: &styles };
+    let lecteur = TexteOdf {
+        styles: &styles,
+        titre: std::cell::Cell::new(false),
+    };
     let mut medias = Medias::new();
     let mut pages = Vec::new();
     for p in pages_xml {
+        let effet = p.attr("draw:style-name").and_then(|st| {
+            styles
+                .prop(st, "drawing-page-properties", "smil:type")
+                .or_else(|| styles.prop(st, "drawing-page-properties", "presentation:transition-type"))
+        });
         let mut page = Page {
+            transition: effet.map(|t| match t {
+                "pushWipe" | "slideWipe" | "barWipe" | "push" | "cover" | "uncover" => {
+                    Transition::Glissement
+                }
+                "irisWipe" | "zoom" | "ellipseWipe" => Transition::Zoom,
+                _ => Transition::Fondu,
+            }),
             fond: fond_style(p.attr("draw:style-name")).or_else(|| {
                 p.attr("draw:master-page-name")
                     .and_then(|m| maitres.get(m))
@@ -901,6 +956,16 @@ fn formes_odf(
             lecteur.paragraphes(n, None, &mut lignes, 0);
             titre_markup(&lignes)
         };
+        // Taille du texte d'une forme : celle du premier paragraphe, en fraction
+        // de la hauteur de la page.
+        let taille_texte = || {
+            n.descendant("p")
+                .and_then(|p| p.attr("text:style-name"))
+                .and_then(|st| styles.prop(st, "text-properties", "fo:font-size"))
+                .and_then(longueur_cm)
+                .map(|cm| cm / ph)
+                .unwrap_or(0.04)
+        };
         match n.local() {
             "frame" => {
                 let classe = n.attr("presentation:class");
@@ -931,7 +996,10 @@ fn formes_odf(
                 let Some(tb) = n.enfant("text-box") else {
                     continue;
                 };
+                let numero = tb.descendant("page-number").is_some()
+                    && tb.texte().trim().chars().all(|c| c.is_ascii_digit() || c == '<' || c == '>');
                 let role = match classe {
+                    _ if numero => Role::Numero,
                     Some("title") => Role::Titre,
                     Some("subtitle") => Role::SousTitre,
                     Some("footer") => Role::Pied,
@@ -942,7 +1010,9 @@ fn formes_odf(
                     _ => Role::Corps,
                 };
                 let mut lignes = Vec::new();
+                lecteur.titre.set(role == Role::Titre);
                 lecteur.paragraphes(tb, None, &mut lignes, 0);
+                lecteur.titre.set(false);
                 page.zones.push(Zone {
                     role,
                     frame: cadre,
@@ -988,6 +1058,7 @@ fn formes_odf(
                     stroke,
                     stroke_width: w,
                     text: texte_forme(),
+                    text_size: taille_texte(),
                     ..Object::default()
                 });
             }

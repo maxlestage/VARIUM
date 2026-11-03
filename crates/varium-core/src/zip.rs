@@ -182,7 +182,8 @@ impl ZipReader {
 
     /// Le contenu d'un fichier, en texte UTF-8.
     pub fn text(&self, name: &str) -> Option<String> {
-        self.get(name).map(|d| String::from_utf8_lossy(d).into_owned())
+        self.get(name)
+            .map(|d| String::from_utf8_lossy(d).into_owned())
     }
 }
 
@@ -200,7 +201,10 @@ mod tests {
         z.add("dossier/contenu.xml", "<a>é</a>".as_bytes());
         let bytes = z.finish();
         let r = super::ZipReader::new(&bytes).unwrap();
-        assert_eq!(r.names().collect::<Vec<_>>(), ["mimetype", "dossier/contenu.xml"]);
+        assert_eq!(
+            r.names().collect::<Vec<_>>(),
+            ["mimetype", "dossier/contenu.xml"]
+        );
         assert_eq!(r.text("dossier/contenu.xml").unwrap(), "<a>é</a>");
         assert!(r.get("absent").is_none());
 

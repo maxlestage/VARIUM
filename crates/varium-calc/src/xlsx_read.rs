@@ -14,7 +14,7 @@ use varium_core::zip::ZipReader;
 use crate::cond::{CompareOp, CondFormat, CondRule, CondStyle};
 use crate::format::{CellFormat, HAlign, NumberFormat};
 use crate::import::{
-    Filler, bool_input, builtin_number_format, error_input, finish, iso_date,
+    Filler, bool_input, expression_rule, builtin_number_format, error_input, finish, iso_date,
     number_format_from_code, number_input, parse_rgb, text_input, unique_sheet_names,
 };
 use crate::refs::{CellRef, MAX_COLS, MAX_ROWS, Range};
@@ -278,6 +278,10 @@ fn cond_rules(sheet_xml: &Node, styles: &Styles) -> Vec<CondFormat> {
                 "containsBlanks" => CondRule::Empty,
                 "notContainsBlanks" => CondRule::NotEmpty,
                 "containsErrors" => CondRule::Error,
+                "expression" => match formulas.first().and_then(|f| expression_rule(f)) {
+                    Some(r) => r,
+                    None => continue,
+                },
                 "top10" => CondRule::Top {
                     n: rule
                         .attr("rank")

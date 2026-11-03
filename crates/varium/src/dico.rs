@@ -188,9 +188,7 @@ fn licence_file(dir: &Path, stem: &str) -> Option<PathBuf> {
     pick(&|n| n.starts_with("readme") && n.contains(&stem_l))
         .or_else(|| pick(&|n| n.starts_with("license") || n.starts_with("licence")))
         .or_else(|| pick(&|n| n.starts_with("copying")))
-        .or_else(|| {
-            pick(&|n| n.starts_with("readme") && n.contains(&format!("_{code}")))
-        })
+        .or_else(|| pick(&|n| n.starts_with("readme") && n.contains(&format!("_{code}"))))
         .or_else(|| pick(&|n| n.starts_with("readme") && n.ends_with(".txt")))
         .map(|n| dir.join(n))
 }
@@ -231,18 +229,15 @@ pub fn licence_name(text: &str) -> Option<String> {
 /// Le meilleur dictionnaire pour une langue : celui de Varium d'abord, puis
 /// celui du pays de la langue (`en_GB` pour l'anglais britannique), puis un autre.
 pub fn best(found: &[Installed], lang: Lang) -> Option<&Installed> {
-    found
-        .iter()
-        .filter(|d| d.lang == lang)
-        .max_by_key(|d| {
-            let country = lang_of(&d.locale).and_then(|x| x.1);
-            (
-                d.own,
-                country.as_deref() == Some(lang.country()),
-                // `de_DE` plutôt que `de_DE_frami` à égalité ? non : le plus complet.
-                d.locale.len(),
-            )
-        })
+    found.iter().filter(|d| d.lang == lang).max_by_key(|d| {
+        let country = lang_of(&d.locale).and_then(|x| x.1);
+        (
+            d.own,
+            country.as_deref() == Some(lang.country()),
+            // `de_DE` plutôt que `de_DE_frami` à égalité ? non : le plus complet.
+            d.locale.len(),
+        )
+    })
 }
 
 /// L'encodage déclaré par un fichier `.aff` (`SET UTF-8`).
@@ -399,10 +394,9 @@ fn import_oxt(p: &Path, own: &Path) -> Result<Vec<String>, String> {
     let mut done = Vec::new();
     for aff in names.iter().filter(|n| n.to_lowercase().ends_with(".aff")) {
         let base = &aff[..aff.len() - 4];
-        let Some(dic) = names
-            .iter()
-            .find(|n| n.len() == aff.len() && n.starts_with(base) && n.to_lowercase().ends_with(".dic"))
-        else {
+        let Some(dic) = names.iter().find(|n| {
+            n.len() == aff.len() && n.starts_with(base) && n.to_lowercase().ends_with(".dic")
+        }) else {
             continue;
         };
         let stem = base.rsplit('/').next().unwrap_or(base).to_string();
@@ -421,7 +415,10 @@ fn import_oxt(p: &Path, own: &Path) -> Result<Vec<String>, String> {
             .find(|n| is_licence_name(n) && n.contains(&stem))
             .or(licence.as_ref());
         if let Some(l) = own_lic {
-            write(&format!("{stem}.licence.txt"), zip.get(l).unwrap_or_default())?;
+            write(
+                &format!("{stem}.licence.txt"),
+                zip.get(l).unwrap_or_default(),
+            )?;
         }
         done.push(stem);
     }
@@ -836,12 +833,18 @@ impl Dicos {
     pub fn import_paths(&mut self, paths: &[PathBuf]) {
         match import(paths, &self.own) {
             Ok(names) => {
-                let langs: HashSet<Lang> = names.iter().filter_map(|n| lang_of(n)).map(|x| x.0).collect();
+                let langs: HashSet<Lang> = names
+                    .iter()
+                    .filter_map(|n| lang_of(n))
+                    .map(|x| x.0)
+                    .collect();
                 for l in langs {
                     self.reload(l);
                 }
-                self.messages
-                    .push((format!("Dictionnaire importé : {}", names.join(", ")), false));
+                self.messages.push((
+                    format!("Dictionnaire importé : {}", names.join(", ")),
+                    false,
+                ));
             }
             Err(e) => self.messages.push((e, true)),
         }
@@ -853,7 +856,10 @@ impl Dicos {
         let ctx = ctx.clone();
         let dialog = rfd::AsyncFileDialog::new()
             .set_title("Importer un dictionnaire (.aff et .dic, ou extension .oxt)")
-            .add_filter("Dictionnaire Hunspell ou extension LibreOffice", &["aff", "dic", "oxt"]);
+            .add_filter(
+                "Dictionnaire Hunspell ou extension LibreOffice",
+                &["aff", "dic", "oxt"],
+            );
         std::thread::spawn(move || {
             let files = block_on(dialog.pick_files());
             if let Some(files) = files {
@@ -977,13 +983,22 @@ impl Dicos {
                     r
                 }
             };
-            out.extend(ranges.into_iter().map(|r| p.start + r.start..p.start + r.end));
+            out.extend(
+                ranges
+                    .into_iter()
+                    .map(|r| p.start + r.start..p.start + r.end),
+            );
         }
         Some(out)
     }
 
     /// Les suggestions pour un mot : `None` tant qu'elles sont en calcul.
-    pub fn suggestions(&mut self, lang: Lang, word: &str, ctx: &egui::Context) -> Option<&[String]> {
+    pub fn suggestions(
+        &mut self,
+        lang: Lang,
+        word: &str,
+        ctx: &egui::Context,
+    ) -> Option<&[String]> {
         let key = (lang, word.to_string());
         if self.suggestions.contains_key(&key) {
             return self.suggestions.get(&key).map(Vec::as_slice);
@@ -1050,7 +1065,10 @@ mod tests {
         assert_eq!(lang_of("en-GB"), Some((Lang::En, Some("GB".into()))));
         assert_eq!(lang_of("hyph_fr"), None);
         assert_eq!(lang_of("nl_NL"), None);
-        assert_eq!(licence_name("Licence : MPL 2.0\n…").as_deref(), Some("MPL 2.0"));
+        assert_eq!(
+            licence_name("Licence : MPL 2.0\n…").as_deref(),
+            Some("MPL 2.0")
+        );
         assert_eq!(
             licence_name("covered by the (GPL/LGPL/MPL)").as_deref(),
             Some("GPL / LGPL / MPL")
@@ -1111,7 +1129,11 @@ mod tests {
         assert!(d.check("monde") && !d.check("monnde"));
 
         // Erreurs en français
-        assert!(import(&[sys.join("en_US.aff")], &own).unwrap_err().contains("deux fichiers"));
+        assert!(
+            import(&[sys.join("en_US.aff")], &own)
+                .unwrap_err()
+                .contains("deux fichiers")
+        );
         assert!(import(&[sys.join("x.txt")], &own).is_err());
         let _ = std::fs::remove_dir_all(&sys);
         let _ = std::fs::remove_dir_all(&own);
@@ -1140,7 +1162,11 @@ mod tests {
         assert_eq!(ranges, [11..17]);
         assert_eq!(d.etat(Lang::Fr), Etat::Pret);
         d.add_personal("monnde");
-        assert!(d.misspelled("Bonjour le monnde", Lang::Fr, &ctx).unwrap().is_empty());
+        assert!(
+            d.misspelled("Bonjour le monnde", Lang::Fr, &ctx)
+                .unwrap()
+                .is_empty()
+        );
         assert!(std::fs::read_to_string(&perso).unwrap().contains("monnde"));
         let d2 = Dicos::with_dirs(own.clone(), perso);
         assert!(d2.personal.contains("monnde"));
@@ -1182,5 +1208,45 @@ mod tests {
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert_eq!(&src[issues[0].start..issues[0].end], "allways");
         assert_eq!(issues[0].replacement.as_deref(), Some("always"));
+
+        // Les quatre autres langues avec VARIUM_DICOS_TOUS=1 (téléchargées si besoin).
+        if std::env::var_os("VARIUM_DICOS_TOUS").is_none() {
+            return;
+        }
+        for (lang, src, bad) in [
+            (
+                Lang::Es,
+                "¿Cómo estás? ¡El perro es muy bonnito!",
+                "bonnito",
+            ),
+            (
+                Lang::De,
+                "Die Donaudampfschifffahrtsgesellschaft fährt heute nichtt.",
+                "nichtt",
+            ),
+            (
+                Lang::It,
+                "L'uomo dell'anno è stato molto simpatcio.",
+                "simpatcio",
+            ),
+            (
+                Lang::Pt,
+                "O cão d'água está muito contennte hoje.",
+                "contennte",
+            ),
+        ] {
+            if best(&discover(&[dir.clone()], &dir), lang).is_none() {
+                download_blocking(lang, &dir, &|_| {}).unwrap();
+            }
+            let found = discover(&[dir.clone()], &dir);
+            let d = best(&found, lang).unwrap();
+            let t = std::time::Instant::now();
+            let d = load(&d.aff, &d.dic).unwrap();
+            let loaded = t.elapsed();
+            let issues = varium_core::spell::check_spelling(src, lang, &Hunspell(&d), &|_| false);
+            eprintln!("{lang:?} : chargé en {loaded:?}, {issues:?}");
+            let words: Vec<&str> = issues.iter().map(|i| &src[i.start..i.end]).collect();
+            assert_eq!(words, [bad], "{lang:?}");
+        }
     }
 }
