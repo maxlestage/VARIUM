@@ -18,7 +18,7 @@ version en ligne : vos documents restent sur votre ordinateur.
   mode d'emploi sur la [page Installer](https://maxlestage.github.io/VARIUM/installer/)
 - **Depuis les sources** : `cargo install --git https://github.com/maxlestage/VARIUM varium --locked`, puis `varium`
 
-Une nouvelle version se publie en poussant un tag : `git tag v0.4.0 && git push origin v0.4.0`.
+Une nouvelle version se publie en poussant un tag : `git tag v0.5.0 && git push origin v0.5.0`.
 Le workflow `.github/workflows/release.yml` compile alors les trois binaires et les joint à
 la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
 
@@ -29,8 +29,10 @@ Comme LibreOffice, Varium réunit trois modules dans la même fenêtre (sélecte
 | Module | Pour | Points forts |
 |---|---|---|
 | 📝 **Documents** | courriers, factures, contrats | champs `{{…}}`, mise en page, publipostage, exports PDF/ODT/DOCX/RTF/EPUB |
-| 📊 **Classeur** | tableaux, budgets, calculs | formules en français et en anglais (`=SOMME(A1:A9)` / `=SUM(…)`), plusieurs feuilles, formats (€, %, dates), tri, recopie, graphiques, exports XLSX, ODS, CSV |
-| 🎞 **Présentation** | diaporamas | dispositions, thèmes, transitions, notes de l'orateur, `{{champs}}` partagés, diaporama plein écran (F5), exports PDF, ODP (Impress), HTML |
+| 📊 **Classeur** | tableaux, budgets, calculs | formules en français et en anglais (`=SOMME(A1:A9)` / `=SUM(…)`), plusieurs feuilles, formats (€, %, dates), tri, recopie, mise en forme conditionnelle, volets figés, 8 graphiques, ouvre et enregistre XLSX, ODS, CSV |
+| 🎞 **Présentation** | diaporamas | dispositions, thèmes, transitions, notes de l'orateur, `{{champs}}` partagés, images et formes, diaporama plein écran (F5), mode présentateur sur deuxième écran, ouvre PPTX et ODP, exports PDF, ODP (Impress), HTML |
+
+L'interface est disponible en français, anglais, espagnol, allemand, italien et portugais (bouton 🌐 en haut à droite, ou automatique selon le système). Sur macOS, la barre de menus native suit le module actif.
 
 ## Écrire dans plusieurs langues
 
@@ -47,6 +49,8 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   fermées ; correction en un clic, remarques soulignées dans le texte.
 - **Aide → Écrire en plusieurs langues** : les règles de chaque langue.
 - Les exports portent la langue (HTML `lang`, ODT, DOCX, EPUB).
+
+- **Orthographe** : vrais dictionnaires Hunspell (ceux de l'ordinateur, importés ou téléchargés depuis LibreOffice), fautes soulignées pendant la frappe, suggestions au clic droit, dictionnaire personnel.
 
 ## Fonctionnalités
 

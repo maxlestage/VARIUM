@@ -501,7 +501,7 @@ pub fn show(ui: &mut egui::Ui, view: &View) -> usize {
         let numbers = view
             .page
             .page_numbers
-            .then(|| format!("Page {} sur {total}", n + 1));
+            .then(|| trf!("Page {n} sur {total}", n = n + 1, total));
         if !foot.is_empty() || numbers.is_some() {
             let y = top + m.page_h - m.mb / 2.0 - small * 0.6;
             if !foot.is_empty() {

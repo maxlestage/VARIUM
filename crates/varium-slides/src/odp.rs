@@ -15,6 +15,7 @@ use varium_core::{Align, Para, Run, Style, Table};
 use crate::geometrie::{
     Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, TITLE_LINE_HEIGHT, footer_frame, number_frame,
 };
+use crate::objets::{Object, ObjectKind};
 use crate::pdf::{Police, colonnes};
 use crate::texte::{MISSING_COLOR, echapper, hex_color};
 use crate::{
@@ -292,6 +293,58 @@ impl Styles {
             format!(
                 "<style:style style:name=\"{nom}\" style:family=\"graphic\"><style:graphic-properties draw:stroke=\"none\" draw:fill=\"solid\" draw:fill-color=\"{}\" draw:shadow=\"hidden\"/></style:style>",
                 hex_color(couleur)
+            )
+        })
+    }
+
+    /// Style d'une forme : fond, trait, pointe de flèche, texte centré.
+    fn forme(&mut self, o: &Object, pw: f32) -> String {
+        let fond = o.fill.filter(|_| o.kind.is_closed());
+        let trait_ = o.stroke.filter(|_| o.stroke_width > 0.0);
+        let fleche = o.kind == ObjectKind::Arrow;
+        let largeur = o.stroke_width * pw / 720.0;
+        let cle = format!("{fond:?}{trait_:?}{largeur}{fleche}");
+        self.style("gf", cle, |nom| {
+            let mut p = String::new();
+            match fond {
+                Some(c) => {
+                    let _ = write!(
+                        p,
+                        " draw:fill=\"solid\" draw:fill-color=\"{}\"",
+                        hex_color(c)
+                    );
+                }
+                None => p.push_str(" draw:fill=\"none\""),
+            }
+            match trait_ {
+                Some(c) => {
+                    let _ = write!(
+                        p,
+                        " draw:stroke=\"solid\" svg:stroke-color=\"{}\" svg:stroke-width=\"{}\" draw:stroke-linejoin=\"round\" svg:stroke-linecap=\"round\"",
+                        hex_color(c),
+                        cm(largeur)
+                    );
+                }
+                None => p.push_str(" draw:stroke=\"none\""),
+            }
+            if fleche {
+                let _ = write!(
+                    p,
+                    " draw:marker-end=\"Varium_20_fleche\" draw:marker-end-width=\"{}\" draw:marker-end-center=\"false\"",
+                    cm((largeur * 3.5).max(8.0 * pw / 720.0))
+                );
+            }
+            format!(
+                "<style:style style:name=\"{nom}\" style:family=\"graphic\"><style:graphic-properties{p} draw:shadow=\"hidden\" draw:textarea-horizontal-align=\"justify\" draw:textarea-vertical-align=\"middle\" draw:auto-grow-height=\"false\" draw:auto-grow-width=\"false\" fo:padding-top=\"0.1cm\" fo:padding-bottom=\"0.1cm\" fo:padding-left=\"0.2cm\" fo:padding-right=\"0.2cm\" fo:wrap-option=\"wrap\"/></style:style>"
+            )
+        })
+    }
+
+    /// Style d'un cadre d'image : sans fond ni trait.
+    fn image(&mut self) -> String {
+        self.style("gi", String::new(), |nom| {
+            format!(
+                "<style:style style:name=\"{nom}\" style:family=\"graphic\"><style:graphic-properties draw:stroke=\"none\" draw:fill=\"none\" draw:shadow=\"hidden\"/></style:style>"
             )
         })
     }
@@ -650,7 +703,107 @@ fn cadre(
     }
 }
 
-fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f32) -> String {
+/// Un objet de la diapositive (image ou forme) en ODF.
+#[allow(clippy::too_many_arguments)]
+fn objet_xml(
+    out: &mut String,
+    o: &Object,
+    texte: &[Para],
+    pal: Palette,
+    styles: &mut Styles,
+    deck: &Deck,
+    pw: f32,
+    ph: f32,
+) {
+    let f = o.frame;
+    match o.kind {
+        ObjectKind::Image => {
+            let Some(m) = deck.media.get(&o.media) else {
+                return;
+            };
+            let st = styles.image();
+            let _ = write!(
+                out,
+                "<draw:frame draw:style-name=\"{st}\" draw:layer=\"layout\" {}><draw:image xlink:href=\"Pictures/{}.{}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\" draw:mime-type=\"{}\"><text:p/></draw:image></draw:frame>",
+                geometrie(f, pw, ph),
+                o.media,
+                m.extension(),
+                m.mime
+            );
+        }
+        ObjectKind::Line | ObjectKind::Arrow => {
+            let st = styles.forme(o, pw);
+            let ((x1, y1), (x2, y2)) = o.line_points();
+            let _ = write!(
+                out,
+                "<draw:line draw:style-name=\"{st}\" draw:layer=\"layout\" svg:x1=\"{}\" svg:y1=\"{}\" svg:x2=\"{}\" svg:y2=\"{}\"><text:p/></draw:line>",
+                cm(x1 * pw),
+                cm(y1 * ph),
+                cm(x2 * pw),
+                cm(y2 * ph)
+            );
+        }
+        ObjectKind::Rect | ObjectKind::RoundRect | ObjectKind::Ellipse => {
+            let st = styles.forme(o, pw);
+            let hab = Habillage {
+                taille: o.text_size * ph,
+                couleur: o.text_ink(&pal),
+                serif: false,
+                gras: false,
+                italique: false,
+                majuscules: false,
+                approche: 0.0,
+                interligne: 1.2,
+                align: Align::Center,
+                titre: true,
+                citation: false,
+                pal,
+                largeur: f.w * pw,
+            };
+            let contenu = if texte.is_empty() {
+                String::new()
+            } else {
+                paras_xml(texte, &hab, styles)
+            };
+            // Formes d'Impress (`draw:custom-shape`) : seules à renvoyer le texte à
+            // la ligne dans LibreOffice.
+            let geometrie_forme = match o.kind {
+                ObjectKind::Ellipse => {
+                    "draw:type=\"ellipse\" draw:enhanced-path=\"U 10800 10800 10800 10800 0 360 Z N\"".to_string()
+                }
+                ObjectKind::RoundRect => format!(
+                    "draw:type=\"round-rectangle\" draw:modifiers=\"{}\" draw:enhanced-path=\"M ?f7 0 X 0 ?f8 L 0 ?f9 Y ?f7 21600 L ?f10 21600 X 21600 ?f9 L 21600 ?f8 Y ?f10 0 Z N\"",
+                    (21600.0 * Object::CORNER).round()
+                ),
+                _ => "draw:type=\"rectangle\" draw:enhanced-path=\"M 0 0 L 21600 0 21600 21600 0 21600 0 0 Z N\"".to_string(),
+            };
+            let formules = if o.kind == ObjectKind::RoundRect {
+                FORMULES_ARRONDI
+            } else {
+                ""
+            };
+            let _ = write!(
+                out,
+                "<draw:custom-shape draw:style-name=\"{st}\" draw:layer=\"layout\" {}>{contenu}<draw:enhanced-geometry svg:viewBox=\"0 0 21600 21600\" {geometrie_forme}>{formules}</draw:enhanced-geometry></draw:custom-shape>",
+                geometrie(f, pw, ph)
+            );
+        }
+    }
+}
+
+/// Formules du rectangle arrondi d'Impress (rayon : premier modificateur).
+const FORMULES_ARRONDI: &str = "<draw:equation draw:name=\"f0\" draw:formula=\"45\"/><draw:equation draw:name=\"f1\" draw:formula=\"$0 *sin(?f0 *(pi/180))\"/><draw:equation draw:name=\"f2\" draw:formula=\"?f1 *3163/7636\"/><draw:equation draw:name=\"f3\" draw:formula=\"left+?f2 \"/><draw:equation draw:name=\"f4\" draw:formula=\"top+?f2 \"/><draw:equation draw:name=\"f5\" draw:formula=\"right-?f2 \"/><draw:equation draw:name=\"f6\" draw:formula=\"bottom-?f2 \"/><draw:equation draw:name=\"f7\" draw:formula=\"left+$0 \"/><draw:equation draw:name=\"f8\" draw:formula=\"top+$0 \"/><draw:equation draw:name=\"f9\" draw:formula=\"bottom-$0 \"/><draw:equation draw:name=\"f10\" draw:formula=\"right-$0 \"/><draw:handle draw:handle-position=\"$0 top\" draw:handle-switched=\"true\" draw:handle-range-x-minimum=\"0\" draw:handle-range-x-maximum=\"10800\"/>";
+
+#[allow(clippy::too_many_arguments)]
+fn page_xml(
+    i: usize,
+    r: &Rendu,
+    s: &Slide,
+    styles: &mut Styles,
+    deck: &Deck,
+    pw: f32,
+    ph: f32,
+) -> String {
     let pal = r.palette;
     let b = &r.boxes;
     let mut out = String::new();
@@ -760,6 +913,9 @@ fn page_xml(i: usize, r: &Rendu, s: &Slide, styles: &mut Styles, pw: f32, ph: f3
             cadre(&mut out, styles, None, f, b.body_anchor, &contenu, pw, ph);
         }
     }
+    for (o, texte) in s.objects.iter().zip(&r.objets) {
+        objet_xml(&mut out, o, texte, pal, styles, deck, pw, ph);
+    }
     let pied = Habillage {
         taille: FOOTER_SIZE * ph,
         couleur: pal.muted,
@@ -853,7 +1009,7 @@ pub(crate) fn odp(deck: &Deck) -> Vec<u8> {
         .iter()
         .zip(slides.iter())
         .enumerate()
-        .map(|(i, (r, s))| page_xml(i, r, s, &mut styles, pw, ph))
+        .map(|(i, (r, s))| page_xml(i, r, s, &mut styles, deck, pw, ph))
         .collect();
     let content = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {NS}>{POLICES}<office:automatic-styles>{}</office:automatic-styles><office:body><office:presentation>{pages}</office:presentation></office:body></office:document-content>",
@@ -861,7 +1017,7 @@ pub(crate) fn odp(deck: &Deck) -> Vec<u8> {
     );
     let fond = deck.theme.palette().background;
     let styles_xml = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles {NS}>{POLICES}<office:styles><style:default-style style:family=\"graphic\"><style:paragraph-properties fo:text-align=\"start\"/><style:text-properties style:font-name=\"Liberation Sans\" fo:font-size=\"18pt\" fo:language=\"fr\" fo:country=\"FR\"/></style:default-style></office:styles><office:automatic-styles><style:page-layout style:name=\"PM1\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"{}\" fo:page-height=\"{}\" style:print-orientation=\"landscape\"/></style:page-layout><style:page-layout style:name=\"PM2\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"21cm\" fo:page-height=\"29.7cm\" style:print-orientation=\"portrait\"/></style:page-layout><style:style style:name=\"Mdp1\" style:family=\"drawing-page\"><style:drawing-page-properties draw:background-size=\"full\" draw:fill=\"solid\" draw:fill-color=\"{}\"/></style:style><style:style style:name=\"Mdp2\" style:family=\"drawing-page\"><style:drawing-page-properties draw:fill=\"none\"/></style:style></office:automatic-styles><office:master-styles><draw:layer-set><draw:layer draw:name=\"layout\"/><draw:layer draw:name=\"background\"/><draw:layer draw:name=\"backgroundobjects\"/><draw:layer draw:name=\"controls\"/><draw:layer draw:name=\"measurelines\"/></draw:layer-set><style:master-page style:name=\"Varium\" style:page-layout-name=\"PM1\" draw:style-name=\"Mdp1\"><presentation:notes style:page-layout-name=\"PM2\" draw:style-name=\"Mdp2\"/></style:master-page></office:master-styles></office:document-styles>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles {NS}>{POLICES}<office:styles><draw:marker draw:name=\"Varium_20_fleche\" draw:display-name=\"Varium flèche\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0l-10 20h20z\"/><style:default-style style:family=\"graphic\"><style:paragraph-properties fo:text-align=\"start\"/><style:text-properties style:font-name=\"Liberation Sans\" fo:font-size=\"18pt\" fo:language=\"fr\" fo:country=\"FR\"/></style:default-style></office:styles><office:automatic-styles><style:page-layout style:name=\"PM1\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"{}\" fo:page-height=\"{}\" style:print-orientation=\"landscape\"/></style:page-layout><style:page-layout style:name=\"PM2\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"21cm\" fo:page-height=\"29.7cm\" style:print-orientation=\"portrait\"/></style:page-layout><style:style style:name=\"Mdp1\" style:family=\"drawing-page\"><style:drawing-page-properties draw:background-size=\"full\" draw:fill=\"solid\" draw:fill-color=\"{}\"/></style:style><style:style style:name=\"Mdp2\" style:family=\"drawing-page\"><style:drawing-page-properties draw:fill=\"none\"/></style:style></office:automatic-styles><office:master-styles><draw:layer-set><draw:layer draw:name=\"layout\"/><draw:layer draw:name=\"background\"/><draw:layer draw:name=\"backgroundobjects\"/><draw:layer draw:name=\"controls\"/><draw:layer draw:name=\"measurelines\"/></draw:layer-set><style:master-page style:name=\"Varium\" style:page-layout-name=\"PM1\" draw:style-name=\"Mdp1\"><presentation:notes style:page-layout-name=\"PM2\" draw:style-name=\"Mdp2\"/></style:master-page></office:master-styles></office:document-styles>",
         cm(pw),
         cm(ph),
         hex_color(fond)
@@ -874,7 +1030,26 @@ pub(crate) fn odp(deck: &Deck) -> Vec<u8> {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-meta {NS}><office:meta><meta:generator>Varium</meta:generator><dc:title>{}</dc:title><dc:language>fr-FR</dc:language></office:meta></office:document-meta>",
         echapper(titre)
     );
-    let manifest = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.3\" manifest:media-type=\"application/vnd.oasis.opendocument.presentation\"/><manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/><manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/><manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/></manifest:manifest>";
+    // Les images employées, une seule fois chacune, dans `Pictures/`.
+    let images: Vec<(String, &crate::Media)> = deck
+        .used_media()
+        .into_iter()
+        .filter_map(|id| {
+            let m = deck.media.get(id)?;
+            Some((format!("Pictures/{id}.{}", m.extension()), m))
+        })
+        .collect();
+    let mut manifest = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.3\" manifest:media-type=\"application/vnd.oasis.opendocument.presentation\"/><manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/><manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/><manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>",
+    );
+    for (chemin, m) in &images {
+        let _ = write!(
+            manifest,
+            "<manifest:file-entry manifest:full-path=\"{chemin}\" manifest:media-type=\"{}\"/>",
+            m.mime
+        );
+    }
+    manifest.push_str("</manifest:manifest>");
 
     let mut zip = Zip::new();
     // `mimetype` doit être le premier fichier, stocké sans compression.
@@ -885,6 +1060,9 @@ pub(crate) fn odp(deck: &Deck) -> Vec<u8> {
     zip.add("content.xml", content.as_bytes());
     zip.add("styles.xml", styles_xml.as_bytes());
     zip.add("meta.xml", meta.as_bytes());
+    for (chemin, m) in &images {
+        zip.add(chemin, &m.data);
+    }
     zip.add("META-INF/manifest.xml", manifest.as_bytes());
     zip.finish()
 }

@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
+use crate::cond::{CondFormat, CondFormatter, CondPaint};
 use crate::eval::{Computed, is_formula, recalc, sheet_resolver};
 use crate::format::{CellFormat, HAlign, NumberFormat, format_value, parse_literal, today_serial};
 use crate::parser::check_formula;
@@ -42,6 +43,20 @@ pub struct Sheet {
     pub col_widths: BTreeMap<u32, f32>,
     /// Hauteurs de lignes modifiées, en points d'écran.
     pub row_heights: BTreeMap<u32, f32>,
+    /// Volets figés : nombre de lignes du haut toujours visibles.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub frozen_rows: u32,
+    /// Volets figés : nombre de colonnes de gauche toujours visibles.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub frozen_cols: u32,
+    /// Règles de mise en forme conditionnelle, dans l'ordre d'application
+    /// (voir [`crate::cond`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cond_formats: Vec<CondFormat>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 mod cells_serde {
@@ -132,7 +147,7 @@ impl Sheet {
         clean_sizes(&self.row_heights, MAX_ROWS)
     }
 
-    fn put(&mut self, at: CellRef, input: String, format: CellFormat) {
+    pub(crate) fn put(&mut self, at: CellRef, input: String, format: CellFormat) {
         if input.is_empty() && format.is_default() {
             self.cells.remove(&at);
         } else {
@@ -311,7 +326,7 @@ fn sort_order(a: &Value, b: &Value) -> Ordering {
 
 /// Nettoie un nom de feuille : caractères interdits par Excel retirés, 31
 /// caractères au plus.
-fn clean_sheet_name(name: &str) -> String {
+pub(crate) fn clean_sheet_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .filter(|c| !matches!(c, '[' | ']' | ':' | '*' | '?' | '/' | '\\') && !c.is_control())
@@ -647,6 +662,24 @@ impl Workbook {
                 sh.cells.insert(m, cell);
             }
         }
+        // Les plages des règles conditionnelles suivent les cellules.
+        sh.cond_formats.retain_mut(|cf| {
+            let r = cf.range;
+            let (lo, hi) = if edit.rows {
+                (r.start.row, r.end.row)
+            } else {
+                (r.start.col, r.end.col)
+            };
+            let Some((lo, hi)) = edit.map_span(lo, hi) else {
+                return false;
+            };
+            cf.range = if edit.rows {
+                Range::new(CellRef::new(lo, r.start.col), CellRef::new(hi, r.end.col))
+            } else {
+                Range::new(CellRef::new(r.start.row, lo), CellRef::new(r.end.row, hi))
+            };
+            true
+        });
         let sizes = if edit.rows {
             &mut sh.row_heights
         } else {
@@ -898,6 +931,35 @@ impl Workbook {
         self.invalidate();
     }
 
+    // ------------------------------------------------------------ Affichage
+
+    /// Fige les `rows` premières lignes et les `cols` premières colonnes
+    /// (0 et 0 : libère les volets).
+    pub fn set_frozen(&mut self, sheet: usize, rows: u32, cols: u32) {
+        if let Some(sh) = self.sheets.get_mut(sheet) {
+            sh.frozen_rows = rows.min(MAX_ROWS - 1);
+            sh.frozen_cols = cols.min(MAX_COLS - 1);
+        }
+    }
+
+    /// Prépare la mise en forme conditionnelle d'une feuille (statistiques des
+    /// plages) ; à interroger ensuite cellule par cellule.
+    pub fn cond_formatter(&self, sheet: usize) -> CondFormatter {
+        let computed = self.computed();
+        let values = computed.values.get(sheet);
+        let value = |at: CellRef| values.and_then(|m| m.get(&at)).cloned().unwrap_or_default();
+        match self.sheets.get(sheet) {
+            Some(sh) => CondFormatter::new(sh, &value),
+            None => CondFormatter::new(&Sheet::default(), &value),
+        }
+    }
+
+    /// Mise en forme conditionnelle d'une seule cellule (pour beaucoup de
+    /// cellules, préférer [`Workbook::cond_formatter`]).
+    pub fn cond_paint(&self, sheet: usize, at: CellRef) -> Option<CondPaint> {
+        self.cond_formatter(sheet).paint(at, &self.value(sheet, at))
+    }
+
     // ------------------------------------------------------------ Fichiers
 
     /// Enregistre le classeur en JSON (format `varium-calc`, version 1).
@@ -969,6 +1031,17 @@ impl Workbook {
     /// Exporte au format OpenDocument (`.ods`).
     pub fn to_ods(&self) -> Vec<u8> {
         crate::ods::to_ods(self)
+    }
+
+    /// Ouvre un fichier Excel (`.xlsx`) : valeurs, formules, formats, largeurs
+    /// de colonnes, mise en forme conditionnelle et volets figés.
+    pub fn from_xlsx(title: &str, bytes: &[u8]) -> Result<Self, String> {
+        crate::xlsx_read::from_xlsx(title, bytes)
+    }
+
+    /// Ouvre un fichier OpenDocument (`.ods`).
+    pub fn from_ods(title: &str, bytes: &[u8]) -> Result<Self, String> {
+        crate::ods_read::from_ods(title, bytes)
     }
 
     /// Valeurs calculées de toutes les cellules (exports).

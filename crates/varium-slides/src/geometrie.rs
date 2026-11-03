@@ -8,7 +8,7 @@
 use crate::Layout;
 
 /// Rectangle en fractions de la diapositive (0 à 1).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
 pub struct Frame {
     pub x: f32,
     pub y: f32,
@@ -36,6 +36,23 @@ impl Frame {
 
     /// Le rectangle dans une diapositive de `width` × `height` unités :
     /// `(x, y, largeur, hauteur)`.
+    /// Le centre du rectangle.
+    pub fn center(&self) -> (f32, f32) {
+        (self.x + self.w / 2.0, self.y + self.h / 2.0)
+    }
+
+    /// Le rectangle rétréci de `dx` et `dy` de chaque côté (jamais négatif).
+    pub fn inset(&self, dx: f32, dy: f32) -> Frame {
+        let dx = dx.min(self.w / 2.0).max(0.0);
+        let dy = dy.min(self.h / 2.0).max(0.0);
+        Frame::new(
+            self.x + dx,
+            self.y + dy,
+            self.w - 2.0 * dx,
+            self.h - 2.0 * dy,
+        )
+    }
+
     pub fn scaled(&self, width: f32, height: f32) -> (f32, f32, f32, f32) {
         (
             self.x * width,

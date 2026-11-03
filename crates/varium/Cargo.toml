@@ -20,11 +20,18 @@ log.workspace = true
 rfd.workspace = true
 
 env_logger.workspace = true
+spellbook = "0.4.2"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 
 
 # Barre de menus native de macOS (en haut de l'écran), comme Pages.
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.17", default-features = false }
+
+# Langue du système, pour l'interface (sous Linux : LC_ALL, LC_MESSAGES, LANG).
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+sys-locale = "0.3"
+
 
 [build-dependencies]
 winresource = "0.1"

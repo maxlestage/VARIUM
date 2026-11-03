@@ -10,8 +10,9 @@ use std::fmt::Write;
 use varium_core::{Align, Para, Run, Table};
 
 use crate::geometrie::{Anchor, FOOTER_SIZE, Frame, footer_frame, number_frame};
+use crate::objets::{Object, ObjectKind, arrow_head};
 use crate::texte::{echapper, hex_color};
-use crate::{Deck, Layout, Rendu, Slide, body_size, subtitle_size, title_size};
+use crate::{Deck, Layout, Palette, Rendu, Slide, body_size, subtitle_size, title_size};
 
 /// Pourcentage CSS, sans zéros inutiles.
 fn pc(v: f32) -> String {
@@ -177,7 +178,7 @@ fn boite(out: &mut String, classes: &str, f: Frame, a: Anchor, fs: f32, inner: &
     );
 }
 
-fn diapositive(out: &mut String, i: usize, total: usize, r: &Rendu, s: &Slide) {
+fn diapositive(out: &mut String, i: usize, total: usize, r: &Rendu, s: &Slide, deck: &Deck) {
     let p = &r.palette;
     let b = &r.boxes;
     let centre = if b.centered { " centre" } else { "" };
@@ -239,6 +240,9 @@ fn diapositive(out: &mut String, i: usize, total: usize, r: &Rendu, s: &Slide) {
             );
         }
     }
+    for (o, texte) in s.objects.iter().zip(&r.objets) {
+        objet_html(out, o, texte, p, deck);
+    }
     if !r.footer.is_empty() {
         let _ = writeln!(
             out,
@@ -276,9 +280,25 @@ pub(crate) fn html(deck: &Deck) -> String {
     let _ = writeln!(out, "<title>{}</title>", echapper(titre));
     out.push_str("<style>\n");
     out.push_str(&css(deck.aspect));
+    // Chaque image n'est écrite qu'une fois, même si plusieurs diapositives l'emploient.
+    for id in deck.used_media() {
+        if let Some(m) = deck.media.get(id) {
+            let _ = writeln!(
+                out,
+                ".m-{}{{background-image:url(\"data:{};base64,{}\")}}",
+                classe_media(id),
+                if m.mime == "image/jpeg" {
+                    "image/jpeg"
+                } else {
+                    "image/png"
+                },
+                crate::objets::base64(&m.data)
+            );
+        }
+    }
     out.push_str("</style>\n</head>\n<body>\n<main class=\"scene\">\n");
     for (i, (r, s)) in rendus.iter().zip(slides.iter()).enumerate() {
-        diapositive(&mut out, i, total, r, s);
+        diapositive(&mut out, i, total, r, s, deck);
     }
     out.push_str("<div class=\"progression\" aria-hidden=\"true\"></div>\n</main>\n");
     out.push_str("<aside id=\"notes\" aria-hidden=\"true\"><div class=\"entete\"><span>Notes de l’orateur</span><span class=\"numero\"></span></div><div class=\"texte\"></div></aside>\n");
@@ -306,6 +326,134 @@ fn css(aspect: crate::Aspect) -> String {
         h = nombre(h)
     );
     s
+}
+
+/// Nom de classe CSS sûr pour un identifiant de média.
+fn classe_media(id: &str) -> String {
+    id.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
+/// Un objet (image ou forme) en HTML : l'image en fond CSS, la forme en SVG dont
+/// les unités sont les points d'une diapositive de 720 pt de large, le texte
+/// d'une forme dans une zone centrée par-dessus.
+fn objet_html(out: &mut String, o: &Object, texte: &[Para], p: &Palette, deck: &Deck) {
+    let f = o.frame;
+    if o.kind == ObjectKind::Image {
+        if deck.media.contains_key(&o.media) {
+            let _ = writeln!(
+                out,
+                "<div class=\"objet image m-{}\" role=\"img\" style=\"{}\"></div>",
+                classe_media(&o.media),
+                position(f)
+            );
+        }
+        return;
+    }
+    let (pw, ph) = (720.0, 720.0 / deck.aspect.ratio());
+    let (w, h) = (f.w * pw, f.h * ph);
+    let sw = if o.stroke.is_some() {
+        o.stroke_width
+    } else {
+        0.0
+    };
+    // Marge autour du cadre : le trait et la pointe d'une flèche ne sont pas rognés.
+    let m = sw * 4.0 + 10.0;
+    let cadre = Frame::new(
+        f.x - m / pw,
+        f.y - m / ph,
+        f.w + 2.0 * m / pw,
+        f.h + 2.0 * m / ph,
+    );
+    let trait_ = match o.stroke {
+        Some(c) if sw > 0.0 => format!(
+            " stroke=\"{}\" stroke-width=\"{}\"",
+            hex_color(c),
+            nombre(sw)
+        ),
+        _ => String::new(),
+    };
+    let fond = match o.fill {
+        Some(c) => format!(" fill=\"{}\"", hex_color(c)),
+        None => " fill=\"none\"".to_string(),
+    };
+    let dessin = match o.kind {
+        ObjectKind::Rect | ObjectKind::RoundRect => {
+            let r = if o.kind == ObjectKind::RoundRect {
+                w.min(h) * Object::CORNER
+            } else {
+                0.0
+            };
+            format!(
+                "<rect width=\"{}\" height=\"{}\" rx=\"{}\"{fond}{trait_}/>",
+                nombre(w),
+                nombre(h),
+                nombre(r)
+            )
+        }
+        ObjectKind::Ellipse => format!(
+            "<ellipse cx=\"{}\" cy=\"{}\" rx=\"{}\" ry=\"{}\"{fond}{trait_}/>",
+            nombre(w / 2.0),
+            nombre(h / 2.0),
+            nombre(w / 2.0),
+            nombre(h / 2.0)
+        ),
+        ObjectKind::Line | ObjectKind::Arrow => {
+            let ((x1, y1), (x2, y2)) = o.line_points();
+            let a = ((x1 - f.x) * pw, (y1 - f.y) * ph);
+            let b = ((x2 - f.x) * pw, (y2 - f.y) * ph);
+            let c = hex_color(o.stroke.unwrap_or(p.text));
+            let sw = o.stroke_width.max(0.5);
+            if o.kind == ObjectKind::Arrow {
+                let (fin, tri) = arrow_head(a, b, sw);
+                format!(
+                    "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{c}\" stroke-width=\"{}\" stroke-linecap=\"round\"/><polygon points=\"{},{} {},{} {},{}\" fill=\"{c}\"/>",
+                    nombre(a.0),
+                    nombre(a.1),
+                    nombre(fin.0),
+                    nombre(fin.1),
+                    nombre(sw),
+                    nombre(tri[0].0),
+                    nombre(tri[0].1),
+                    nombre(tri[1].0),
+                    nombre(tri[1].1),
+                    nombre(tri[2].0),
+                    nombre(tri[2].1)
+                )
+            } else {
+                format!(
+                    "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{c}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",
+                    nombre(a.0),
+                    nombre(a.1),
+                    nombre(b.0),
+                    nombre(b.1),
+                    nombre(sw)
+                )
+            }
+        }
+        ObjectKind::Image => String::new(),
+    };
+    let _ = writeln!(
+        out,
+        "<svg class=\"objet forme\" style=\"{}\" viewBox=\"{} {} {} {}\" preserveAspectRatio=\"none\" aria-hidden=\"true\">{dessin}</svg>",
+        position(cadre),
+        nombre(-m),
+        nombre(-m),
+        nombre(w + 2.0 * m),
+        nombre(h + 2.0 * m)
+    );
+    if o.kind.is_closed() && !texte.is_empty() {
+        let zone = f.inset(0.012, 0.012 * deck.aspect.ratio());
+        let _ = writeln!(
+            out,
+            "<div class=\"boite milieu centre texte-forme\" style=\"{};--fs:{};color:{}\"><div class=\"dedans\">{}</div></div>",
+            position(zone),
+            nombre(o.text_size),
+            hex_color(o.text_ink(p)),
+            lignes_html(texte)
+        );
+    }
 }
 
 const CSS: &str = r#"*{box-sizing:border-box;margin:0;padding:0}
@@ -353,6 +501,10 @@ mark.manque{color:inherit;background:rgba(214,69,65,.16);box-shadow:inset 0 -.09
 .pied,.num{position:absolute;display:flex;align-items:center;font-size:calc(var(--pied) * var(--h));color:var(--mu);letter-spacing:.03em;white-space:nowrap;overflow:hidden}
 .pied span{overflow:hidden;text-overflow:ellipsis}
 .num{justify-content:flex-end;font-variant-numeric:tabular-nums;font-weight:600}
+.objet{position:absolute;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.objet.image{background-size:100% 100%;background-repeat:no-repeat}
+svg.objet{overflow:visible}
+.texte-forme{line-height:1.2}
 .notes{display:none}
 .progression{position:absolute;left:0;bottom:0;height:max(2px,.4%);width:0;background:var(--ac-courant,#888);opacity:.75;z-index:5;transition:width .4s ease}
 #notes{position:fixed;left:50%;bottom:16px;transform:translate(-50%,calc(100% + 32px));width:min(860px,calc(100vw - 32px));max-height:42vh;overflow:auto;background:rgba(17,18,22,.96);color:#e8e9ec;border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:14px 22px 18px;font:16px/1.55 var(--sans);box-shadow:0 18px 50px rgba(0,0,0,.5);transition:transform .3s cubic-bezier(.22,.61,.36,1);z-index:20;-webkit-user-select:text;user-select:text}
