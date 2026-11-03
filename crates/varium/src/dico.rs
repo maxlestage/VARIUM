@@ -7,6 +7,7 @@
 //! Rien ici ne bloque l'interface : chargements, suggestions et téléchargements
 //! tournent dans des fils d'exécution et sont relevés par [`Dicos::poll`].
 
+use crate::tr::tr;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -288,13 +289,19 @@ pub fn decode(bytes: &[u8], encoding: &str) -> String {
 /// Charge un dictionnaire (peut prendre quelques secondes : à appeler hors de l'interface).
 pub fn load(aff: &Path, dic: &Path) -> Result<Dictionary, String> {
     let read = |p: &Path| {
-        std::fs::read(p).map_err(|e| format!("Lecture impossible de « {} » : {e}", p.display()))
+        std::fs::read(p)
+            .map_err(|e| trf!("Lecture impossible de « {p} » : {e}", p = p.display(), e))
     };
     let aff_b = read(aff)?;
     let dic_b = read(dic)?;
     let enc = encoding_of(&aff_b);
-    Dictionary::new(&decode(&aff_b, &enc), &decode(&dic_b, &enc))
-        .map_err(|e| format!("Dictionnaire illisible ({}) : {e}", aff.display()))
+    Dictionary::new(&decode(&aff_b, &enc), &decode(&dic_b, &enc)).map_err(|e| {
+        trf!(
+            "Dictionnaire illisible ({aff}) : {e}",
+            aff = aff.display(),
+            e
+        )
+    })
 }
 
 /// Un dictionnaire spellbook vu comme [`Speller`].
@@ -330,7 +337,7 @@ fn is_licence_name(name: &str) -> bool {
 /// Renvoie les noms des dictionnaires importés.
 pub fn import(paths: &[PathBuf], own: &Path) -> Result<Vec<String>, String> {
     std::fs::create_dir_all(own)
-        .map_err(|e| format!("Création du dossier des dictionnaires impossible : {e}"))?;
+        .map_err(|e| trf!("Création du dossier des dictionnaires impossible : {e}", e))?;
     let mut done: Vec<String> = Vec::new();
     for p in paths {
         let ext = p
@@ -349,19 +356,25 @@ pub fn import(paths: &[PathBuf], own: &Path) -> Result<Vec<String>, String> {
                 }
                 let (aff, dic) = (p.with_extension("aff"), p.with_extension("dic"));
                 if !aff.is_file() || !dic.is_file() {
-                    return Err(format!(
-                        "Il faut les deux fichiers « {stem}.aff » et « {stem}.dic » dans le même dossier."
+                    return Err(trf!(
+                        "Il faut les deux fichiers « {stem}.aff » et « {stem}.dic » dans le même dossier.",
+                        stem
                     ));
                 }
                 if lang_of(&stem).is_none() {
-                    return Err(format!(
-                        "« {stem} » : langue non reconnue (le nom doit commencer par fr, en, es, de, it ou pt)."
+                    return Err(trf!(
+                        "« {stem} » : langue non reconnue (le nom doit commencer par fr, en, es, de, it ou pt).",
+                        stem
                     ));
                 }
                 let copy = |from: &Path, to: PathBuf| {
-                    std::fs::copy(from, &to)
-                        .map(|_| ())
-                        .map_err(|e| format!("Copie impossible de « {} » : {e}", from.display()))
+                    std::fs::copy(from, &to).map(|_| ()).map_err(|e| {
+                        trf!(
+                            "Copie impossible de « {from} » : {e}",
+                            from = from.display(),
+                            e
+                        )
+                    })
                 };
                 copy(&aff, own.join(format!("{stem}.aff")))?;
                 copy(&dic, own.join(format!("{stem}.dic")))?;
@@ -373,21 +386,21 @@ pub fn import(paths: &[PathBuf], own: &Path) -> Result<Vec<String>, String> {
                 done.push(stem);
             }
             _ => {
-                return Err(format!(
-                    "« {} » n'est pas un dictionnaire : choisissez un fichier .aff et .dic, ou une extension .oxt.",
-                    p.display()
+                return Err(trf!(
+                    "« {p} » n'est pas un dictionnaire : choisissez un fichier .aff et .dic, ou une extension .oxt.",
+                    p = p.display()
                 ));
             }
         }
     }
     if done.is_empty() {
-        return Err("Aucun dictionnaire importé.".into());
+        return Err(tr("Aucun dictionnaire importé.").into());
     }
     Ok(done)
 }
 
 fn import_oxt(p: &Path, own: &Path) -> Result<Vec<String>, String> {
-    let bytes = std::fs::read(p).map_err(|e| format!("Lecture impossible : {e}"))?;
+    let bytes = std::fs::read(p).map_err(|e| trf!("Lecture impossible : {e}", e))?;
     let zip = varium_core::zip::ZipReader::new(&bytes)?;
     let names: Vec<String> = zip.names().map(str::to_string).collect();
     let licence = names.iter().find(|n| is_licence_name(n)).cloned();
@@ -405,7 +418,7 @@ fn import_oxt(p: &Path, own: &Path) -> Result<Vec<String>, String> {
         }
         let write = |name: &str, data: &[u8]| {
             std::fs::write(own.join(name), data)
-                .map_err(|e| format!("Écriture impossible de « {name} » : {e}"))
+                .map_err(|e| trf!("Écriture impossible de « {name} » : {e}", name, e))
         };
         write(&format!("{stem}.aff"), zip.get(aff).unwrap_or_default())?;
         write(&format!("{stem}.dic"), zip.get(dic).unwrap_or_default())?;
@@ -424,7 +437,7 @@ fn import_oxt(p: &Path, own: &Path) -> Result<Vec<String>, String> {
     }
     if done.is_empty() {
         return Err(
-            "Cette extension ne contient aucun dictionnaire Hunspell (.aff + .dic) pour le français, l'anglais, l'espagnol, l'allemand, l'italien ou le portugais."
+            tr("Cette extension ne contient aucun dictionnaire Hunspell (.aff + .dic) pour le français, l'anglais, l'espagnol, l'allemand, l'italien ou le portugais.")
                 .into(),
         );
     }
@@ -457,7 +470,7 @@ pub fn remote(lang: Lang) -> Remote {
             aff: "fr_FR/dictionaries/fr.aff",
             dic: "fr_FR/dictionaries/fr.dic",
             licence: "fr_FR/package-description.txt",
-            licence_name: "MPL 2.0 (Grammalecte, dictionnaire « Classique »)",
+            licence_name: crate::tr::n_("MPL 2.0 (Grammalecte, dictionnaire « Classique »)"),
         },
         Lang::En => Remote {
             locale: "en_GB",
@@ -471,14 +484,14 @@ pub fn remote(lang: Lang) -> Remote {
             aff: "es/es_ES.aff",
             dic: "es/es_ES.dic",
             licence: "es/LICENSE.md",
-            licence_name: "GPL 3 / LGPL 3 / MPL 1.1 (au choix)",
+            licence_name: crate::tr::n_("GPL 3 / LGPL 3 / MPL 1.1 (au choix)"),
         },
         Lang::De => Remote {
             locale: "de_DE",
             aff: "de/de_DE_frami.aff",
             dic: "de/de_DE_frami.dic",
             licence: "de/README_de_DE_frami.txt",
-            licence_name: "GPL 2 ou 3",
+            licence_name: crate::tr::n_("GPL 2 ou 3"),
         },
         Lang::It => Remote {
             locale: "it_IT",
@@ -492,7 +505,7 @@ pub fn remote(lang: Lang) -> Remote {
             aff: "pt_PT/pt_PT.aff",
             dic: "pt_PT/pt_PT.dic",
             licence: "pt_PT/README_pt_PT.txt",
-            licence_name: "GPL 2 / LGPL 2.1 / MPL 1.1 (au choix)",
+            licence_name: crate::tr::n_("GPL 2 / LGPL 2.1 / MPL 1.1 (au choix)"),
         },
     }
 }
@@ -513,18 +526,22 @@ pub struct Progress {
 
 fn curl_message(code: Option<i32>, stderr: &str) -> String {
     let why = match code {
-        Some(6) => "adresse introuvable : vérifiez la connexion à Internet".to_string(),
-        Some(7) => "connexion au serveur impossible".to_string(),
-        Some(22) => "fichier introuvable sur le serveur".to_string(),
-        Some(28) => "délai dépassé (connexion trop lente ?)".to_string(),
+        Some(6) => tr("adresse introuvable : vérifiez la connexion à Internet").to_string(),
+        Some(7) => tr("connexion au serveur impossible").to_string(),
+        Some(22) => tr("fichier introuvable sur le serveur").to_string(),
+        Some(28) => tr("délai dépassé (connexion trop lente ?)").to_string(),
         Some(35) | Some(51) | Some(58) | Some(60) => {
-            "connexion sécurisée refusée (certificat)".to_string()
+            tr("connexion sécurisée refusée (certificat)").to_string()
         }
-        Some(23) => "écriture impossible sur le disque".to_string(),
-        Some(c) => format!("curl a échoué (code {c}) {}", stderr.trim()),
-        None => "téléchargement interrompu".to_string(),
+        Some(23) => tr("écriture impossible sur le disque").to_string(),
+        Some(c) => trf!(
+            "curl a échoué (code {c}) {stderr}",
+            c,
+            stderr = stderr.trim()
+        ),
+        None => tr("téléchargement interrompu").to_string(),
     };
-    format!("Téléchargement impossible : {why}.")
+    trf!("Téléchargement impossible : {why}.", why)
 }
 
 /// Télécharge `url` dans `dest` avec curl ; `bytes` reçoit la taille déjà reçue.
@@ -554,9 +571,9 @@ fn curl(url: &str, dest: &Path, bytes: &dyn Fn(u64)) -> Result<(), String> {
     }
     let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            "La commande « curl » est introuvable sur cet ordinateur : téléchargez le dictionnaire avec un navigateur, puis utilisez « Importer… ».".to_string()
+            tr("La commande « curl » est introuvable sur cet ordinateur : téléchargez le dictionnaire avec un navigateur, puis utilisez « Importer… ».").to_string()
         } else {
-            format!("Téléchargement impossible : {e}")
+            trf!("Téléchargement impossible : {e}", e)
         }
     })?;
     let status = loop {
@@ -566,7 +583,7 @@ fn curl(url: &str, dest: &Path, bytes: &dyn Fn(u64)) -> Result<(), String> {
                 bytes(std::fs::metadata(&part).map_or(0, |m| m.len()));
                 std::thread::sleep(std::time::Duration::from_millis(150));
             }
-            Err(e) => return Err(format!("Téléchargement impossible : {e}")),
+            Err(e) => return Err(trf!("Téléchargement impossible : {e}", e)),
         }
     };
     let mut err = String::new();
@@ -578,7 +595,7 @@ fn curl(url: &str, dest: &Path, bytes: &dyn Fn(u64)) -> Result<(), String> {
         let _ = std::fs::remove_file(&part);
         return Err(curl_message(status.code(), &err));
     }
-    std::fs::rename(&part, dest).map_err(|e| format!("Écriture impossible : {e}"))
+    std::fs::rename(&part, dest).map_err(|e| trf!("Écriture impossible : {e}", e))
 }
 
 /// Télécharge le dictionnaire d'une langue dans `own` (bloquant : dans un fil).
@@ -588,10 +605,10 @@ pub fn download_blocking(
     progress: &dyn Fn(Progress),
 ) -> Result<(), String> {
     std::fs::create_dir_all(own)
-        .map_err(|e| format!("Création du dossier des dictionnaires impossible : {e}"))?;
+        .map_err(|e| trf!("Création du dossier des dictionnaires impossible : {e}", e))?;
     let r = remote(lang);
     let tmp = own.join(format!(".telechargement-{}", r.locale));
-    std::fs::create_dir_all(&tmp).map_err(|e| format!("Écriture impossible : {e}"))?;
+    std::fs::create_dir_all(&tmp).map_err(|e| trf!("Écriture impossible : {e}", e))?;
     let files = [
         (r.licence, format!("{}.licence.txt", r.locale)),
         (r.aff, format!("{}.aff", r.locale)),
@@ -619,10 +636,10 @@ pub fn download_blocking(
             "Licence : {}\nSource : {DEPOT}{}\n\n",
             r.licence_name, r.licence
         );
-        std::fs::write(&lic, header + &text).map_err(|e| format!("Écriture impossible : {e}"))?;
+        std::fs::write(&lic, header + &text).map_err(|e| trf!("Écriture impossible : {e}", e))?;
         for (_, name) in &files {
             std::fs::rename(tmp.join(name), own.join(name))
-                .map_err(|e| format!("Écriture impossible : {e}"))?;
+                .map_err(|e| trf!("Écriture impossible : {e}", e))?;
         }
         Ok(())
     })();
@@ -800,7 +817,10 @@ impl Dicos {
             match r {
                 Ok(()) => {
                     self.messages.push((
-                        format!("Dictionnaire {} téléchargé", lang.label().to_lowercase()),
+                        trf!(
+                            "Dictionnaire {lang} téléchargé",
+                            lang = crate::labels::lang(lang).to_lowercase()
+                        ),
                         false,
                     ));
                     self.reload(lang);
@@ -842,7 +862,7 @@ impl Dicos {
                     self.reload(l);
                 }
                 self.messages.push((
-                    format!("Dictionnaire importé : {}", names.join(", ")),
+                    trf!("Dictionnaire importé : {v}", v = names.join(", ")),
                     false,
                 ));
             }
@@ -855,9 +875,11 @@ impl Dicos {
         let slot = self.import_box.clone();
         let ctx = ctx.clone();
         let dialog = rfd::AsyncFileDialog::new()
-            .set_title("Importer un dictionnaire (.aff et .dic, ou extension .oxt)")
+            .set_title(tr(
+                "Importer un dictionnaire (.aff et .dic, ou extension .oxt)",
+            ))
             .add_filter(
-                "Dictionnaire Hunspell ou extension LibreOffice",
+                tr("Dictionnaire Hunspell ou extension LibreOffice"),
                 &["aff", "dic", "oxt"],
             );
         std::thread::spawn(move || {
@@ -950,7 +972,10 @@ impl Dicos {
             .and_then(|()| std::fs::write(&self.personal_file, text));
         if let Err(e) = r {
             self.messages.push((
-                format!("Enregistrement du dictionnaire personnel impossible : {e}"),
+                trf!(
+                    "Enregistrement du dictionnaire personnel impossible : {e}",
+                    e
+                ),
                 true,
             ));
         }

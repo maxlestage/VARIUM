@@ -2,6 +2,7 @@
 //! les titres plus grands, les marques estompées) et commandes de mise en forme
 //! sur la sélection, comme la barre de formatage de Writer.
 
+use crate::tr::tr;
 use egui::text::LayoutJob;
 use egui::{Color32, FontId, Stroke, TextFormat};
 use varium_core::DocFont;
@@ -105,15 +106,15 @@ impl LineStyle {
 
     pub fn label(self) -> &'static str {
         match self {
-            LineStyle::Body => "Corps de texte",
-            LineStyle::Heading(1) => "Titre 1",
-            LineStyle::Heading(2) => "Titre 2",
-            LineStyle::Heading(_) => "Titre 3",
-            LineStyle::Bullet => "Liste à puces",
-            LineStyle::Numbered => "Liste numérotée",
-            LineStyle::Quote => "Citation",
-            LineStyle::Center => "Centré",
-            LineStyle::Right => "Aligné à droite",
+            LineStyle::Body => tr("Corps de texte"),
+            LineStyle::Heading(1) => tr("Titre 1"),
+            LineStyle::Heading(2) => tr("Titre 2"),
+            LineStyle::Heading(_) => tr("Titre 3"),
+            LineStyle::Bullet => tr("Liste à puces"),
+            LineStyle::Numbered => tr("Liste numérotée"),
+            LineStyle::Quote => tr("Citation"),
+            LineStyle::Center => tr("Centré"),
+            LineStyle::Right => tr("Aligné à droite"),
         }
     }
 }
@@ -219,7 +220,7 @@ pub fn set_line_style(src: &mut String, sel: Sel, style: LineStyle) -> Sel {
 pub fn table_markup(rows: usize, cols: usize) -> String {
     let cols = cols.clamp(1, 12);
     let mut s = String::new();
-    let header: Vec<String> = (1..=cols).map(|c| format!("Colonne {c}")).collect();
+    let header: Vec<String> = (1..=cols).map(|c| trf!("Colonne {c}", c)).collect();
     s.push_str(&format!("| {} |\n", header.join(" | ")));
     s.push_str(&format!("|{}\n", "---|".repeat(cols)));
     for _ in 1..rows.max(2) {
