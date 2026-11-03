@@ -10,14 +10,16 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Fuzz côté application (editor.rs, pageview.rs) : indexation sur positions de curseur/Unicode
 - [ ] Revue des `unwrap`/`expect` restants dans `crates/varium` (app.rs, io.rs)
 - [ ] Récupération d'un projet corrompu dans l'application (message clair, ouverture de la source brute)
-- [ ] Test de rétro-compatibilité explicite des projets v1 (vérifier qu'il existe dans tests/engine.rs)
+- [x] Test de rétro-compatibilité des projets v1 : existe déjà (`projets_v1_toujours_lisibles`, tests/engine.rs)
 
 ## 2. Fichiers comme Writer
-- [ ] Ctrl+S réécrit le fichier ouvert, Ctrl+Maj+S « Enregistrer sous »
-- [ ] Indicateur de modifications non enregistrées dans le titre
-- [ ] Confirmation avant fermeture / ouverture d'un autre document
-- [ ] Documents récents
-- [ ] Sauvegarde de secours automatique sur disque
+- [x] Ctrl+S réécrit le fichier ouvert, Ctrl+Maj+S « Enregistrer sous » — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
+- [x] Indicateur de modifications non enregistrées dans le titre — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
+- [x] Confirmation avant fermeture / ouverture d'un autre document — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
+- [x] Documents récents — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
+- [ ] Sauvegarde de secours automatique sur disque (fichier .varium-secours à côté du document, restauration au démarrage)
+- [ ] Test d'intégration de l'état « modifié » de l'application (logique is_dirty/guard hors egui)
+- [ ] Restaurer le fichier courant au redémarrage (le chemin n'est pas conservé)
 
 ## 3. Distribution
 - [ ] Workflow de release (binaires Linux, macOS, Windows à chaque tag)

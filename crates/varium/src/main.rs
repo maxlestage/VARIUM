@@ -7,6 +7,7 @@
 
 mod app;
 mod editor;
+mod files;
 mod fonts;
 mod io;
 mod pageview;
