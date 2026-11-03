@@ -34,12 +34,15 @@
 //! Les dates sont des numéros de série comptés depuis le 30/12/1899, comme
 //! dans les tableurs.
 
+mod cond;
 mod csv;
 mod eval;
 mod format;
 mod functions;
+mod import;
 mod lexer;
 mod ods;
+mod ods_read;
 mod parser;
 mod refs;
 mod rewrite;
@@ -47,8 +50,11 @@ mod sample;
 mod value;
 mod workbook;
 mod xlsx;
+mod xlsx_read;
 mod xml;
+mod xmltree;
 
+pub use cond::{CompareOp, CondFormat, CondFormatter, CondPaint, CondRule, CondStyle};
 pub use format::{
     CellFormat, HAlign, NBSP, NumberFormat, THOUSANDS_SEP, date_serial, format_general,
     format_number, format_value, parse_number, serial_to_ymd, today_serial,

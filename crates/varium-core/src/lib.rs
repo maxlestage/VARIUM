@@ -30,6 +30,7 @@ pub mod pdf;
 pub mod project;
 pub mod render;
 pub mod rtf;
+pub mod spell;
 pub mod tex;
 pub mod typo;
 pub mod zip;

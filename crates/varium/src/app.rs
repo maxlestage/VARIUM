@@ -10,6 +10,7 @@ use varium_core::export::{self, Rendered};
 use varium_core::merge::{self, Sheet};
 use varium_core::{DocFont, PageSetup, Paper, Project, Values, VarType, docx, filters, odt, stats};
 
+use crate::dico;
 use crate::editor::{self, LineStyle, Palette, Sel};
 use crate::files;
 use crate::io::{self, Event, Io, OpenKind};
@@ -181,6 +182,8 @@ struct Prefs {
     status_bar: bool,
     /// Documents récents, du plus récent au plus ancien.
     recent: Vec<String>,
+    /// Souligner les fautes d'orthographe pendant la frappe.
+    spell_live: bool,
 }
 
 impl Default for Prefs {
@@ -194,6 +197,7 @@ impl Default for Prefs {
             toolbar: true,
             status_bar: true,
             recent: Vec::new(),
+            spell_live: true,
         }
     }
 }
@@ -284,6 +288,13 @@ struct Rename {
     to: String,
 }
 
+/// Menu contextuel d'un mot mal orthographié (clic droit dans le texte).
+struct SpellMenu {
+    start: usize,
+    end: usize,
+    word: String,
+}
+
 pub struct VariumApp {
     title: String,
     source: String,
@@ -323,6 +334,9 @@ pub struct VariumApp {
     /// Fichier de secours actuellement écrit (effacé dès que le document est propre).
     backup_file: Option<std::path::PathBuf>,
     last_backup: f64,
+    /// Dictionnaires orthographiques, dictionnaire personnel et mots ignorés.
+    dicos: dico::Dicos,
+    spell_menu: Option<SpellMenu>,
 }
 
 fn today() -> String {
@@ -388,6 +402,8 @@ impl VariumApp {
             allow_close: false,
             backup_file: None,
             last_backup: f64::NEG_INFINITY,
+            dicos: dico::Dicos::new(),
+            spell_menu: None,
         };
         app.restore(app.history.current.clone());
         app.saved = app.snapshot();
@@ -447,6 +463,9 @@ impl VariumApp {
         self.merge = None;
         self.path = None;
         self.saved = self.snapshot();
+        // Les mots ignorés valent pour un document.
+        self.dicos.clear_ignored();
+        self.spell_menu = None;
     }
 
     /// Propose de restaurer la sauvegarde de secours de `document` (ou du
@@ -2981,6 +3000,10 @@ impl eframe::App for VariumApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_io(&ctx);
+        self.dicos.poll(&ctx);
+        for (msg, error) in std::mem::take(&mut self.dicos.messages) {
+            self.notify(&ctx, msg, error);
+        }
 
         // Fermeture de la fenêtre : confirmation s'il reste des modifications.
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.is_dirty() {

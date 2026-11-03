@@ -7,6 +7,7 @@
 
 mod app;
 mod calc_ui;
+mod dico;
 mod editor;
 mod files;
 mod fonts;

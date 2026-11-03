@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
-use crate::{Deck, Layout, Slide};
+use crate::{Deck, Frame, Layout, Media, Object, Slide};
 
 /// Nom du format, écrit dans le champ `format` du fichier.
 pub const FORMAT: &str = "varium-slides";
@@ -158,4 +158,66 @@ pub(crate) fn couleur_ser<S: Serializer>(c: &Option<[u8; 3]>, s: S) -> Result<S:
         Some(c) => s.serialize_str(&crate::texte::hex_color(*c)),
         None => s.serialize_none(),
     }
+}
+
+/// Nombre : un nombre JSON (ou un texte qui en contient un) ; `NaN` sinon, que
+/// [`Object::normalized`] remplace par une valeur par défaut.
+pub(crate) fn nombre<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+    Ok(valeur_nombre(&Value::deserialize(d)?).unwrap_or(f32::NAN))
+}
+
+fn valeur_nombre(v: &Value) -> Option<f32> {
+    match v {
+        Value::Number(n) => n.as_f64().map(|x| x as f32),
+        Value::String(s) => s.trim().replace(',', ".").parse::<f32>().ok(),
+        _ => None,
+    }
+    .filter(|x| x.is_finite())
+}
+
+/// Booléen, faux s'il est absent ou illisible.
+pub(crate) fn booleen<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::Bool(b) => b,
+        Value::Number(n) => n.as_f64().is_some_and(|x| x != 0.0),
+        Value::String(s) => matches!(cle(&s).as_str(), "true" | "vrai" | "oui" | "yes" | "1"),
+        _ => false,
+    })
+}
+
+/// Cadre : `{"x":…, "y":…, "w":…, "h":…}` ou `[x, y, w, h]`.
+pub(crate) fn cadre<'de, D: Deserializer<'de>>(d: D) -> Result<Frame, D::Error> {
+    let v = Value::deserialize(d)?;
+    let n = |v: Option<&Value>| v.and_then(valeur_nombre).unwrap_or(f32::NAN);
+    Ok(match &v {
+        Value::Array(a) => Frame::new(n(a.first()), n(a.get(1)), n(a.get(2)), n(a.get(3))),
+        Value::Object(o) => Frame::new(n(o.get("x")), n(o.get("y")), n(o.get("w")), n(o.get("h"))),
+        _ => Frame::new(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
+    })
+}
+
+/// Objets d'une diapositive : chaque objet lisible, ramené dans des bornes sûres.
+pub(crate) fn objets<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Object>, D::Error> {
+    let Value::Array(items) = Value::deserialize(d)? else {
+        return Ok(Vec::new());
+    };
+    Ok(items
+        .into_iter()
+        .filter(Value::is_object)
+        .filter_map(|v| Object::deserialize(v).ok())
+        .map(Object::normalized)
+        .collect())
+}
+
+/// Médias : un objet `identifiant → image` ; une image illisible est ignorée.
+pub(crate) fn medias<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<BTreeMap<String, Media>, D::Error> {
+    let Value::Object(obj) = Value::deserialize(d)? else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(obj
+        .into_iter()
+        .filter_map(|(k, v)| Some((k, crate::objets::media_de_valeur(&v)?)))
+        .collect())
 }
