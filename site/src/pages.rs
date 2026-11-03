@@ -42,7 +42,7 @@ fn valeurs_accueil() -> Values {
     v
 }
 
-const FONCTIONS: [(&str, &str, &str); 12] = [
+const FONCTIONS: [(&str, &str, &str); 13] = [
     (
         "📝",
         "Comme un traitement de texte",
@@ -67,6 +67,11 @@ const FONCTIONS: [(&str, &str, &str); 12] = [
         "🧮",
         "Champs calculés",
         "{{= quantité * prix | money}} : totaux, TVA, mensualités et pourcentages se recalculent tout seuls.",
+    ),
+    (
+        "🔀",
+        "Texte conditionnel",
+        "{{si remise}}…{{sinon}}…{{fin}} : un paragraphe n'apparaît que si le champ est renseigné.",
     ),
     (
         "✉️",

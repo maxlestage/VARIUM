@@ -13,6 +13,7 @@
 //! ```
 
 pub mod calc;
+pub mod conditions;
 pub mod doc;
 pub mod docx;
 pub mod export;
