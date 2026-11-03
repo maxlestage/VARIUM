@@ -15,8 +15,8 @@ use varium_core::zip::ZipReader;
 use crate::cond::{CompareOp, CondFormat, CondRule, CondStyle};
 use crate::format::{CellFormat, HAlign, NumberFormat, format_general};
 use crate::import::{
-    Filler, MAX_IMPORT_CELLS, bool_input, expression_rule, error_input, finish, iso_date, iso_duration,
-    length_px, number_input, parse_rgb, text_input, unique_sheet_names,
+    Filler, MAX_IMPORT_CELLS, bool_input, error_input, expression_rule, finish, iso_date,
+    iso_duration, length_px, number_input, parse_rgb, text_input, unique_sheet_names,
 };
 use crate::refs::{CellRef, MAX_COLS, MAX_ROWS, Range};
 use crate::rewrite::from_odf_formula;
@@ -374,7 +374,9 @@ fn odf_ranges(s: &str) -> Vec<Range> {
             }
         }
         let r = match colon {
-            Some(i) => odf_cell(&p[..i]).zip(odf_cell(&p[i + 1..])).map(|(a, b)| Range::new(a, b)),
+            Some(i) => odf_cell(&p[..i])
+                .zip(odf_cell(&p[i + 1..]))
+                .map(|(a, b)| Range::new(a, b)),
             None => odf_cell(p).map(Range::cell),
         };
         out.extend(r);
@@ -640,9 +642,7 @@ fn read_table(table: &Node, sheet: &mut Sheet, styles: &Styles, count: &mut usiz
             }
             let ncols = repeat(cell, "table:number-columns-repeated").min(MAX_COLS);
             if cell.is("table:table-cell") {
-                let style = cell
-                    .attr("table:style-name")
-                    .or_else(|| style_of_col(c));
+                let style = cell.attr("table:style-name").or_else(|| style_of_col(c));
                 let format = style.map(|s| styles.cell_format(s)).unwrap_or_default();
                 if let Some((input, format)) = cell_input(cell, format)
                     && !input.is_empty()
@@ -725,16 +725,18 @@ fn frozen_panes(text: &str) -> HashMap<String, (u32, u32)> {
 pub(crate) fn from_ods(title: &str, bytes: &[u8]) -> Result<Workbook, String> {
     let zip = ZipReader::new(bytes).map_err(err)?;
     if let Some(mime) = zip.text("mimetype")
-        && !mime.trim().starts_with("application/vnd.oasis.opendocument.spreadsheet")
+        && !mime
+            .trim()
+            .starts_with("application/vnd.oasis.opendocument.spreadsheet")
     {
         return Err(err(format!(
             "ce n'est pas un classeur ({})",
             mime.trim().chars().take(80).collect::<String>()
         )));
     }
-    let content = zip
-        .text("content.xml")
-        .ok_or_else(|| err("le contenu (content.xml) est absent ; est-ce bien un fichier .ods ?"))?;
+    let content = zip.text("content.xml").ok_or_else(|| {
+        err("le contenu (content.xml) est absent ; est-ce bien un fichier .ods ?")
+    })?;
     let root = parse(&content).map_err(err)?;
     let mut styles = Styles::default();
     if let Some(text) = zip.text("styles.xml")

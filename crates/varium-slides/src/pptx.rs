@@ -169,9 +169,8 @@ pub(crate) fn depuis_zip(z: &ZipReader) -> Result<Deck, String> {
             continue;
         };
         let rels = relations(z, chemin);
-        let mut page = Page::default();
         // Fond : diapositive, sinon sa disposition, sinon le masque.
-        page.fond = fond(&racine).or_else(|| {
+        let fond_page = fond(&racine).or_else(|| {
             let (_, dispo) = rels.values().find(|(t, _)| type_rel(t, "slideLayout"))?;
             let dx = lire(&z.text(dispo)?).ok()?;
             fond(&dx).or_else(|| {
@@ -180,7 +179,11 @@ pub(crate) fn depuis_zip(z: &ZipReader) -> Result<Deck, String> {
                 fond(&lire(&z.text(maitre)?).ok()?)
             })
         });
-        page.transition = transition(&racine);
+        let mut page = Page {
+            fond: fond_page,
+            transition: transition(&racine),
+            ..Page::default()
+        };
         if let Some(arbre) = racine.chemin(&["cSld", "spTree"]) {
             let ctx = Contexte {
                 z,
@@ -210,7 +213,12 @@ pub(crate) fn depuis_zip(z: &ZipReader) -> Result<Deck, String> {
         .and_then(|t| lire(&t).ok())
         .and_then(|c| c.enfant("title").map(Noeud::texte))
         .unwrap_or_default();
-    Ok(construire(titre.trim().to_string(), aspect, pages, medias.deck))
+    Ok(construire(
+        titre.trim().to_string(),
+        aspect,
+        pages,
+        medias.deck,
+    ))
 }
 
 struct Contexte<'a> {
@@ -472,9 +480,7 @@ fn paragraphes(tx: &Noeud, puces: bool, titre: bool) -> Vec<Ligne> {
                     let m = Marques {
                         gras: vrai("b"),
                         italique: vrai("i"),
-                        souligne: rpr
-                            .and_then(|r| r.attr("u"))
-                            .is_some_and(|u| u != "none"),
+                        souligne: rpr.and_then(|r| r.attr("u")).is_some_and(|u| u != "none"),
                         barre: rpr
                             .and_then(|r| r.attr("strike"))
                             .is_some_and(|s| s != "noStrike"),

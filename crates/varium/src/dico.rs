@@ -1122,7 +1122,7 @@ mod tests {
         let oxt = sys.join("dict-en.oxt");
         std::fs::write(&oxt, z.finish()).unwrap();
         assert_eq!(import(&[oxt], &own).unwrap(), ["en_GB"]);
-        let found = discover(&[own.clone()], &own);
+        let found = discover(std::slice::from_ref(&own), &own);
         let en = best(&found, Lang::En).unwrap();
         assert_eq!(en.licence_name.as_deref(), Some("LGPL"));
         let d = load(&en.aff, &en.dic).unwrap();
@@ -1159,7 +1159,7 @@ mod tests {
             assert!(tries < 500, "chargement trop long");
             std::thread::sleep(std::time::Duration::from_millis(10));
         };
-        assert_eq!(ranges, [11..17]);
+        assert_eq!(ranges, vec![11..17_usize]);
         assert_eq!(d.etat(Lang::Fr), Etat::Pret);
         d.add_personal("monnde");
         assert!(
@@ -1187,11 +1187,11 @@ mod tests {
             return;
         };
         for lang in [Lang::Fr, Lang::En] {
-            if best(&discover(&[dir.clone()], &dir), lang).is_none() {
+            if best(&discover(std::slice::from_ref(&dir), &dir), lang).is_none() {
                 download_blocking(lang, &dir, &|_| {}).unwrap();
             }
         }
-        let found = discover(&[dir.clone()], &dir);
+        let found = discover(std::slice::from_ref(&dir), &dir);
         let fr = best(&found, Lang::Fr).unwrap();
         assert!(fr.licence_name.is_some());
         let fr = load(&fr.aff, &fr.dic).unwrap();
@@ -1235,10 +1235,10 @@ mod tests {
                 "contennte",
             ),
         ] {
-            if best(&discover(&[dir.clone()], &dir), lang).is_none() {
+            if best(&discover(std::slice::from_ref(&dir), &dir), lang).is_none() {
                 download_blocking(lang, &dir, &|_| {}).unwrap();
             }
-            let found = discover(&[dir.clone()], &dir);
+            let found = discover(std::slice::from_ref(&dir), &dir);
             let d = best(&found, lang).unwrap();
             let t = std::time::Instant::now();
             let d = load(&d.aff, &d.dic).unwrap();

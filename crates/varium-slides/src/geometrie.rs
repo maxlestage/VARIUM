@@ -45,7 +45,12 @@ impl Frame {
     pub fn inset(&self, dx: f32, dy: f32) -> Frame {
         let dx = dx.min(self.w / 2.0).max(0.0);
         let dy = dy.min(self.h / 2.0).max(0.0);
-        Frame::new(self.x + dx, self.y + dy, self.w - 2.0 * dx, self.h - 2.0 * dy)
+        Frame::new(
+            self.x + dx,
+            self.y + dy,
+            self.w - 2.0 * dx,
+            self.h - 2.0 * dy,
+        )
     }
 
     pub fn scaled(&self, width: f32, height: f32) -> (f32, f32, f32, f32) {

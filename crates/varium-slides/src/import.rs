@@ -111,15 +111,7 @@ impl Paragraphe {
             morceaux: self
                 .morceaux
                 .iter()
-                .map(|(t, m)| {
-                    (
-                        t.clone(),
-                        Marques {
-                            gras: false,
-                            ..*m
-                        },
-                    )
-                })
+                .map(|(t, m)| (t.clone(), Marques { gras: false, ..*m }))
                 .collect(),
         };
         sans.markup()
@@ -129,8 +121,17 @@ impl Paragraphe {
     pub fn markup(&self) -> String {
         let mut out = String::new();
         for (t, m) in &self.morceaux {
-            // Les retours à la ligne coupent les marques : chaque ligne est enveloppée.
-            let lignes: Vec<String> = t.split('\n').map(|l| envelopper(l, *m)).collect();
+            // Retours à la ligne et tabulations coupent les marques : chaque
+            // morceau est enveloppé à part.
+            let lignes: Vec<String> = t
+                .split('\n')
+                .map(|l| {
+                    l.split('\t')
+                        .map(|c| envelopper(c, *m))
+                        .collect::<Vec<_>>()
+                        .join("\t")
+                })
+                .collect();
             out.push_str(&lignes.join("\n"));
         }
         out
@@ -151,9 +152,8 @@ pub(crate) fn echapper_markup(s: &str) -> String {
                 out.push('\\');
                 out.push(c);
             }
-            // Caractères de contrôle : retirés (sauf tabulation, changée en espace).
-            '\t' => out.push(' '),
-            c if c.is_control() && c != '\n' => {}
+            // Caractères de contrôle : retirés (sauf tabulation et retour à la ligne).
+            c if c.is_control() && c != '\n' && c != '\t' => {}
             c => out.push(c),
         }
     }
@@ -165,7 +165,7 @@ pub(crate) fn echapper_markup(s: &str) -> String {
 fn envelopper(t: &str, m: Marques) -> String {
     let coeur = t.trim();
     if coeur.is_empty() {
-        return t.replace('\t', " ");
+        return t.to_string();
     }
     let debut = &t[..t.len() - t.trim_start().len()];
     let fin = &t[t.trim_end().len()..];
@@ -198,12 +198,7 @@ fn envelopper(t: &str, m: Marques) -> String {
         }
         f
     };
-    format!(
-        "{}{ouvre}{}{ferme}{}",
-        debut.replace('\t', " "),
-        echapper_markup(coeur),
-        fin.replace('\t', " ")
-    )
+    format!("{}{ouvre}{}{ferme}{}", debut, echapper_markup(coeur), fin)
 }
 
 /// Échappe le début d'une ligne qui serait pris pour un titre, une citation ou
@@ -222,9 +217,11 @@ pub(crate) fn corps_markup(lignes: &[Ligne]) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut compteurs = [0u32; 8];
     let mut numerotes = [false; 8];
+    let mut tableau: Vec<Vec<String>> = Vec::new();
     for l in lignes {
         match l.liste {
             Some((d, num)) => {
+                vider_tableau(&mut tableau, &mut out);
                 let d = (d as usize).min(5);
                 let texte = l.texte.replace('\n', " ");
                 let texte = texte.trim();
@@ -246,14 +243,21 @@ pub(crate) fn corps_markup(lignes: &[Ligne]) -> String {
                 };
                 out.push(format!("{}{marque} {texte}", "  ".repeat(d)));
             }
+            None if l.texte.contains('\t') && !l.texte.contains('\n') => {
+                compteurs = [0; 8];
+                tableau.push(l.texte.split('\t').map(|c| c.trim().to_string()).collect());
+                continue;
+            }
             None => {
                 compteurs = [0; 8];
+                vider_tableau(&mut tableau, &mut out);
                 for part in l.texte.split('\n') {
-                    out.push(debut_sur(part.trim_end()));
+                    out.push(debut_sur(&part.trim_end().replace('\t', " ")));
                 }
             }
         }
     }
+    vider_tableau(&mut tableau, &mut out);
     // Pas plus d'une ligne vide de suite, aucune au début ni à la fin.
     let mut propre: Vec<String> = Vec::new();
     for l in out {
@@ -268,11 +272,47 @@ pub(crate) fn corps_markup(lignes: &[Ligne]) -> String {
     propre.join("\n")
 }
 
+/// Écrit les lignes à tabulations accumulées en tableau Varium (`| a | b |`),
+/// la première ligne en en-tête. Une colonne vide au début de toutes les lignes
+/// (taquet de la première colonne) est retirée.
+fn vider_tableau(tableau: &mut Vec<Vec<String>>, out: &mut Vec<String>) {
+    if tableau.is_empty() {
+        return;
+    }
+    let mut rangs = std::mem::take(tableau);
+    if rangs.len() == 1 {
+        out.push(rangs[0].join(" "));
+        return;
+    }
+    if rangs
+        .iter()
+        .all(|r| r.first().is_some_and(String::is_empty))
+    {
+        for r in &mut rangs {
+            r.remove(0);
+        }
+    }
+    let cols = rangs.iter().map(Vec::len).max().unwrap_or(1).max(1);
+    for (i, r) in rangs.iter().enumerate() {
+        let cellules: Vec<String> = (0..cols)
+            .map(|c| r.get(c).cloned().unwrap_or_default())
+            .collect();
+        out.push(format!("| {} |", cellules.join(" | ")));
+        if i == 0 {
+            out.push(format!("|{}", "---|".repeat(cols)));
+        }
+    }
+}
+
 /// Un titre (une ligne par paragraphe, sans puce).
 pub(crate) fn titre_markup(lignes: &[Ligne]) -> String {
     let t: Vec<String> = lignes
         .iter()
-        .flat_map(|l| l.texte.split('\n').map(|s| debut_sur(s.trim())))
+        .flat_map(|l| {
+            l.texte
+                .split('\n')
+                .map(|s| debut_sur(&s.trim().replace('\t', " ")))
+        })
         .filter(|s| !s.is_empty())
         .collect();
     t.join("\n")
@@ -339,10 +379,7 @@ fn deviner_theme(pages: &[Page]) -> (Theme, Option<[u8; 3]>) {
     }
     // Aucun thème n'a ce fond : le plus proche en clarté, fond conservé par page.
     let sombre = contraste(fond, [255, 255, 255]) > contraste(fond, [0, 0, 0]);
-    (
-        if sombre { Theme::Sombre } else { Theme::Clair },
-        None,
-    )
+    (if sombre { Theme::Sombre } else { Theme::Clair }, None)
 }
 
 /// Construit la présentation à partir des pages importées.
@@ -374,12 +411,7 @@ pub(crate) fn construire(
     deck
 }
 
-fn diapositive(
-    deck: &mut Deck,
-    page: Page,
-    theme: Theme,
-    fond_theme: Option<[u8; 3]>,
-) -> Slide {
+fn diapositive(deck: &mut Deck, page: Page, theme: Theme, fond_theme: Option<[u8; 3]>) -> Slide {
     let mut titres = Vec::new();
     let mut sous_titres = Vec::new();
     let mut corps: Vec<Zone> = Vec::new();
@@ -564,9 +596,7 @@ pub(crate) fn ouvrir(bytes: &[u8]) -> Result<Deck, String> {
         if noms.contains(&"content.xml") {
             return odp_zip(&z);
         }
-        return Err(
-            "Ce fichier n'est pas une présentation (ODP ou PPTX attendu).".to_string(),
-        );
+        return Err("Ce fichier n'est pas une présentation (ODP ou PPTX attendu).".to_string());
     }
     let texte = std::str::from_utf8(bytes)
         .map_err(|_| "Ce fichier n'est pas une présentation lisible.".to_string())?;
@@ -722,7 +752,7 @@ impl TexteOdf<'_, '_> {
                             .min(64);
                         p.pousser(&" ".repeat(k), m);
                     }
-                    "tab" => p.pousser(" ", m),
+                    "tab" => p.pousser("\t", m),
                     "line-break" => p.pousser("\n", m),
                     // Annotations, repères : sans texte affiché.
                     "annotation" | "note" | "bookmark" | "bookmark-start" | "bookmark-end"
@@ -758,9 +788,8 @@ impl TexteOdf<'_, '_> {
                     };
                     out.push(Ligne {
                         texte,
-                        liste: liste.map(|(d, style)| {
-                            (d.min(5) as u8, self.styles.numerotee(style, d))
-                        }),
+                        liste: liste
+                            .map(|(d, style)| (d.min(5) as u8, self.styles.numerotee(style, d))),
                     });
                 }
                 "list" => {
@@ -880,7 +909,13 @@ fn odp_zip(z: &varium_core::zip::ZipReader) -> Result<Deck, String> {
         let effet = p.attr("draw:style-name").and_then(|st| {
             styles
                 .prop(st, "drawing-page-properties", "smil:type")
-                .or_else(|| styles.prop(st, "drawing-page-properties", "presentation:transition-type"))
+                .or_else(|| {
+                    styles.prop(
+                        st,
+                        "drawing-page-properties",
+                        "presentation:transition-type",
+                    )
+                })
         });
         let mut page = Page {
             transition: effet.map(|t| match t {
@@ -914,7 +949,12 @@ fn odp_zip(z: &varium_core::zip::ZipReader) -> Result<Deck, String> {
         .and_then(|m| lire(&m).ok())
         .and_then(|m| m.descendant("title").map(Noeud::texte))
         .unwrap_or_default();
-    Ok(construire(titre.trim().to_string(), aspect, pages, medias.deck))
+    Ok(construire(
+        titre.trim().to_string(),
+        aspect,
+        pages,
+        medias.deck,
+    ))
 }
 
 /// Lit les éléments dessinés d'une page (ou d'un groupe).
@@ -997,7 +1037,11 @@ fn formes_odf(
                     continue;
                 };
                 let numero = tb.descendant("page-number").is_some()
-                    && tb.texte().trim().chars().all(|c| c.is_ascii_digit() || c == '<' || c == '>');
+                    && tb
+                        .texte()
+                        .trim()
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || c == '<' || c == '>');
                 let role = match classe {
                     _ if numero => Role::Numero,
                     Some("title") => Role::Titre,
@@ -1025,8 +1069,7 @@ fn formes_odf(
                 };
                 let kind = match n.local() {
                     "rect" => {
-                        if n
-                            .attr("draw:corner-radius")
+                        if n.attr("draw:corner-radius")
                             .and_then(longueur_cm)
                             .is_some_and(|r| r > 0.0)
                         {
@@ -1141,6 +1184,8 @@ mod tests {
             l("# pas un titre", None),
         ]);
         assert_eq!(m, "Intro\n- a\n  - b\n1. un\n2. deux\n\\# pas un titre");
+        let t = corps_markup(&[l("\tA\tB", None), l("\t1\t2", None), l("Fin", None)]);
+        assert_eq!(t, "| A | B |\n|---|---|\n| 1 | 2 |\nFin");
     }
 
     #[test]

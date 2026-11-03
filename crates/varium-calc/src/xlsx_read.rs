@@ -14,7 +14,7 @@ use varium_core::zip::ZipReader;
 use crate::cond::{CompareOp, CondFormat, CondRule, CondStyle};
 use crate::format::{CellFormat, HAlign, NumberFormat};
 use crate::import::{
-    Filler, bool_input, expression_rule, builtin_number_format, error_input, finish, iso_date,
+    Filler, bool_input, builtin_number_format, error_input, expression_rule, finish, iso_date,
     number_format_from_code, number_input, parse_rgb, text_input, unique_sheet_names,
 };
 use crate::refs::{CellRef, MAX_COLS, MAX_ROWS, Range};
@@ -114,7 +114,13 @@ fn read_styles(text: &str) -> Styles {
         .child("fonts")
         .map(|f| {
             f.children_named("font")
-                .map(|n| (flag(n.child("b")), flag(n.child("i")), color_of(n.child("color"))))
+                .map(|n| {
+                    (
+                        flag(n.child("b")),
+                        flag(n.child("i")),
+                        color_of(n.child("color")),
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -220,7 +226,7 @@ fn rule_constant(f: &str) -> Option<String> {
     if let Some(s) = f.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
         return Some(s.replace("\"\"", "\""));
     }
-    parse_f64(f).map(|n| crate::format::format_general(n))
+    parse_f64(f).map(crate::format::format_general)
 }
 
 fn cond_rules(sheet_xml: &Node, styles: &Styles) -> Vec<CondFormat> {
@@ -296,7 +302,11 @@ fn cond_rules(sheet_xml: &Node, styles: &Styles) -> Vec<CondFormat> {
                 "colorScale" => {
                     let colors: Vec<[u8; 3]> = rule
                         .child("colorScale")
-                        .map(|c| c.children_named("color").filter_map(|n| color_of(Some(n))).collect())
+                        .map(|c| {
+                            c.children_named("color")
+                                .filter_map(|n| color_of(Some(n)))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     match colors.as_slice() {
                         [a, b] => CondRule::ColorScale {
@@ -355,8 +365,14 @@ fn read_sheet(
     // Colonnes
     if let Some(cols) = root.child("cols") {
         for c in cols.children_named("col") {
-            let min: u32 = c.attr("min").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
-            let max: u32 = c.attr("max").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+            let min: u32 = c
+                .attr("min")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0);
+            let max: u32 = c
+                .attr("max")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0);
             let Some(w) = c.attr("width").and_then(parse_f64) else {
                 continue;
             };
@@ -388,10 +404,7 @@ fn read_sheet(
         sheet.frozen_cols = n("xSplit");
         sheet.frozen_rows = n("ySplit");
     }
-    let mut fill = Filler {
-        sheet,
-        count,
-    };
+    let mut fill = Filler { sheet, count };
     let mut shared: HashMap<String, SharedFormula> = HashMap::new();
     let Some(data) = root.child("sheetData") else {
         return;
@@ -459,7 +472,10 @@ fn read_sheet(
                         .and_then(|i| strings.get(i))
                         .map(|s| text_input(s))
                         .unwrap_or_default(),
-                    "inlineStr" => c.child("is").map(|n| text_input(&rich_text(n))).unwrap_or_default(),
+                    "inlineStr" => c
+                        .child("is")
+                        .map(|n| text_input(&rich_text(n)))
+                        .unwrap_or_default(),
                     "str" => v.map(|s| text_input(&s)).unwrap_or_default(),
                     "b" => v.map(|s| bool_input(s.trim() == "1")).unwrap_or_default(),
                     "e" => v.map(|s| error_input(&s)).unwrap_or_default(),
@@ -498,9 +514,9 @@ pub(crate) fn from_xlsx(title: &str, bytes: &[u8]) -> Result<Workbook, String> {
         .map(|(_, p)| p.clone())
         .filter(|p| zip.get(p).is_some())
         .unwrap_or_else(|| "xl/workbook.xml".into());
-    let book_text = zip
-        .text(&book_path)
-        .ok_or_else(|| err("le classeur (workbook.xml) est absent ; est-ce bien un fichier .xlsx ?"))?;
+    let book_text = zip.text(&book_path).ok_or_else(|| {
+        err("le classeur (workbook.xml) est absent ; est-ce bien un fichier .xlsx ?")
+    })?;
     let book = parse(&book_text).map_err(err)?;
     if !book.is("workbook") {
         return Err(err("le classeur (workbook.xml) n'est pas reconnu"));
@@ -551,7 +567,8 @@ pub(crate) fn from_xlsx(title: &str, bytes: &[u8]) -> Result<Workbook, String> {
             .clone()
             .unwrap_or_else(|| format!("xl/worksheets/sheet{}.xml", i + 1));
         if let Some(text) = zip.text(&path) {
-            let root = parse(&text).map_err(|e| err(format!("feuille « {} » : {e}", sheet.name)))?;
+            let root =
+                parse(&text).map_err(|e| err(format!("feuille « {} » : {e}", sheet.name)))?;
             if root.is("worksheet") {
                 read_sheet(&root, &mut sheet, &strings, &styles, date1904, &mut count);
                 sheet.cond_formats = cond_rules(&root, &styles);
@@ -568,9 +585,15 @@ mod tests {
 
     #[test]
     fn chemins_relatifs() {
-        assert_eq!(resolve("xl", "worksheets/sheet1.xml"), "xl/worksheets/sheet1.xml");
+        assert_eq!(
+            resolve("xl", "worksheets/sheet1.xml"),
+            "xl/worksheets/sheet1.xml"
+        );
         assert_eq!(resolve("xl", "/xl/styles.xml"), "xl/styles.xml");
-        assert_eq!(resolve("xl/worksheets", "../sharedStrings.xml"), "xl/sharedStrings.xml");
+        assert_eq!(
+            resolve("xl/worksheets", "../sharedStrings.xml"),
+            "xl/sharedStrings.xml"
+        );
         assert_eq!(resolve("", "xl/workbook.xml"), "xl/workbook.xml");
     }
 

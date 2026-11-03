@@ -765,25 +765,34 @@ fn objet_xml(
             } else {
                 paras_xml(texte, &hab, styles)
             };
-            let (balise, extra) = match o.kind {
-                ObjectKind::Ellipse => ("draw:ellipse", String::new()),
-                ObjectKind::RoundRect => {
-                    let (_, _, w, h) = f.scaled(pw, ph);
-                    (
-                        "draw:rect",
-                        format!(" draw:corner-radius=\"{}\"", cm(w.min(h) * Object::CORNER)),
-                    )
+            // Formes d'Impress (`draw:custom-shape`) : seules à renvoyer le texte à
+            // la ligne dans LibreOffice.
+            let geometrie_forme = match o.kind {
+                ObjectKind::Ellipse => {
+                    "draw:type=\"ellipse\" draw:enhanced-path=\"U 10800 10800 10800 10800 0 360 Z N\"".to_string()
                 }
-                _ => ("draw:rect", String::new()),
+                ObjectKind::RoundRect => format!(
+                    "draw:type=\"round-rectangle\" draw:modifiers=\"{}\" draw:enhanced-path=\"M ?f7 0 X 0 ?f8 L 0 ?f9 Y ?f7 21600 L ?f10 21600 X 21600 ?f9 L 21600 ?f8 Y ?f10 0 Z N\"",
+                    (21600.0 * Object::CORNER).round()
+                ),
+                _ => "draw:type=\"rectangle\" draw:enhanced-path=\"M 0 0 L 21600 0 21600 21600 0 21600 0 0 Z N\"".to_string(),
+            };
+            let formules = if o.kind == ObjectKind::RoundRect {
+                FORMULES_ARRONDI
+            } else {
+                ""
             };
             let _ = write!(
                 out,
-                "<{balise} draw:style-name=\"{st}\" draw:layer=\"layout\" {}{extra}>{contenu}</{balise}>",
+                "<draw:custom-shape draw:style-name=\"{st}\" draw:layer=\"layout\" {}>{contenu}<draw:enhanced-geometry svg:viewBox=\"0 0 21600 21600\" {geometrie_forme}>{formules}</draw:enhanced-geometry></draw:custom-shape>",
                 geometrie(f, pw, ph)
             );
         }
     }
 }
+
+/// Formules du rectangle arrondi d'Impress (rayon : premier modificateur).
+const FORMULES_ARRONDI: &str = "<draw:equation draw:name=\"f0\" draw:formula=\"45\"/><draw:equation draw:name=\"f1\" draw:formula=\"$0 *sin(?f0 *(pi/180))\"/><draw:equation draw:name=\"f2\" draw:formula=\"?f1 *3163/7636\"/><draw:equation draw:name=\"f3\" draw:formula=\"left+?f2 \"/><draw:equation draw:name=\"f4\" draw:formula=\"top+?f2 \"/><draw:equation draw:name=\"f5\" draw:formula=\"right-?f2 \"/><draw:equation draw:name=\"f6\" draw:formula=\"bottom-?f2 \"/><draw:equation draw:name=\"f7\" draw:formula=\"left+$0 \"/><draw:equation draw:name=\"f8\" draw:formula=\"top+$0 \"/><draw:equation draw:name=\"f9\" draw:formula=\"bottom-$0 \"/><draw:equation draw:name=\"f10\" draw:formula=\"right-$0 \"/><draw:handle draw:handle-position=\"$0 top\" draw:handle-switched=\"true\" draw:handle-range-x-minimum=\"0\" draw:handle-range-x-maximum=\"10800\"/>";
 
 #[allow(clippy::too_many_arguments)]
 fn page_xml(

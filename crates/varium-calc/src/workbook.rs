@@ -947,12 +947,7 @@ impl Workbook {
     pub fn cond_formatter(&self, sheet: usize) -> CondFormatter {
         let computed = self.computed();
         let values = computed.values.get(sheet);
-        let value = |at: CellRef| {
-            values
-                .and_then(|m| m.get(&at))
-                .cloned()
-                .unwrap_or_default()
-        };
+        let value = |at: CellRef| values.and_then(|m| m.get(&at)).cloned().unwrap_or_default();
         match self.sheets.get(sheet) {
             Some(sh) => CondFormatter::new(sh, &value),
             None => CondFormatter::new(&Sheet::default(), &value),

@@ -8,9 +8,9 @@
 //! - pour les règles de **style** (comparaisons, texte, vide, erreur, N premiers,
 //!   moyenne), **la première règle vérifiée l'emporte** : les suivantes sont
 //!   ignorées pour cette cellule ;
-//! - une **échelle de couleurs** donne le fond de la cellule si aucune règle de
-//!   style vérifiée avant elle n'a déjà donné de fond (la première échelle
-//!   applicable compte) ;
+//! - une **échelle de couleurs** donne le fond de la cellule (la première
+//!   échelle applicable compte), sauf si une règle de style vérifiée a un fond :
+//!   celui-ci l'emporte toujours ;
 //! - une **barre de données** s'ajoute à ce qui précède (la première barre
 //!   applicable est dessinée).
 //!
@@ -139,7 +139,11 @@ impl CondRule {
             CondRule::Error => "Valeur d'erreur".into(),
             CondRule::Top { n, bottom, percent } => format!(
                 "{} {n}{}",
-                if *bottom { "Les plus petites :" } else { "Les plus grandes :" },
+                if *bottom {
+                    "Les plus petites :"
+                } else {
+                    "Les plus grandes :"
+                },
                 if *percent { " %" } else { "" }
             ),
             CondRule::Average { above: true } => "Au-dessus de la moyenne".into(),
@@ -218,7 +222,11 @@ enum Stats {
     /// Seuil des N premiers (ou derniers) ; `None` si la plage n'a aucun nombre.
     Threshold(Option<f64>),
     Average(Option<f64>),
-    Scale { lo: f64, mid: f64, hi: f64 },
+    Scale {
+        lo: f64,
+        mid: f64,
+        hi: f64,
+    },
     Empty,
 }
 
@@ -247,6 +255,10 @@ struct Prepared {
 
 /// Applique les règles d'une feuille ; préparé une fois (statistiques des
 /// plages), puis interrogé cellule par cellule.
+///
+/// Ordre : la première règle de style vérifiée l'emporte ; la première échelle
+/// de couleurs applicable donne le fond, sauf si cette règle de style a un fond ;
+/// la première barre de données s'ajoute.
 pub struct CondFormatter {
     rules: Vec<Prepared>,
 }
@@ -379,17 +391,17 @@ impl CondFormatter {
                         any = true;
                     }
                 }
-                (rule, stats) if !styled && rule.has_style() => {
-                    if matches(rule, stats, &p.operands, v) {
-                        styled = true;
-                        any = true;
-                        if p.style.fill.is_some() {
-                            out.fill = p.style.fill;
-                        }
-                        out.color = p.style.color;
-                        out.bold = p.style.bold;
-                        out.italic = p.style.italic;
+                (rule, stats)
+                    if !styled && rule.has_style() && matches(rule, stats, &p.operands, v) =>
+                {
+                    styled = true;
+                    any = true;
+                    if p.style.fill.is_some() {
+                        out.fill = p.style.fill;
                     }
+                    out.color = p.style.color;
+                    out.bold = p.style.bold;
+                    out.italic = p.style.italic;
                 }
                 _ => {}
             }
@@ -487,7 +499,11 @@ fn matches(rule: &CondRule, stats: Stats, ops: &(Operand, Operand), v: &Value) -
 }
 
 fn mix(a: [u8; 3], b: [u8; 3], t: f64) -> [u8; 3] {
-    let t = if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.0 };
+    let t = if t.is_finite() {
+        t.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let m = |x: u8, y: u8| (f64::from(x) + (f64::from(y) - f64::from(x)) * t).round() as u8;
     [m(a[0], b[0]), m(a[1], b[1]), m(a[2], b[2])]
 }
@@ -585,7 +601,12 @@ mod tests {
     #[test]
     fn textes_vides_erreurs() {
         let mut wb = wb_with(&["Bonjour", "au revoir", "", "=1/0"]);
-        rule(&mut wb, CondRule::Contains { text: "JOUR".into() });
+        rule(
+            &mut wb,
+            CondRule::Contains {
+                text: "JOUR".into(),
+            },
+        );
         assert!(bold(&wb, "A1"));
         assert!(!bold(&wb, "A2"));
         wb.sheets[0].cond_formats.clear();
@@ -674,6 +695,29 @@ mod tests {
         assert_eq!(p.fill, Some([100, 100, 100]));
         assert_eq!(p.bar.map(|b| b.0), Some(0.5));
         assert!(wb.cond_paint(0, at("B1")).is_none());
+    }
+
+    #[test]
+    fn plages_suivent_les_lignes_et_colonnes() {
+        let mut wb = wb_with(&["1"]);
+        rule(&mut wb, CondRule::NotEmpty);
+        wb.insert_rows(0, 0, 2);
+        assert_eq!(
+            wb.sheets[0].cond_formats[0].range,
+            Range::parse("A3:A12").unwrap()
+        );
+        wb.delete_rows(0, 5, 3);
+        assert_eq!(
+            wb.sheets[0].cond_formats[0].range,
+            Range::parse("A3:A9").unwrap()
+        );
+        wb.insert_cols(0, 0, 1);
+        assert_eq!(
+            wb.sheets[0].cond_formats[0].range,
+            Range::parse("B3:B9").unwrap()
+        );
+        wb.delete_cols(0, 1, 1);
+        assert!(wb.sheets[0].cond_formats.is_empty());
     }
 
     #[test]

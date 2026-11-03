@@ -131,7 +131,11 @@ fn classeur_riche() -> Workbook {
 
 /// Valeurs affichées et saisies de toutes les cellules, feuille par feuille.
 fn compare_values(a: &Workbook, b: &Workbook, what: &str) {
-    assert_eq!(a.sheets.len(), b.sheets.len(), "{what} : nombre de feuilles");
+    assert_eq!(
+        a.sheets.len(),
+        b.sheets.len(),
+        "{what} : nombre de feuilles"
+    );
     for (s, (sa, sb)) in a.sheets.iter().zip(&b.sheets).enumerate() {
         assert_eq!(sa.name, sb.name, "{what} : nom de feuille");
         for (c, cell) in sa.cells() {
@@ -141,7 +145,12 @@ fn compare_values(a: &Workbook, b: &Workbook, what: &str) {
             let (va, vb) = (a.value(s, c), b.value(s, c));
             match (&va, &vb) {
                 (Value::Number(x), Value::Number(y)) => {
-                    assert!((x - y).abs() < 1e-9, "{what} {}!{} : {x} ≠ {y}", sa.name, c.name())
+                    assert!(
+                        (x - y).abs() < 1e-9,
+                        "{what} {}!{} : {x} ≠ {y}",
+                        sa.name,
+                        c.name()
+                    )
                 }
                 _ => assert_eq!(va, vb, "{what} {}!{}", sa.name, c.name()),
             }
@@ -176,10 +185,17 @@ fn compare_all(a: &Workbook, b: &Workbook, what: &str) {
         }
         assert_eq!(sa.frozen_rows, sb.frozen_rows, "{what} : lignes figées");
         assert_eq!(sa.frozen_cols, sb.frozen_cols, "{what} : colonnes figées");
-        assert_eq!(sa.cond_formats, sb.cond_formats, "{what} : règles de {}", sa.name);
+        assert_eq!(
+            sa.cond_formats, sb.cond_formats,
+            "{what} : règles de {}",
+            sa.name
+        );
         for (k, w) in &sa.col_widths {
             let w2 = sb.col_width(*k);
-            assert!((w - w2).abs() < 1.0, "{what} : largeur de colonne {k} : {w} ≠ {w2}");
+            assert!(
+                (w - w2).abs() < 1.0,
+                "{what} : largeur de colonne {k} : {w} ≠ {w2}"
+            );
         }
     }
 }
@@ -315,7 +331,10 @@ fn xlsx_fait_main() {
     assert_eq!(wb.sheets[0].col_width(1), 140.0);
     assert_eq!(wb.sheets[0].row_height(1), 40.0);
     assert_eq!(wb.sheets[0].cond_formats.len(), 2);
-    assert_eq!(wb.sheets[0].cond_formats[1].range, Range::parse("D2").unwrap());
+    assert_eq!(
+        wb.sheets[0].cond_formats[1].range,
+        Range::parse("D2").unwrap()
+    );
 }
 
 #[test]
@@ -423,7 +442,10 @@ fn validation_par_libreoffice() {
             cmd.arg("--infilter=CSV:59,34,76");
         }
         let status = cmd
-            .arg(format!("-env:UserInstallation=file://{}/profil", dir.display()))
+            .arg(format!(
+                "-env:UserInstallation=file://{}/profil",
+                dir.display()
+            ))
             .args(["--headless", "--convert-to", to, "--outdir"])
             .arg(dir.join("out"))
             .arg(dir.join(file))
@@ -437,12 +459,19 @@ fn validation_par_libreoffice() {
     let v = Workbook::from_ods("v", &std::fs::read(dir.join("out/v.ods")).expect("v.ods")).unwrap();
     compare_values(&wb, &v, "xlsx Varium → ods LibreOffice");
     for r in &wb.sheets[0].cond_formats {
-        assert!(v.sheets[0].cond_formats.contains(r), "règle perdue (ods) : {r:?}");
+        assert!(
+            v.sheets[0].cond_formats.contains(r),
+            "règle perdue (ods) : {r:?}"
+        );
     }
-    let w = Workbook::from_xlsx("w", &std::fs::read(dir.join("out/w.xlsx")).expect("w.xlsx")).unwrap();
+    let w =
+        Workbook::from_xlsx("w", &std::fs::read(dir.join("out/w.xlsx")).expect("w.xlsx")).unwrap();
     compare_values(&wb, &w, "ods Varium → xlsx LibreOffice");
     for r in &wb.sheets[0].cond_formats {
-        assert!(w.sheets[0].cond_formats.contains(r), "règle perdue (xlsx) : {r:?}");
+        assert!(
+            w.sheets[0].cond_formats.contains(r),
+            "règle perdue (xlsx) : {r:?}"
+        );
     }
     let c = Workbook::from_ods("c", &std::fs::read(dir.join("out/c.ods")).expect("c.ods")).unwrap();
     // Le CSV porte les valeurs affichées : la première colonne (textes) se retrouve.
