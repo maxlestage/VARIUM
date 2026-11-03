@@ -2,6 +2,8 @@
 //! barre d'outils de mise en forme, texte et page côte à côte, panneau des champs,
 //! barre d'état. Sur un écran étroit (téléphone), les vues passent en onglets.
 
+use crate::labels;
+use crate::tr::{n_, tr};
 use egui::text::{CCursor, CharIndex};
 use egui::text_selection::CCursorRange;
 use egui::{Color32, Key, KeyboardShortcut, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Vec2};
@@ -30,7 +32,7 @@ const TODAY: &str = "aujourdhui";
 // ---------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Act {
+pub enum Act {
     New,
     Templates,
     NewBlank,
@@ -77,7 +79,7 @@ enum Act {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Format {
+pub enum Format {
     Pdf,
     Odt,
     Docx,
@@ -143,7 +145,7 @@ fn shortcut_for(act: Act) -> Option<KeyboardShortcut> {
 // ---------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
-enum Layout {
+pub enum Layout {
     /// Texte et page côte à côte.
     Split,
     /// La page seule (lecture, impression).
@@ -327,9 +329,8 @@ pub struct VariumApp {
     last_window_title: String,
     /// Dernière action lancée (menu natif ou raccourci) et son heure, pour ne pas la doubler.
     last_act: Option<(Act, f64)>,
-    /// Barre de menus native (macOS).
-    #[cfg(target_os = "macos")]
-    native: Option<native::NativeMenu>,
+    /// Les menus sont dans la barre native de macOS (pas de barre dans la fenêtre).
+    pub native_menu: bool,
     allow_close: bool,
     /// Fichier de secours actuellement écrit (effacé dès que le document est propre).
     backup_file: Option<std::path::PathBuf>,
@@ -397,8 +398,7 @@ impl VariumApp {
             after_save: None,
             last_window_title: String::new(),
             last_act: None,
-            #[cfg(target_os = "macos")]
-            native: None,
+            native_menu: false,
             allow_close: false,
             backup_file: None,
             last_backup: f64::NEG_INFINITY,
@@ -407,10 +407,6 @@ impl VariumApp {
         };
         app.restore(app.history.current.clone());
         app.saved = app.snapshot();
-        #[cfg(target_os = "macos")]
-        {
-            app.native = native::NativeMenu::install();
-        }
         // Document sans fichier interrompu par un plantage ?
         app.propose_secours(None);
         // Un fichier donné au lancement (« Ouvrir avec », glisser sur l'icône, terminal).
@@ -575,9 +571,9 @@ impl VariumApp {
                     files::forget_recent(&mut self.prefs.recent, &path.display().to_string());
                     self.notify(
                         ctx,
-                        format!(
-                            "« {} » est introuvable (déplacé ou supprimé)",
-                            path.display()
+                        trf!(
+                            "« {path} » est introuvable (déplacé ou supprimé)",
+                            path = path.display()
                         ),
                         true,
                     );
@@ -604,11 +600,15 @@ impl VariumApp {
                     let path = path.clone();
                     self.saved = snap;
                     files::push_recent(&mut self.prefs.recent, &path);
-                    self.notify(ctx, format!("Enregistré : {}", path.display()), false);
+                    self.notify(
+                        ctx,
+                        trf!("Enregistré : {path}", path = path.display()),
+                        false,
+                    );
                     SaveOutcome::Done
                 }
                 Err(e) => {
-                    self.notify(ctx, format!("Écriture impossible : {e}"), true);
+                    self.notify(ctx, trf!("Écriture impossible : {e}", e), true);
                     SaveOutcome::Failed
                 }
             },
@@ -785,24 +785,24 @@ impl VariumApp {
     }
 
     fn has_native_menu(&self) -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            self.native.is_some()
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            false
-        }
+        self.native_menu
+    }
+
+    /// Une action choisie dans la barre de menus native.
+    #[cfg(target_os = "macos")]
+    pub fn menu_act(&mut self, ctx: &egui::Context, act: Act) {
+        let now = ctx.input(|i| i.time);
+        self.push_once(act, now);
     }
 
     fn run(&mut self, ctx: &egui::Context, act: Act) {
         match act {
             Act::New => self.guard(ctx, Pending::New),
             Act::NewBlank => {
-                self.load(Project::new("Sans titre", "", &Values::default()));
+                self.load(Project::new(tr("Sans titre"), "", &Values::default()));
                 self.notify(
                     ctx,
-                    "Nouveau document · Ctrl+Z pour revenir au précédent",
+                    tr("Nouveau document · Ctrl+Z pour revenir au précédent"),
                     false,
                 );
             }
@@ -873,7 +873,11 @@ impl VariumApp {
             Act::ClearValues => {
                 self.history.cut = true;
                 self.values.values.clear();
-                self.notify(ctx, "Valeurs effacées · Ctrl+Z pour les retrouver", false);
+                self.notify(
+                    ctx,
+                    tr("Valeurs effacées · Ctrl+Z pour les retrouver"),
+                    false,
+                );
             }
             Act::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
             Act::Syntax => self.dialog = Some(Dialog::Syntax),
@@ -980,7 +984,7 @@ impl VariumApp {
                 } => match merge::parse_csv(&content) {
                     Ok(sheet) if sheet.rows.is_empty() => self.notify(
                         ctx,
-                        format!("« {name} » ne contient aucune ligne de données"),
+                        trf!("« {name} » ne contient aucune ligne de données", name),
                         true,
                     ),
                     Ok(sheet) => {
@@ -993,7 +997,7 @@ impl VariumApp {
                         self.dialog = Some(Dialog::Merge);
                         self.notify(
                             ctx,
-                            format!("{n} destinataire(s) chargé(s) depuis « {name} »"),
+                            trf!("{n} destinataire(s) chargé(s) depuis « {name} »", n, name),
                             false,
                         );
                     }
@@ -1014,7 +1018,7 @@ impl VariumApp {
                                     self.propose_secours(Some(&path));
                                     self.path = Some(path);
                                 }
-                                self.notify(ctx, format!("« {name} » ouvert"), false);
+                                self.notify(ctx, trf!("« {name} » ouvert", name), false);
                             }
                             Err(e) => self.notify(ctx, e, true),
                         }
@@ -1028,13 +1032,17 @@ impl VariumApp {
                         self.load(p);
                         self.notify(
                             ctx,
-                            format!("Modèle « {name} » ouvert, valeurs conservées"),
+                            trf!("Modèle « {name} » ouvert, valeurs conservées", name),
                             false,
                         );
                     }
                 }
                 Event::Saved { path, project } => {
-                    self.notify(ctx, format!("Enregistré : {}", path.display()), false);
+                    self.notify(
+                        ctx,
+                        trf!("Enregistré : {path}", path = path.display()),
+                        false,
+                    );
                     if project {
                         self.saved = self.saving.take().unwrap_or_else(|| self.snapshot());
                         files::push_recent(&mut self.prefs.recent, &path);
@@ -1073,12 +1081,12 @@ impl VariumApp {
     }
 
     fn menus(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Fichier", |ui| {
-            self.item(ui, "Nouveau", Act::New);
-            self.item(ui, "Nouveau à partir d'un modèle…", Act::Templates);
-            self.item(ui, "Ouvrir…", Act::Open);
+        ui.menu_button(tr("Fichier"), |ui| {
+            self.item(ui, tr("Nouveau"), Act::New);
+            self.item(ui, tr("Nouveau à partir d'un modèle…"), Act::Templates);
+            self.item(ui, tr("Ouvrir…"), Act::Open);
             ui.add_enabled_ui(!self.prefs.recent.is_empty(), |ui| {
-                ui.menu_button("Documents récents", |ui| {
+                ui.menu_button(tr("Documents récents"), |ui| {
                     for (i, p) in self.prefs.recent.clone().iter().enumerate() {
                         if ui.button(files::short_name(p)).on_hover_text(p).clicked() {
                             self.queue.push(Act::OpenRecent(i));
@@ -1088,145 +1096,160 @@ impl VariumApp {
                 });
             });
             ui.separator();
-            self.item(ui, "Enregistrer", Act::Save);
-            self.item(ui, "Enregistrer sous…", Act::SaveAs);
-            ui.menu_button("Exporter", |ui| {
-                self.item(ui, "PDF (.pdf)", Act::Export(Format::Pdf));
+            self.item(ui, tr("Enregistrer"), Act::Save);
+            self.item(ui, tr("Enregistrer sous…"), Act::SaveAs);
+            ui.menu_button(tr("Exporter"), |ui| {
+                self.item(ui, tr("PDF (.pdf)"), Act::Export(Format::Pdf));
                 self.item(
                     ui,
-                    "OpenDocument Texte (.odt) — LibreOffice",
+                    tr("OpenDocument Texte (.odt) — LibreOffice"),
                     Act::Export(Format::Odt),
                 );
-                self.item(ui, "Word (.docx)", Act::Export(Format::Docx));
+                self.item(ui, tr("Word (.docx)"), Act::Export(Format::Docx));
                 self.item(
                     ui,
-                    "Texte enrichi (.rtf) — Pages, TextEdit",
+                    tr("Texte enrichi (.rtf) — Pages, TextEdit"),
                     Act::Export(Format::Rtf),
                 );
-                self.item(ui, "Livre numérique (.epub)", Act::Export(Format::Epub));
-                self.item(ui, "Page web (.html)", Act::Export(Format::Html));
-                self.item(ui, "LaTeX (.tex)", Act::Export(Format::Latex));
-                self.item(ui, "Texte brut (.txt)", Act::Export(Format::Text));
-                self.item(ui, "Modèle avec ses {{champs}}", Act::Export(Format::Model));
+                self.item(ui, tr("Livre numérique (.epub)"), Act::Export(Format::Epub));
+                self.item(ui, tr("Page web (.html)"), Act::Export(Format::Html));
+                self.item(ui, tr("LaTeX (.tex)"), Act::Export(Format::Latex));
+                self.item(ui, tr("Texte brut (.txt)"), Act::Export(Format::Text));
+                self.item(
+                    ui,
+                    tr("Modèle avec ses {{champs}}"),
+                    Act::Export(Format::Model),
+                );
             });
-            self.item(ui, "Imprimer (via le navigateur)…", Act::Print);
+            self.item(ui, tr("Imprimer (via le navigateur)…"), Act::Print);
             ui.separator();
-            self.item(ui, "Publipostage…", Act::Merge);
+            self.item(ui, tr("Publipostage…"), Act::Merge);
             ui.separator();
-            self.item(ui, "Quitter", Act::Quit);
+            self.item(ui, tr("Quitter"), Act::Quit);
         });
-        ui.menu_button("Édition", |ui| {
+        ui.menu_button(tr("Édition"), |ui| {
             let (u, r) = (!self.history.undo.is_empty(), !self.history.redo.is_empty());
-            ui.add_enabled_ui(u, |ui| self.item(ui, "Annuler", Act::Undo));
-            ui.add_enabled_ui(r, |ui| self.item(ui, "Rétablir", Act::Redo));
+            ui.add_enabled_ui(u, |ui| self.item(ui, tr("Annuler"), Act::Undo));
+            ui.add_enabled_ui(r, |ui| self.item(ui, tr("Rétablir"), Act::Redo));
             ui.separator();
-            self.item(ui, "Rechercher…", Act::Find);
-            self.item(ui, "Rechercher et remplacer…", Act::Replace);
+            self.item(ui, tr("Rechercher…"), Act::Find);
+            self.item(ui, tr("Rechercher et remplacer…"), Act::Replace);
             ui.separator();
-            self.item(ui, "Effacer toutes les valeurs", Act::ClearValues);
+            self.item(ui, tr("Effacer toutes les valeurs"), Act::ClearValues);
         });
-        ui.menu_button("Affichage", |ui| {
+        ui.menu_button(tr("Affichage"), |ui| {
             let l = self.prefs.layout;
             self.check(
                 ui,
-                "Texte et page",
+                tr("Texte et page"),
                 l == Layout::Split,
                 Act::Layout(Layout::Split),
             );
             self.check(
                 ui,
-                "Page seule",
+                tr("Page seule"),
                 l == Layout::Page,
                 Act::Layout(Layout::Page),
             );
             self.check(
                 ui,
-                "Texte seul",
+                tr("Texte seul"),
                 l == Layout::Text,
                 Act::Layout(Layout::Text),
             );
             ui.separator();
             self.check(
                 ui,
-                "Panneau des champs",
+                tr("Panneau des champs"),
                 self.prefs.fields_panel,
                 Act::ToggleFields,
             );
-            self.check(ui, "Barre d'outils", self.prefs.toolbar, Act::ToggleToolbar);
-            self.check(ui, "Barre d'état", self.prefs.status_bar, Act::ToggleStatus);
-            ui.separator();
-            self.item(ui, "Mode concentration", Act::Focus);
-            self.item(ui, "Plein écran", Act::FullScreen);
             self.check(
                 ui,
-                "Trame de fond des champs",
+                tr("Barre d'outils"),
+                self.prefs.toolbar,
+                Act::ToggleToolbar,
+            );
+            self.check(
+                ui,
+                tr("Barre d'état"),
+                self.prefs.status_bar,
+                Act::ToggleStatus,
+            );
+            ui.separator();
+            self.item(ui, tr("Mode concentration"), Act::Focus);
+            self.item(ui, tr("Plein écran"), Act::FullScreen);
+            self.check(
+                ui,
+                tr("Trame de fond des champs"),
                 self.prefs.highlight,
                 Act::ToggleHighlight,
             );
             ui.separator();
-            ui.menu_button("Zoom", |ui| {
-                self.item(ui, "Largeur de la page", Act::ZoomFit);
+            ui.menu_button(tr("Zoom"), |ui| {
+                self.item(ui, tr("Largeur de la page"), Act::ZoomFit);
                 for z in [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] {
                     self.item(ui, &format!("{} %", (z * 100.0) as i32), Act::Zoom(z));
                 }
             });
-            ui.menu_button("Thème", egui::widgets::global_theme_preference_buttons);
+            ui.menu_button(tr("Thème"), egui::widgets::global_theme_preference_buttons);
+            crate::tr::menu(ui);
         });
-        ui.menu_button("Insertion", |ui| {
-            self.item(ui, "Champ {{…}}…", Act::InsertField);
-            self.item(ui, "Champ calculé {{= …}}…", Act::InsertFormula);
-            self.item(ui, "Date du jour", Act::InsertToday);
+        ui.menu_button(tr("Insertion"), |ui| {
+            self.item(ui, tr("Champ {{…}}…"), Act::InsertField);
+            self.item(ui, tr("Champ calculé {{= …}}…"), Act::InsertFormula);
+            self.item(ui, tr("Date du jour"), Act::InsertToday);
             ui.separator();
-            self.item(ui, "Tableau…", Act::InsertTable);
-            self.item(ui, "Saut de page", Act::InsertPageBreak);
-            self.item(ui, "Ligne horizontale", Act::InsertRule);
-            ui.menu_button("Formule", |ui| {
-                self.item(ui, "En ligne  $…$", Act::InsertMath(false));
-                self.item(ui, "Centrée  $$…$$", Act::InsertMath(true));
+            self.item(ui, tr("Tableau…"), Act::InsertTable);
+            self.item(ui, tr("Saut de page"), Act::InsertPageBreak);
+            self.item(ui, tr("Ligne horizontale"), Act::InsertRule);
+            ui.menu_button(tr("Formule"), |ui| {
+                self.item(ui, tr("En ligne  $…$"), Act::InsertMath(false));
+                self.item(ui, tr("Centrée  $$…$$"), Act::InsertMath(true));
             });
-            ui.menu_button("Caractère spécial", |ui| {
+            ui.menu_button(tr("Caractère spécial"), |ui| {
                 for (c, name) in SPECIAL {
-                    self.item(ui, &format!("{c}   {name}"), Act::InsertText(c));
+                    self.item(ui, &format!("{c}   {}", tr(name)), Act::InsertText(c));
                 }
             });
         });
-        ui.menu_button("Format", |ui| {
-            self.item(ui, "Gras", Act::Wrap("**"));
-            self.item(ui, "Italique", Act::Wrap("*"));
-            self.item(ui, "Souligné", Act::Wrap("__"));
-            self.item(ui, "Barré", Act::Wrap("~~"));
+        ui.menu_button(tr("Format"), |ui| {
+            self.item(ui, tr("Gras"), Act::Wrap("**"));
+            self.item(ui, tr("Italique"), Act::Wrap("*"));
+            self.item(ui, tr("Souligné"), Act::Wrap("__"));
+            self.item(ui, tr("Barré"), Act::Wrap("~~"));
             ui.separator();
-            ui.menu_button("Styles de paragraphe", |ui| {
+            ui.menu_button(tr("Styles de paragraphe"), |ui| {
                 for st in LineStyle::MENU {
                     self.item(ui, st.label(), Act::Style(st));
                 }
             });
-            ui.menu_button("Listes", |ui| {
-                self.item(ui, "Liste à puces", Act::Style(LineStyle::Bullet));
-                self.item(ui, "Liste numérotée", Act::Style(LineStyle::Numbered));
+            ui.menu_button(tr("Listes"), |ui| {
+                self.item(ui, tr("Liste à puces"), Act::Style(LineStyle::Bullet));
+                self.item(ui, tr("Liste numérotée"), Act::Style(LineStyle::Numbered));
             });
-            ui.menu_button("Alignement", |ui| {
-                self.item(ui, "À gauche", Act::Style(LineStyle::Body));
-                self.item(ui, "Centré", Act::Style(LineStyle::Center));
-                self.item(ui, "À droite", Act::Style(LineStyle::Right));
+            ui.menu_button(tr("Alignement"), |ui| {
+                self.item(ui, tr("À gauche"), Act::Style(LineStyle::Body));
+                self.item(ui, tr("Centré"), Act::Style(LineStyle::Center));
+                self.item(ui, tr("À droite"), Act::Style(LineStyle::Right));
             });
             ui.separator();
             self.item(
                 ui,
-                "Page… (format, marges, police, en-tête)",
+                tr("Page… (format, marges, police, en-tête)"),
                 Act::PageSetup,
             );
         });
-        ui.menu_button("Outils", |ui| {
-            self.item(ui, "Publipostage…", Act::Merge);
-            self.item(ui, "Nombre de mots", Act::Stats);
+        ui.menu_button(tr("Outils"), |ui| {
+            self.item(ui, tr("Publipostage…"), Act::Merge);
+            self.item(ui, tr("Nombre de mots"), Act::Stats);
         });
-        ui.menu_button("Aide", |ui| {
-            self.item(ui, "Guide de la syntaxe", Act::Syntax);
-            self.item(ui, "Écrire en plusieurs langues", Act::Languages);
-            self.item(ui, "Raccourcis clavier", Act::Shortcuts);
-            ui.hyperlink_to("Site de Varium", "https://maxlestage.github.io/VARIUM/");
-            self.item(ui, "À propos de Varium", Act::About);
+        ui.menu_button(tr("Aide"), |ui| {
+            self.item(ui, tr("Guide de la syntaxe"), Act::Syntax);
+            self.item(ui, tr("Écrire en plusieurs langues"), Act::Languages);
+            self.item(ui, tr("Raccourcis clavier"), Act::Shortcuts);
+            ui.hyperlink_to(tr("Site de Varium"), "https://maxlestage.github.io/VARIUM/");
+            self.item(ui, tr("À propos de Varium"), Act::About);
         });
     }
 
@@ -1239,7 +1262,7 @@ impl VariumApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.title)
-                        .hint_text("Titre du document")
+                        .hint_text(tr("Titre du document"))
                         .desired_width(220.0),
                 );
             });
@@ -1263,31 +1286,31 @@ impl VariumApp {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             if !mobile {
-                self.tool(ui, Icon::New, "Nouveau", Act::New, false);
-                self.tool(ui, Icon::Open, "Ouvrir", Act::Open, false);
-                self.tool(ui, Icon::Save, "Enregistrer (Ctrl+S)", Act::Save, false);
+                self.tool(ui, Icon::New, tr("Nouveau"), Act::New, false);
+                self.tool(ui, Icon::Open, tr("Ouvrir"), Act::Open, false);
+                self.tool(ui, Icon::Save, tr("Enregistrer (Ctrl+S)"), Act::Save, false);
                 sep(ui);
                 self.tool(
                     ui,
                     Icon::Pdf,
-                    "Exporter en PDF",
+                    tr("Exporter en PDF"),
                     Act::Export(Format::Pdf),
                     false,
                 );
                 self.tool(
                     ui,
                     Icon::Odt,
-                    "Exporter pour LibreOffice (.odt)",
+                    tr("Exporter pour LibreOffice (.odt)"),
                     Act::Export(Format::Odt),
                     false,
                 );
                 sep(ui);
-                self.tool(ui, Icon::Undo, "Annuler", Act::Undo, false);
-                self.tool(ui, Icon::Redo, "Rétablir", Act::Redo, false);
+                self.tool(ui, Icon::Undo, tr("Annuler"), Act::Undo, false);
+                self.tool(ui, Icon::Redo, tr("Rétablir"), Act::Redo, false);
                 self.tool(
                     ui,
                     Icon::Find,
-                    "Rechercher et remplacer",
+                    tr("Rechercher et remplacer"),
                     Act::Replace,
                     self.find.open,
                 );
@@ -1312,29 +1335,29 @@ impl VariumApp {
                 self.queue.push(Act::Style(chosen));
             }
             sep(ui);
-            self.tool(ui, Icon::Bold, "Gras", Act::Wrap("**"), false);
-            self.tool(ui, Icon::Italic, "Italique", Act::Wrap("*"), false);
-            self.tool(ui, Icon::Underline, "Souligné", Act::Wrap("__"), false);
-            self.tool(ui, Icon::Strike, "Barré", Act::Wrap("~~"), false);
+            self.tool(ui, Icon::Bold, tr("Gras"), Act::Wrap("**"), false);
+            self.tool(ui, Icon::Italic, tr("Italique"), Act::Wrap("*"), false);
+            self.tool(ui, Icon::Underline, tr("Souligné"), Act::Wrap("__"), false);
+            self.tool(ui, Icon::Strike, tr("Barré"), Act::Wrap("~~"), false);
             sep(ui);
             self.tool(
                 ui,
                 Icon::AlignLeft,
-                "Aligner à gauche",
+                tr("Aligner à gauche"),
                 Act::Style(LineStyle::Body),
                 !matches!(style, LineStyle::Center | LineStyle::Right),
             );
             self.tool(
                 ui,
                 Icon::AlignCenter,
-                "Centrer",
+                tr("Centrer"),
                 Act::Style(LineStyle::Center),
                 style == LineStyle::Center,
             );
             self.tool(
                 ui,
                 Icon::AlignRight,
-                "Aligner à droite",
+                tr("Aligner à droite"),
                 Act::Style(LineStyle::Right),
                 style == LineStyle::Right,
             );
@@ -1342,14 +1365,14 @@ impl VariumApp {
             self.tool(
                 ui,
                 Icon::Bullets,
-                "Liste à puces",
+                tr("Liste à puces"),
                 Act::Style(LineStyle::Bullet),
                 style == LineStyle::Bullet,
             );
             self.tool(
                 ui,
                 Icon::Numbers,
-                "Liste numérotée",
+                tr("Liste numérotée"),
                 Act::Style(LineStyle::Numbered),
                 style == LineStyle::Numbered,
             );
@@ -1357,28 +1380,28 @@ impl VariumApp {
             self.tool(
                 ui,
                 Icon::Field,
-                "Insérer un champ {{…}}",
+                tr("Insérer un champ {{…}}"),
                 Act::InsertField,
                 false,
             );
             self.tool(
                 ui,
                 Icon::Formula,
-                "Insérer un champ calculé",
+                tr("Insérer un champ calculé"),
                 Act::InsertFormula,
                 false,
             );
             self.tool(
                 ui,
                 Icon::Table,
-                "Insérer un tableau",
+                tr("Insérer un tableau"),
                 Act::InsertTable,
                 false,
             );
             self.tool(
                 ui,
                 Icon::PageBreak,
-                "Saut de page",
+                tr("Saut de page"),
                 Act::InsertPageBreak,
                 false,
             );
@@ -1387,7 +1410,7 @@ impl VariumApp {
                 self.tool(
                     ui,
                     Icon::Find,
-                    "Rechercher et remplacer",
+                    tr("Rechercher et remplacer"),
                     Act::Replace,
                     self.find.open,
                 );
@@ -1396,7 +1419,7 @@ impl VariumApp {
                 sep(ui);
                 ui.add(
                     egui::TextEdit::singleline(&mut self.title)
-                        .hint_text("Titre du document")
+                        .hint_text(tr("Titre du document"))
                         .desired_width(200.0),
                 );
             }
@@ -1430,7 +1453,7 @@ impl VariumApp {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut self.find.query)
                     .id(find_id)
-                    .hint_text("Rechercher")
+                    .hint_text(tr("Rechercher"))
                     .desired_width(180.0),
             );
             if self.find.focus {
@@ -1449,47 +1472,47 @@ impl VariumApp {
                 RichText::new(if self.find.query.is_empty() {
                     String::new()
                 } else if n == 0 {
-                    "aucun résultat".into()
+                    tr("aucun résultat").into()
                 } else {
-                    format!("{} sur {n}", self.find.current + 1)
+                    trf!("{i} sur {n}", i = self.find.current + 1, n)
                 })
                 .small()
                 .weak(),
             );
             if ui
                 .add_enabled(n > 0, egui::Button::new("⏶").small())
-                .on_hover_text("Précédent")
+                .on_hover_text(tr("Précédent"))
                 .clicked()
             {
                 go = Some((self.find.current + n - 1) % n);
             }
             if ui
                 .add_enabled(n > 0, egui::Button::new("⏷").small())
-                .on_hover_text("Suivant")
+                .on_hover_text(tr("Suivant"))
                 .clicked()
             {
                 go = Some((self.find.current + 1) % n);
             }
-            ui.checkbox(&mut self.find.case, "Respecter la casse");
+            ui.checkbox(&mut self.find.case, tr("Respecter la casse"));
             if self.find.replace {
                 ui.separator();
                 ui.add(
                     egui::TextEdit::singleline(&mut self.find.with)
-                        .hint_text("Remplacer par")
+                        .hint_text(tr("Remplacer par"))
                         .desired_width(160.0),
                 );
                 replace_one = ui
-                    .add_enabled(n > 0, egui::Button::new("Remplacer"))
+                    .add_enabled(n > 0, egui::Button::new(tr("Remplacer")))
                     .clicked();
                 replace_all = ui
-                    .add_enabled(n > 0, egui::Button::new("Tout remplacer"))
+                    .add_enabled(n > 0, egui::Button::new(tr("Tout remplacer")))
                     .clicked();
-            } else if ui.small_button("Remplacer…").clicked() {
+            } else if ui.small_button(tr("Remplacer…")).clicked() {
                 self.find.replace = true;
             }
             if ui
                 .small_button("✕")
-                .on_hover_text("Fermer (Échap)")
+                .on_hover_text(tr("Fermer (Échap)"))
                 .clicked()
                 || ui.input(|i| i.key_pressed(Key::Escape))
             {
@@ -1505,7 +1528,7 @@ impl VariumApp {
                 self.source.replace_range(a..b, &with);
             }
             let ctx = ui.ctx().clone();
-            self.notify(&ctx, format!("{count} remplacement(s)"), false);
+            self.notify(&ctx, trf!("{count} remplacement(s)", count), false);
         } else if replace_one && let Some(&(a, b)) = found.get(self.find.current) {
             self.history.cut = true;
             self.source.replace_range(a..b, &self.find.with);
@@ -1583,7 +1606,7 @@ impl VariumApp {
                         let out = egui::TextEdit::multiline(&mut self.source)
                             .id(id)
                             .frame(egui::Frame::NONE)
-                            .hint_text("Écrivez votre document. {{prénom}} crée un champ, **gras**, # Titre, - liste…")
+                            .hint_text(tr("Écrivez votre document. {{prénom}} crée un champ, **gras**, # Titre, - liste…"))
                             .desired_width(f32::INFINITY)
                             .desired_rows(rows)
                             .lock_focus(true)
@@ -1673,11 +1696,11 @@ impl VariumApp {
             None => {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RichText::new("Suggestions…").weak());
+                    ui.label(RichText::new(tr("Suggestions…")).weak());
                 });
             }
             Some(list) if list.is_empty() => {
-                ui.label(RichText::new("Aucune suggestion").weak());
+                ui.label(RichText::new(tr("Aucune suggestion")).weak());
             }
             Some(list) => {
                 for sug in list {
@@ -1693,12 +1716,12 @@ impl VariumApp {
             }
         }
         ui.separator();
-        if ui.button("Ajouter au dictionnaire").clicked() {
+        if ui.button(tr("Ajouter au dictionnaire")).clicked() {
             action = Some(SpellAction::Add(word.clone()));
         }
         if ui
-            .button("Ignorer")
-            .on_hover_text("Ne plus signaler ce mot dans ce document")
+            .button(tr("Ignorer"))
+            .on_hover_text(tr("Ne plus signaler ce mot dans ce document"))
             .clicked()
         {
             action = Some(SpellAction::Ignore(word));
@@ -1735,11 +1758,11 @@ impl VariumApp {
             ui.spacing_mut().item_spacing.x = 2.0;
             let w = (ui.available_width() - 8.0) / 5.0;
             for (tab, label) in [
-                (Inspector::Format, "Format"),
-                (Inspector::Document, "Document"),
-                (Inspector::Fields, "Champs"),
-                (Inspector::Outline, "Plan"),
-                (Inspector::Review, "Révision"),
+                (Inspector::Format, tr("Format")),
+                (Inspector::Document, tr("Document")),
+                (Inspector::Fields, tr("Champs")),
+                (Inspector::Outline, tr("Plan")),
+                (Inspector::Review, tr("Révision")),
             ] {
                 let b = egui::Button::selectable(
                     self.prefs.inspector == tab,
@@ -1765,18 +1788,18 @@ impl VariumApp {
                     .id_salt("insp-doc")
                     .auto_shrink(false)
                     .show(ui, |ui| {
-                        ui.label(RichText::new("Mise en page").strong());
+                        ui.label(RichText::new(tr("Mise en page")).strong());
                         page_form(ui, &mut self.page, "insp-page");
                         ui.add_space(8.0);
-                        ui.label(RichText::new("Document").strong());
+                        ui.label(RichText::new(tr("Document")).strong());
                         let eff = self.effective();
                         let st = stats(&varium_core::document(&self.source, &eff));
                         egui::Grid::new("insp-stats").num_columns(2).show(ui, |ui| {
                             for (k, v) in [
-                                ("Pages", self.pages.to_string()),
-                                ("Mots", st.words.to_string()),
-                                ("Caractères", st.chars.to_string()),
-                                ("Paragraphes", st.paragraphs.to_string()),
+                                (tr("Pages"), self.pages.to_string()),
+                                (tr("Mots"), st.words.to_string()),
+                                (tr("Caractères"), st.chars.to_string()),
+                                (tr("Paragraphes"), st.paragraphs.to_string()),
                             ] {
                                 ui.label(RichText::new(k).weak());
                                 ui.label(v);
@@ -1792,7 +1815,7 @@ impl VariumApp {
 
     fn format_tab(&mut self, ui: &mut egui::Ui) {
         let style = editor::line_style_at(&self.source, self.sel.1);
-        ui.label(RichText::new("Style de paragraphe").strong());
+        ui.label(RichText::new(tr("Style de paragraphe")).strong());
         for st in [
             LineStyle::Heading(1),
             LineStyle::Heading(2),
@@ -1825,12 +1848,12 @@ impl VariumApp {
             }
         }
         ui.add_space(8.0);
-        ui.label(RichText::new("Police").strong());
+        ui.label(RichText::new(tr("Police")).strong());
         ui.horizontal(|ui| {
-            self.tool(ui, Icon::Bold, "Gras", Act::Wrap("**"), false);
-            self.tool(ui, Icon::Italic, "Italique", Act::Wrap("*"), false);
-            self.tool(ui, Icon::Underline, "Souligné", Act::Wrap("__"), false);
-            self.tool(ui, Icon::Strike, "Barré", Act::Wrap("~~"), false);
+            self.tool(ui, Icon::Bold, tr("Gras"), Act::Wrap("**"), false);
+            self.tool(ui, Icon::Italic, tr("Italique"), Act::Wrap("*"), false);
+            self.tool(ui, Icon::Underline, tr("Souligné"), Act::Wrap("__"), false);
+            self.tool(ui, Icon::Strike, tr("Barré"), Act::Wrap("~~"), false);
         });
         egui::ComboBox::from_id_salt("insp-font")
             .selected_text(self.page.font.label())
@@ -1846,34 +1869,34 @@ impl VariumApp {
                 .custom_formatter(|v, _| format!("{} pt", fr(v))),
         );
         ui.add_space(8.0);
-        ui.label(RichText::new("Alignement").strong());
+        ui.label(RichText::new(tr("Alignement")).strong());
         ui.horizontal(|ui| {
             let side = !matches!(style, LineStyle::Center | LineStyle::Right);
             self.tool(
                 ui,
                 Icon::AlignLeft,
-                "À gauche",
+                tr("À gauche"),
                 Act::Style(LineStyle::Body),
                 side,
             );
             self.tool(
                 ui,
                 Icon::AlignCenter,
-                "Centré",
+                tr("Centré"),
                 Act::Style(LineStyle::Center),
                 style == LineStyle::Center,
             );
             self.tool(
                 ui,
                 Icon::AlignRight,
-                "À droite",
+                tr("À droite"),
                 Act::Style(LineStyle::Right),
                 style == LineStyle::Right,
             );
-            ui.checkbox(&mut self.page.justify, "Justifier");
+            ui.checkbox(&mut self.page.justify, tr("Justifier"));
         });
         ui.add_space(8.0);
-        ui.label(RichText::new("Espacement").strong());
+        ui.label(RichText::new(tr("Espacement")).strong());
         ui.horizontal(|ui| {
             for (v, l) in [(1.0, "1"), (1.15, "1,15"), (1.5, "1,5"), (2.0, "2")] {
                 if ui
@@ -1885,15 +1908,15 @@ impl VariumApp {
             }
         });
         ui.add_space(8.0);
-        ui.label(RichText::new("Insérer").strong());
+        ui.label(RichText::new(tr("Insérer")).strong());
         ui.horizontal_wrapped(|ui| {
             for (label, act) in [
-                ("{ } Champ", Act::InsertField),
-                ("= Champ calculé", Act::InsertFormula),
-                ("📅 Date du jour", Act::InsertToday),
-                ("▦ Tableau", Act::InsertTable),
-                ("⤓ Saut de page", Act::InsertPageBreak),
-                ("— Ligne", Act::InsertRule),
+                (tr("{ } Champ"), Act::InsertField),
+                (tr("= Champ calculé"), Act::InsertFormula),
+                (tr("📅 Date du jour"), Act::InsertToday),
+                (tr("▦ Tableau"), Act::InsertTable),
+                (tr("⤓ Saut de page"), Act::InsertPageBreak),
+                (tr("— Ligne"), Act::InsertRule),
             ] {
                 if ui.button(label).clicked() {
                     self.queue.push(act);
@@ -1903,17 +1926,17 @@ impl VariumApp {
         ui.add_space(8.0);
         ui.checkbox(
             &mut self.page.typographie,
-            "Typographie française automatique",
+            tr("Typographie française automatique"),
         )
-        .on_hover_text(
+        .on_hover_text(tr(
             "« guillemets », apostrophe ’, points de suspension …, espaces fines avant ; : ! ?",
-        );
+        ));
     }
 
     /// Révision : remarques d'écriture selon la langue du document.
     fn review_tab(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("Langue");
+            ui.label(tr("Langue"));
             egui::ComboBox::from_id_salt("review-lang")
                 .selected_text(self.page.langue.native())
                 .show_ui(ui, |ui| {
@@ -1922,8 +1945,8 @@ impl VariumApp {
                     }
                 });
             if ui
-                .small_button("Règles…")
-                .on_hover_text("Les règles d'écriture de cette langue")
+                .small_button(tr("Règles…"))
+                .on_hover_text(tr("Les règles d'écriture de cette langue"))
                 .clicked()
             {
                 self.queue.push(Act::Languages);
@@ -1936,21 +1959,25 @@ impl VariumApp {
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(match issues.len() {
-                    0 => "Aucune remarque ✔".to_string(),
-                    1 => "1 remarque".to_string(),
-                    n => format!("{n} remarques"),
+                    0 => tr("Aucune remarque ✔").to_string(),
+                    1 => tr("1 remarque").to_string(),
+                    n => trf!("{n} remarques", n),
                 })
                 .strong(),
             );
-            if fixable > 0 && ui.button(format!("Tout corriger ({fixable})")).clicked() {
+            if fixable > 0
+                && ui
+                    .button(trf!("Tout corriger ({fixable})", fixable))
+                    .clicked()
+            {
                 self.history.cut = true;
                 let n = varium_core::check::apply_all(&mut self.source, self.page.langue);
                 let ctx = ui.ctx().clone();
-                self.notify(&ctx, format!("{n} correction(s) appliquée(s)"), false);
+                self.notify(&ctx, trf!("{n} correction(s) appliquée(s)", n), false);
             }
         });
         ui.label(
-            RichText::new("Les remarques sont soulignées en rouge dans le texte. Les champs et les formules ne sont pas examinés.")
+            RichText::new(tr("Les remarques sont soulignées en rouge dans le texte. Les champs et les formules ne sont pas examinés."))
                 .small()
                 .weak(),
         );
@@ -1967,7 +1994,11 @@ impl VariumApp {
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new(issue.kind.label()).small().color(err(ui)));
+                                ui.label(
+                                    RichText::new(labels::issue(issue.kind))
+                                        .small()
+                                        .color(err(ui)),
+                                );
                                 ui.label(&issue.message);
                             });
                             // Le contexte : quelques caractères autour de la remarque.
@@ -2008,21 +2039,21 @@ impl VariumApp {
                             ui.horizontal(|ui| {
                                 if let Some(rep) = &issue.replacement
                                     && ui
-                                        .small_button(format!(
-                                            "Corriger : « {} »",
-                                            rep.replace(' ', "·")
+                                        .small_button(trf!(
+                                            "Corriger : « {v} »",
+                                            v = rep.replace(' ', "·")
                                         ))
                                         .clicked()
                                 {
                                     apply = Some(issue.clone());
                                 }
-                                if ui.small_button("Aller").clicked() {
+                                if ui.small_button(tr("Aller")).clicked() {
                                     goto = Some((issue.start, issue.end));
                                 }
                             });
                         });
                     if k + 1 == 300 {
-                        ui.label(RichText::new("… (300 premières remarques)").weak());
+                        ui.label(RichText::new(tr("… (300 premières remarques)")).weak());
                     }
                 }
             });
@@ -2050,7 +2081,7 @@ impl VariumApp {
         let ctx = ui.ctx().clone();
         let lang = self.page.langue;
         ui.add_space(4.0);
-        ui.label(RichText::new("Orthographe").strong());
+        ui.label(RichText::new(tr("Orthographe")).strong());
         let installed = self.dicos.installed(lang).cloned();
         let etat = self.dicos.etat(lang);
         if matches!(etat, dico::Etat::Installe) {
@@ -2063,32 +2094,29 @@ impl VariumApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.spinner();
                     ui.label(if p.steps == 0 {
-                        "Téléchargement…".to_string()
+                        tr("Téléchargement…").to_string()
                     } else {
-                        format!(
-                            "Téléchargement {}/{} : {} ({})",
-                            p.step,
-                            p.steps,
-                            p.file,
-                            human_size(p.bytes)
+                        trf!(
+                            "Téléchargement {step}/{steps} : {file} ({v})",
+                            step = p.step,
+                            steps = p.steps,
+                            file = p.file,
+                            v = human_size(p.bytes)
                         )
                     });
                 });
             }
             (dico::Etat::Absent, None) => {
                 ui.label(
-                    RichText::new(format!(
-                        "Aucun dictionnaire {} sur cet ordinateur.",
-                        lang.label().to_lowercase()
+                    RichText::new(trf!(
+                        "Aucun dictionnaire {lang} sur cet ordinateur.",
+                        lang = labels::lang(lang).to_lowercase()
                     ))
                     .color(warn(ui)),
                 );
                 let r = dico::remote(lang);
                 ui.label(
-                    RichText::new(format!(
-                        "« Télécharger » l'obtient des dictionnaires de LibreOffice ({}, licence {}).",
-                        r.locale, r.licence_name
-                    ))
+                    RichText::new(trf!("« Télécharger » l'obtient des dictionnaires de LibreOffice ({locale}, licence {licence_name}).", locale = r.locale, licence_name = tr(r.licence_name)))
                     .small()
                     .weak(),
                 );
@@ -2096,12 +2124,12 @@ impl VariumApp {
             (dico::Etat::Installe | dico::Etat::Chargement, None) => {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label("Chargement du dictionnaire…");
+                    ui.label(tr("Chargement du dictionnaire…"));
                 });
             }
             (dico::Etat::Pret, None) => {
                 if let Some(d) = &installed {
-                    ui.label(format!("✔ Dictionnaire {}", d.locale))
+                    ui.label(trf!("✔ Dictionnaire {locale}", locale = d.locale))
                         .on_hover_text(d.dic.display().to_string());
                 }
             }
@@ -2111,12 +2139,12 @@ impl VariumApp {
         }
         if let Some(d) = &installed {
             let origine = if d.own {
-                "dossier de Varium"
+                tr("dossier de Varium")
             } else {
-                "installé sur l'ordinateur"
+                tr("installé sur l'ordinateur")
             };
-            let lic = d.licence_name.as_deref().unwrap_or("non précisée");
-            egui::CollapsingHeader::new(RichText::new(format!("Licence : {lic}")).small().weak())
+            let lic = d.licence_name.as_deref().unwrap_or(tr("non précisée"));
+            egui::CollapsingHeader::new(RichText::new(trf!("Licence : {lic}", lic)).small().weak())
                 .id_salt("spell-licence")
                 .show(ui, |ui| {
                     ui.label(
@@ -2136,9 +2164,11 @@ impl VariumApp {
                         }
                         None => {
                             ui.label(
-                                RichText::new("Pas de fichier de licence à côté du dictionnaire.")
-                                    .small()
-                                    .weak(),
+                                RichText::new(tr(
+                                    "Pas de fichier de licence à côté du dictionnaire.",
+                                ))
+                                .small()
+                                .weak(),
                             );
                         }
                     }
@@ -2149,40 +2179,34 @@ impl VariumApp {
             if progress.is_none() && !own {
                 let r = dico::remote(lang);
                 if ui
-                    .button("⤓ Télécharger")
-                    .on_hover_text(format!(
-                        "Dictionnaire {} des dictionnaires de LibreOffice (licence {}), enregistré dans le dossier de Varium",
-                        r.locale, r.licence_name
-                    ))
+                    .button(tr("⤓ Télécharger"))
+                    .on_hover_text(trf!("Dictionnaire {locale} des dictionnaires de LibreOffice (licence {licence_name}), enregistré dans le dossier de Varium", locale = r.locale, licence_name = tr(r.licence_name)))
                     .clicked()
                 {
                     self.dicos.download(lang, &ctx);
                 }
             }
             if ui
-                .button("Importer…")
-                .on_hover_text(format!(
-                    "Un dictionnaire Hunspell (.aff et .dic) ou une extension LibreOffice (.oxt), copié dans {}",
-                    self.dicos.own_dir().display()
-                ))
+                .button(tr("Importer…"))
+                .on_hover_text(trf!("Un dictionnaire Hunspell (.aff et .dic) ou une extension LibreOffice (.oxt), copié dans {own_dir}", own_dir = self.dicos.own_dir().display()))
                 .clicked()
             {
                 self.dicos.import_dialog(&ctx);
             }
         });
-        ui.checkbox(&mut self.prefs.spell_live, "Vérifier pendant la frappe")
-            .on_hover_text(
+        ui.checkbox(&mut self.prefs.spell_live, tr("Vérifier pendant la frappe"))
+            .on_hover_text(tr(
                 "Souligner les mots inconnus d'une vague rouge, même quand cet onglet est fermé",
-            );
+            ));
 
         let Some(ranges) = self.dicos.misspelled(&self.source, lang, &ctx) else {
             return;
         };
         ui.label(
             RichText::new(match ranges.len() {
-                0 => "Aucune faute d'orthographe ✔".to_string(),
-                1 => "1 mot inconnu".to_string(),
-                n => format!("{n} mots inconnus"),
+                0 => tr("Aucune faute d'orthographe ✔").to_string(),
+                1 => tr("1 mot inconnu").to_string(),
+                n => trf!("{n} mots inconnus", n),
             })
             .strong(),
         );
@@ -2202,7 +2226,7 @@ impl VariumApp {
                             ui.horizontal_wrapped(|ui| {
                                 if ui
                                     .link(RichText::new(&word).strong().color(err(ui)))
-                                    .on_hover_text("Aller au mot")
+                                    .on_hover_text(tr("Aller au mot"))
                                     .clicked()
                                 {
                                     goto = Some((r.start, r.end));
@@ -2216,14 +2240,14 @@ impl VariumApp {
                                         ui.spinner();
                                     }
                                     Some(list) if list.is_empty() => {
-                                        ui.label(RichText::new("pas de suggestion").weak());
+                                        ui.label(RichText::new(tr("pas de suggestion")).weak());
                                     }
                                     Some(list) => {
                                         ui.label(RichText::new("→").weak());
                                         for sug in list.into_iter().take(4) {
                                             if ui
                                                 .small_button(&sug)
-                                                .on_hover_text("Remplacer")
+                                                .on_hover_text(tr("Remplacer"))
                                                 .clicked()
                                             {
                                                 action = Some(SpellAction::Replace {
@@ -2238,12 +2262,12 @@ impl VariumApp {
                                 }
                             });
                             ui.horizontal(|ui| {
-                                if ui.small_button("Ajouter au dictionnaire").clicked() {
+                                if ui.small_button(tr("Ajouter au dictionnaire")).clicked() {
                                     action = Some(SpellAction::Add(word.clone()));
                                 }
                                 if ui
-                                    .small_button("Ignorer")
-                                    .on_hover_text("Ne plus signaler ce mot dans ce document")
+                                    .small_button(tr("Ignorer"))
+                                    .on_hover_text(tr("Ne plus signaler ce mot dans ce document"))
                                     .clicked()
                                 {
                                     action = Some(SpellAction::Ignore(word.clone()));
@@ -2252,7 +2276,7 @@ impl VariumApp {
                         });
                 }
                 if ranges.len() > 100 {
-                    ui.label(RichText::new("… (100 premiers mots)").weak());
+                    ui.label(RichText::new(tr("… (100 premiers mots)")).weak());
                 }
             });
         if let Some(a) = action {
@@ -2272,24 +2296,25 @@ impl VariumApp {
         }
         let n = self.dicos.personal.len();
         let mut remove = None;
-        egui::CollapsingHeader::new(format!(
-            "Dictionnaire personnel ({n} mot{})",
-            if n > 1 { "s" } else { "" }
-        ))
+        egui::CollapsingHeader::new(if n > 1 {
+            trf!("Dictionnaire personnel ({n} mots)", n)
+        } else {
+            trf!("Dictionnaire personnel ({n} mot)", n)
+        })
         .id_salt("spell-personal")
         .show(ui, |ui| {
             if n == 0 {
                 ui.label(
-                    RichText::new(
+                    RichText::new(tr(
                         "« Ajouter au dictionnaire » y range un mot, pour tous les documents.",
-                    )
+                    ))
                     .small()
                     .weak(),
                 );
             }
             for w in &self.dicos.personal {
                 ui.horizontal(|ui| {
-                    if ui.small_button("✖").on_hover_text("Retirer").clicked() {
+                    if ui.small_button("✖").on_hover_text(tr("Retirer")).clicked() {
                         remove = Some(w.clone());
                     }
                     ui.label(w);
@@ -2297,9 +2322,10 @@ impl VariumApp {
             }
             if !self.dicos.ignored.is_empty() {
                 ui.label(
-                    RichText::new(format!(
-                        "Ignorés dans ce document : {}",
-                        self.dicos
+                    RichText::new(trf!(
+                        "Ignorés dans ce document : {v}",
+                        v = self
+                            .dicos
                             .ignored
                             .iter()
                             .cloned()
@@ -2320,17 +2346,17 @@ impl VariumApp {
         let plan = editor::outline(&self.source);
         let eff = self.effective();
         ui.label(
-            RichText::new(format!(
-                "{} page(s) · {} titre(s)",
-                self.pages.max(1),
-                plan.len()
+            RichText::new(trf!(
+                "{v} page(s) · {plan} titre(s)",
+                v = self.pages.max(1),
+                plan = plan.len()
             ))
             .weak(),
         );
         ui.add_space(4.0);
         if plan.is_empty() {
             ui.label(
-                RichText::new("Pas encore de titre. Choisissez « Titre 1 » dans l'onglet Format, ou écrivez # au début d'une ligne.")
+                RichText::new(tr("Pas encore de titre. Choisissez « Titre 1 » dans l'onglet Format, ou écrivez # au début d'une ligne."))
                     .weak(),
             );
             return;
@@ -2350,7 +2376,7 @@ impl VariumApp {
                         } else {
                             RichText::new(shown)
                         };
-                        if ui.link(t).on_hover_text("Aller à ce titre").clicked() {
+                        if ui.link(t).on_hover_text(tr("Aller à ce titre")).clicked() {
                             self.sel = h.sel;
                             self.pending_sel = Some(h.sel);
                             self.tab = Tab::Text;
@@ -2369,7 +2395,7 @@ impl VariumApp {
         let filled = vars.iter().filter(|v| !eff.get(&v.name).is_empty()).count();
 
         ui.horizontal(|ui| {
-            ui.heading("Champs");
+            ui.heading(tr("Champs"));
             ui.label(
                 RichText::new(vars.len().to_string())
                     .strong()
@@ -2377,8 +2403,8 @@ impl VariumApp {
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .small_button("+ Champ")
-                    .on_hover_text("Insérer un champ dans le texte")
+                    .small_button(tr("+ Champ"))
+                    .on_hover_text(tr("Insérer un champ dans le texte"))
                     .clicked()
                 {
                     self.queue.push(Act::InsertField);
@@ -2388,7 +2414,11 @@ impl VariumApp {
         if !vars.is_empty() {
             ui.add(
                 egui::ProgressBar::new(filled as f32 / vars.len() as f32)
-                    .text(format!("{filled} / {} renseignés", vars.len()))
+                    .text(trf!(
+                        "{filled} / {vars} renseignés",
+                        filled,
+                        vars = vars.len()
+                    ))
                     .desired_height(14.0),
             );
         }
@@ -2404,7 +2434,7 @@ impl VariumApp {
             .show(ui, |ui| {
                 if vars.is_empty() {
                     ui.label(
-                        RichText::new("Aucun champ. Écrivez {{prénom}} dans le texte, ou utilisez « + Champ ».").weak(),
+                        RichText::new(tr("Aucun champ. Écrivez {{prénom}} dans le texte, ou utilisez « + Champ ».")).weak(),
                     );
                 }
                 for info in &vars {
@@ -2420,7 +2450,7 @@ impl VariumApp {
                 let formulas = varium_core::formulas(&self.source);
                 if !formulas.is_empty() {
                     ui.add_space(6.0);
-                    ui.label(RichText::new("Champs calculés").strong());
+                    ui.label(RichText::new(tr("Champs calculés")).strong());
                     for f in formulas {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new(format!("= {f}")).monospace().color(formula_color(ui)));
@@ -2433,7 +2463,7 @@ impl VariumApp {
                 }
 
                 ui.add_space(8.0);
-                egui::CollapsingHeader::new("Filtres disponibles").show(ui, |ui| {
+                egui::CollapsingHeader::new(tr("Filtres disponibles")).show(ui, |ui| {
                     egui::Grid::new("filters").num_columns(2).striped(true).show(ui, |ui| {
                         for (f, desc) in filters::KNOWN {
                             ui.label(RichText::new(*f).monospace());
@@ -2442,7 +2472,7 @@ impl VariumApp {
                         }
                     });
                     ui.label(
-                        RichText::new("Exemple : {{montant | money:usd}}, {{nom | trim | upper}}")
+                        RichText::new(tr("Exemple : {{montant | money:usd}}, {{nom | trim | upper}}"))
                             .small()
                             .weak(),
                     );
@@ -2465,7 +2495,7 @@ impl VariumApp {
                         self.rename = None;
                         self.notify(
                             &ctx,
-                            format!("« {from} » renommé en « {to} » partout"),
+                            trf!("« {from} » renommé en « {to} » partout", from, to),
                             false,
                         );
                     }
@@ -2475,7 +2505,7 @@ impl VariumApp {
             Some(VarAction::Inline(name)) => {
                 self.history.cut = true;
                 self.source = varium_core::inline_variable(&self.source, &name, &self.effective());
-                self.notify(&ctx, format!("« {name} » figé dans le texte"), false);
+                self.notify(&ctx, trf!("« {name} » figé dans le texte", name), false);
             }
             None => {}
         }
@@ -2491,7 +2521,7 @@ impl VariumApp {
             .inner_margin(8.0)
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("✉ Publipostage").strong());
+                    ui.label(RichText::new(tr("✉ Publipostage")).strong());
                     if ui.small_button("◀").clicked() && m.record > 0 {
                         m.record -= 1;
                     }
@@ -2499,12 +2529,15 @@ impl VariumApp {
                     if ui.small_button("▶").clicked() && m.record + 1 < n {
                         m.record += 1;
                     }
-                    stop = ui.small_button("Terminer").clicked();
+                    stop = ui.small_button(tr("Terminer")).clicked();
                 });
                 ui.label(
-                    RichText::new(format!("« {} » remplit les champs de même nom.", m.file))
-                        .small()
-                        .weak(),
+                    RichText::new(trf!(
+                        "« {file} » remplit les champs de même nom.",
+                        file = m.file
+                    ))
+                    .small()
+                    .weak(),
                 );
             });
         if stop {
@@ -2524,20 +2557,20 @@ impl VariumApp {
             ui.label(RichText::new(name).monospace().strong().color(accent(ui)));
             if count > 1 {
                 ui.label(RichText::new(format!("×{count}")).small().weak())
-                    .on_hover_text(format!("{count} occurrences dans le document"));
+                    .on_hover_text(trf!("{count} occurrences dans le document", count));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let has_value = !self.values.get(name).is_empty();
                 if ui
                     .add_enabled(has_value, egui::Button::new("⤓").small())
-                    .on_hover_text("Figer : remplacer le champ par sa valeur dans le texte")
+                    .on_hover_text(tr("Figer : remplacer le champ par sa valeur dans le texte"))
                     .clicked()
                 {
                     action = Some(VarAction::Inline(name.to_string()));
                 }
                 if ui
                     .small_button("✏")
-                    .on_hover_text("Renommer partout")
+                    .on_hover_text(tr("Renommer partout"))
                     .clicked()
                 {
                     self.rename = Some(Rename {
@@ -2560,13 +2593,13 @@ impl VariumApp {
                 if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                     commit = true;
                 }
-                commit |= ui.button("Renommer").clicked();
-                cancel = ui.button("Annuler").clicked();
+                commit |= ui.button(tr("Renommer")).clicked();
+                cancel = ui.button(tr("Annuler")).clicked();
             });
             let to = r.to.trim().to_string();
             if !varium_core::is_valid_name(&to) {
                 ui.label(
-                    RichText::new("Nom invalide (lettres, chiffres, _ . -)")
+                    RichText::new(tr("Nom invalide (lettres, chiffres, _ . -)"))
                         .small()
                         .color(err(ui)),
                 );
@@ -2577,7 +2610,7 @@ impl VariumApp {
                     .any(|v| v.name == to)
             {
                 ui.label(
-                    RichText::new(format!("« {to} » existe déjà : les deux seront fusionnés"))
+                    RichText::new(trf!("« {to} » existe déjà : les deux seront fusionnés", to))
                         .small()
                         .color(warn(ui)),
                 );
@@ -2597,7 +2630,7 @@ impl VariumApp {
         if from_merge {
             let v = self.effective().get(name).to_string();
             ui.label(RichText::new(format!("📄 {v}")).italics())
-                .on_hover_text("Valeur lue dans le fichier du publipostage");
+                .on_hover_text(tr("Valeur lue dans le fichier du publipostage"));
         } else {
             let value = self.values.values.entry(name.to_string()).or_default();
             value_editor(ui, name, ty, value);
@@ -2605,18 +2638,22 @@ impl VariumApp {
 
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt(("type", name))
-                .selected_text(ty.label())
+                .selected_text(labels::var_type(ty))
                 .width(104.0)
                 .show_ui(ui, |ui| {
                     for t in VarType::ALL {
-                        ui.selectable_value(&mut ty, t, t.label());
+                        ui.selectable_value(&mut ty, t, labels::var_type(t));
                     }
                 });
             let value = self.values.get(name).to_string();
             if let Some(msg) = ty.validate(&value) {
                 ui.label(RichText::new(msg).small().color(err(ui)));
             } else if name == TODAY && value.is_empty() {
-                ui.label(RichText::new("date du jour, automatique").small().weak());
+                ui.label(
+                    RichText::new(tr("date du jour, automatique"))
+                        .small()
+                        .weak(),
+                );
             } else if matches!(ty, VarType::Date | VarType::Number | VarType::Money)
                 && !value.is_empty()
             {
@@ -2689,12 +2726,20 @@ impl VariumApp {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             let pages = self.pages.max(1);
-            ui.label(format!("{pages} page{}", if pages > 1 { "s" } else { "" }));
+            ui.label(if pages > 1 {
+                trf!("{pages} pages", pages)
+            } else {
+                trf!("{pages} page", pages)
+            });
             ui.separator();
-            ui.label(format!("{} mots, {} caractères", st.words, st.chars))
-                .on_hover_text("Outils → Nombre de mots");
+            ui.label(trf!(
+                "{words} mots, {chars} caractères",
+                words = st.words,
+                chars = st.chars
+            ))
+            .on_hover_text(tr("Outils → Nombre de mots"));
             ui.separator();
-            ui.label(format!("{filled}/{} champs", vars.len()));
+            ui.label(trf!("{filled}/{vars} champs", filled, vars = vars.len()));
             if let Some(m) = &self.merge {
                 ui.separator();
                 ui.label(format!("✉ {}/{}", m.record + 1, m.sheet.rows.len()));
@@ -2703,13 +2748,13 @@ impl VariumApp {
             ui.label(match self.page.paper {
                 Paper::A4 => "A4",
                 Paper::A5 => "A5",
-                Paper::Letter => "Lettre US",
-                Paper::Legal => "Légal US",
+                Paper::Letter => tr("Lettre US"),
+                Paper::Legal => tr("Légal US"),
             });
-            ui.label(self.page.langue.label());
+            ui.label(labels::lang(self.page.langue));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = match self.prefs.zoom {
-                    None => "Largeur".to_string(),
+                    None => tr("Largeur").to_string(),
                     Some(z) => format!("{} %", (z * 100.0).round() as i32),
                 };
                 if ui.small_button("+").clicked() {
@@ -2727,7 +2772,7 @@ impl VariumApp {
                 }
                 if ui
                     .selectable_label(self.prefs.zoom.is_none(), label)
-                    .on_hover_text("Ajuster à la largeur")
+                    .on_hover_text(tr("Ajuster à la largeur"))
                     .clicked()
                 {
                     self.queue.push(Act::ZoomFit);
@@ -2751,46 +2796,46 @@ impl VariumApp {
                 Dialog::PageSetup => keep = self.page_dialog(ui),
                 Dialog::Merge => keep = self.merge_dialog(ui),
                 Dialog::Table { rows, cols } => {
-                    ui.heading("Insérer un tableau");
+                    ui.heading(tr("Insérer un tableau"));
                     egui::Grid::new("tbl").num_columns(2).show(ui, |ui| {
-                        ui.label("Colonnes");
+                        ui.label(tr("Colonnes"));
                         ui.add(egui::DragValue::new(cols).range(1..=12));
                         ui.end_row();
-                        ui.label("Lignes (avec l'en-tête)");
+                        ui.label(tr("Lignes (avec l'en-tête)"));
                         ui.add(egui::DragValue::new(rows).range(2..=50));
                         ui.end_row();
                     });
-                    ui.label(RichText::new("Écrivez dans les cellules entre les « | ».").small().weak());
+                    ui.label(RichText::new(tr("Écrivez dans les cellules entre les « | ».")).small().weak());
                     ui.horizontal(|ui| {
-                        if ui.button("Insérer").clicked() {
+                        if ui.button(tr("Insérer")).clicked() {
                             let t = editor::table_markup(*rows, *cols);
                             self.insert_block(t.trim_end());
                             keep = false;
                         }
-                        if ui.button("Annuler").clicked() {
+                        if ui.button(tr("Annuler")).clicked() {
                             keep = false;
                         }
                     });
                 }
                 Dialog::Field { name, ty } => {
-                    ui.heading("Insérer un champ");
-                    ui.label("Le champ prend la même valeur partout où il apparaît.");
+                    ui.heading(tr("Insérer un champ"));
+                    ui.label(tr("Le champ prend la même valeur partout où il apparaît."));
                     let r = ui.add(
                         egui::TextEdit::singleline(name)
-                            .hint_text("prénom, montant, date_rdv…")
+                            .hint_text(tr("prénom, montant, date_rdv…"))
                             .desired_width(f32::INFINITY),
                     );
                     r.request_focus();
-                    egui::ComboBox::from_label("Type")
-                        .selected_text(ty.label())
+                    egui::ComboBox::from_label(tr("Type"))
+                        .selected_text(labels::var_type(*ty))
                         .show_ui(ui, |ui| {
                             for t in VarType::ALL {
-                                ui.selectable_value(ty, t, t.label());
+                                ui.selectable_value(ty, t, labels::var_type(t));
                             }
                         });
                     let existing = varium_core::variables(&self.source);
                     if !existing.is_empty() {
-                        ui.label(RichText::new("Ou reprendre un champ existant :").small().weak());
+                        ui.label(RichText::new(tr("Ou reprendre un champ existant :")).small().weak());
                         ui.horizontal_wrapped(|ui| {
                             for v in existing.iter().take(24) {
                                 if ui.small_button(&v.name).clicked() {
@@ -2803,28 +2848,28 @@ impl VariumApp {
                     let n = name.trim().to_string();
                     let valid = varium_core::is_valid_name(&n);
                     if !n.is_empty() && !valid {
-                        ui.label(RichText::new("Lettres, chiffres, _ . - (sans espace)").small().color(err(ui)));
+                        ui.label(RichText::new(tr("Lettres, chiffres, _ . - (sans espace)")).small().color(err(ui)));
                     }
                     ui.horizontal(|ui| {
                         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        if (ui.add_enabled(valid, egui::Button::new("Insérer")).clicked() || (enter && valid)) && valid {
+                        if (ui.add_enabled(valid, egui::Button::new(tr("Insérer"))).clicked() || (enter && valid)) && valid {
                             if *ty != VarType::Text {
                                 self.values.types.insert(n.clone(), *ty);
                             }
                             self.insert(&format!("{{{{{n}}}}}"), None);
                             keep = false;
                         }
-                        if ui.button("Annuler").clicked() {
+                        if ui.button(tr("Annuler")).clicked() {
                             keep = false;
                         }
                     });
                 }
                 Dialog::Formula { expr } => {
-                    ui.heading("Insérer un champ calculé");
-                    ui.label("Opérations + − × ÷, parenthèses, pourcentages (20%) et fonctions arrondi(x; 2), min, max, somme.");
+                    ui.heading(tr("Insérer un champ calculé"));
+                    ui.label(tr("Opérations + − × ÷, parenthèses, pourcentages (20%) et fonctions arrondi(x; 2), min, max, somme."));
                     let r = ui.add(
                         egui::TextEdit::singleline(expr)
-                            .hint_text("quantité * prix_unitaire")
+                            .hint_text(tr("quantité * prix_unitaire"))
                             .font(egui::TextStyle::Monospace)
                             .desired_width(f32::INFINITY),
                     );
@@ -2844,21 +2889,21 @@ impl VariumApp {
                     }
                     let res = self.effective().compute(expr);
                     match &res {
-                        Ok(n) => ui.label(format!("Résultat avec les valeurs actuelles : {}", filters::format_number(*n, None))),
+                        Ok(n) => ui.label(trf!("Résultat avec les valeurs actuelles : {v}", v = filters::format_number(*n, None))),
                         Err(e) if !expr.trim().is_empty() => ui.label(RichText::new(e).color(warn(ui))),
                         _ => ui.label(""),
                     };
                     ui.horizontal(|ui| {
                         let ok = !expr.trim().is_empty();
-                        if ui.add_enabled(ok, egui::Button::new("Insérer")).clicked() {
+                        if ui.add_enabled(ok, egui::Button::new(tr("Insérer"))).clicked() {
                             self.insert(&format!("{{{{= {}}}}}", expr.trim()), None);
                             keep = false;
                         }
-                        if ui.add_enabled(ok, egui::Button::new("Insérer en euros")).clicked() {
+                        if ui.add_enabled(ok, egui::Button::new(tr("Insérer en euros"))).clicked() {
                             self.insert(&format!("{{{{= {} | money}}}}", expr.trim()), None);
                             keep = false;
                         }
-                        if ui.button("Annuler").clicked() {
+                        if ui.button(tr("Annuler")).clicked() {
                             keep = false;
                         }
                     });
@@ -2866,25 +2911,25 @@ impl VariumApp {
                 Dialog::Stats => {
                     let eff = self.effective();
                     let st = stats(&varium_core::document(&self.source, &eff));
-                    ui.heading("Nombre de mots");
+                    ui.heading(tr("Nombre de mots"));
                     egui::Grid::new("stats").num_columns(2).striped(true).show(ui, |ui| {
                         for (k, v) in [
-                            ("Pages", self.pages.to_string()),
-                            ("Mots", st.words.to_string()),
-                            ("Caractères (espaces comprises)", st.chars.to_string()),
-                            ("Paragraphes", st.paragraphs.to_string()),
-                            ("Champs", varium_core::variables(&self.source).len().to_string()),
-                            ("Champs calculés", varium_core::formulas(&self.source).len().to_string()),
+                            (tr("Pages"), self.pages.to_string()),
+                            (tr("Mots"), st.words.to_string()),
+                            (tr("Caractères (espaces comprises)"), st.chars.to_string()),
+                            (tr("Paragraphes"), st.paragraphs.to_string()),
+                            (tr("Champs"), varium_core::variables(&self.source).len().to_string()),
+                            (tr("Champs calculés"), varium_core::formulas(&self.source).len().to_string()),
                         ] {
                             ui.label(k);
                             ui.label(RichText::new(v).strong());
                             ui.end_row();
                         }
                     });
-                    keep = !ui.button("Fermer").clicked();
+                    keep = !ui.button(tr("Fermer")).clicked();
                 }
                 Dialog::Shortcuts => {
-                    ui.heading("Raccourcis clavier");
+                    ui.heading(tr("Raccourcis clavier"));
                     egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                         egui::Grid::new("sc").num_columns(2).striped(true).show(ui, |ui| {
                             for (s, a) in SHORTCUTS {
@@ -2894,12 +2939,12 @@ impl VariumApp {
                             }
                         });
                     });
-                    keep = !ui.button("Fermer").clicked();
+                    keep = !ui.button(tr("Fermer")).clicked();
                 }
                 Dialog::Languages(lang) => {
-                    ui.heading("Écrire en plusieurs langues");
-                    ui.label("Choisissez la langue du document (Document → Langue) : les dates, les nombres, les montants, la typographie automatique et la révision suivent ses règles.");
-                    ui.label(RichText::new("Orthographe : Varium vérifie les mots avec un dictionnaire Hunspell, le format de LibreOffice. Il emploie ceux déjà installés sur l'ordinateur (LibreOffice, dictionnaires du système) ; sinon, Révision → Orthographe propose de télécharger celui de la langue depuis les dictionnaires de LibreOffice (chacun avec sa licence libre, affichée) ou d'en importer un (.aff et .dic, ou extension .oxt). Les mots inconnus sont soulignés d'une vague rouge ; un clic droit propose des corrections, « Ajouter au dictionnaire » (dictionnaire personnel, pour tous les documents) ou « Ignorer » (pour ce document)."));
+                    ui.heading(tr("Écrire en plusieurs langues"));
+                    ui.label(tr("Choisissez la langue du document (Document → Langue) : les dates, les nombres, les montants, la typographie automatique et la révision suivent ses règles."));
+                    ui.label(RichText::new(tr("Orthographe : Varium vérifie les mots avec un dictionnaire Hunspell, le format de LibreOffice. Il emploie ceux déjà installés sur l'ordinateur (LibreOffice, dictionnaires du système) ; sinon, Révision → Orthographe propose de télécharger celui de la langue depuis les dictionnaires de LibreOffice (chacun avec sa licence libre, affichée) ou d'en importer un (.aff et .dic, ou extension .oxt). Les mots inconnus sont soulignés d'une vague rouge ; un clic droit propose des corrections, « Ajouter au dictionnaire » (dictionnaire personnel, pour tous les documents) ou « Ignorer » (pour ce document).")));
                     ui.horizontal_wrapped(|ui| {
                         for l in varium_core::Lang::ALL {
                             ui.selectable_value(lang, l, l.native());
@@ -2915,38 +2960,35 @@ impl VariumApp {
                     });
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button(format!("Écrire ce document en {}", lang.native())).clicked() {
+                        if ui.button(trf!("Écrire ce document en {native}", native = lang.native())).clicked() {
                             self.page.langue = *lang;
                             keep = false;
                         }
-                        if ui.button("Fermer").clicked() {
+                        if ui.button(tr("Fermer")).clicked() {
                             keep = false;
                         }
                     });
                 }
                 Dialog::Syntax => {
-                    ui.heading("Guide de la syntaxe");
+                    ui.heading(tr("Guide de la syntaxe"));
                     egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
                         egui::Grid::new("syn").num_columns(2).striped(true).show(ui, |ui| {
                             for (k, v) in SYNTAX {
-                                ui.label(RichText::new(*k).monospace());
-                                ui.label(*v);
+                                ui.label(RichText::new(tr(k)).monospace());
+                                ui.label(tr(v));
                                 ui.end_row();
                             }
                         });
                     });
-                    keep = !ui.button("Fermer").clicked();
+                    keep = !ui.button(tr("Fermer")).clicked();
                 }
                 Dialog::Confirm(p) => {
-                    ui.heading("Enregistrer les modifications ?");
-                    ui.label(format!(
-                        "« {} » contient des modifications non enregistrées.",
-                        self.title.trim()
-                    ));
-                    ui.label(RichText::new("Sans enregistrement, elles seront perdues.").weak());
+                    ui.heading(tr("Enregistrer les modifications ?"));
+                    ui.label(trf!("« {title} » contient des modifications non enregistrées.", title = self.title.trim()));
+                    ui.label(RichText::new(tr("Sans enregistrement, elles seront perdues.")).weak());
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Enregistrer").clicked() {
+                        if ui.button(tr("Enregistrer")).clicked() {
                             keep = false;
                             match self.save_project(ctx, false) {
                                 SaveOutcome::Done => self.proceed(ctx, p.clone()),
@@ -2954,11 +2996,11 @@ impl VariumApp {
                                 SaveOutcome::Failed => {}
                             }
                         }
-                        if ui.button("Ne pas enregistrer").clicked() {
+                        if ui.button(tr("Ne pas enregistrer")).clicked() {
                             keep = false;
                             self.proceed(ctx, p.clone());
                         }
-                        if ui.button("Annuler").clicked() {
+                        if ui.button(tr("Annuler")).clicked() {
                             keep = false;
                         }
                     });
@@ -2968,24 +3010,22 @@ impl VariumApp {
                     secours,
                     document,
                 } => {
-                    ui.heading("Restaurer la sauvegarde de secours ?");
-                    ui.label(format!(
-                        "Varium s'est arrêté sans que « {} » soit enregistré. Une sauvegarde automatique plus récente existe.",
-                        if project.title.trim().is_empty() {
-                            "le document"
-                        } else {
-                            project.title.trim()
-                        }
-                    ));
+                    ui.heading(tr("Restaurer la sauvegarde de secours ?"));
+                    let title = if project.title.trim().is_empty() {
+                        tr("le document")
+                    } else {
+                        project.title.trim()
+                    };
+                    ui.label(trf!("Varium s'est arrêté sans que « {title} » soit enregistré. Une sauvegarde automatique plus récente existe.", title));
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Restaurer").clicked() {
+                        if ui.button(tr("Restaurer")).clicked() {
                             keep = false;
                             let p = (**project).clone();
                             self.restaurer(p, document.clone());
                             secours::effacer(secours);
                         }
-                        if ui.button("Ignorer").clicked() {
+                        if ui.button(tr("Ignorer")).clicked() {
                             keep = false;
                             secours::effacer(secours);
                         }
@@ -2993,12 +3033,12 @@ impl VariumApp {
                 }
                 Dialog::About => {
                     ui.heading("Varium");
-                    ui.label(RichText::new("Un document. Toutes ses possibilités.").italics());
-                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-                    ui.label("Éditeur de documents à champs, écrit en Rust avec egui. Polices Liberation (licence SIL OFL 1.1).");
-                    ui.hyperlink_to("Code source", "https://github.com/maxlestage/VARIUM");
-                    ui.hyperlink_to("Site de Varium", "https://maxlestage.github.io/VARIUM/");
-                    keep = !ui.button("Fermer").clicked();
+                    ui.label(RichText::new(tr("Un document. Toutes ses possibilités.")).italics());
+                    ui.label(trf!("Version {v}", v = env!("CARGO_PKG_VERSION")));
+                    ui.label(tr("Éditeur de documents à champs, écrit en Rust avec egui. Polices Liberation (licence SIL OFL 1.1)."));
+                    ui.hyperlink_to(tr("Code source"), "https://github.com/maxlestage/VARIUM");
+                    ui.hyperlink_to(tr("Site de Varium"), "https://maxlestage.github.io/VARIUM/");
+                    keep = !ui.button(tr("Fermer")).clicked();
                 }
             }
         });
@@ -3011,11 +3051,13 @@ impl VariumApp {
     }
 
     fn templates_dialog(&mut self, ui: &mut egui::Ui) -> bool {
-        ui.heading("Nouveau à partir d'un modèle");
+        ui.heading(tr("Nouveau à partir d'un modèle"));
         ui.label(
-            RichText::new("Le document actuel reste récupérable avec Annuler (Ctrl+Z).")
-                .small()
-                .weak(),
+            RichText::new(tr(
+                "Le document actuel reste récupérable avec Annuler (Ctrl+Z).",
+            ))
+            .small()
+            .weak(),
         );
         ui.add_space(6.0);
         let mut chosen = None;
@@ -3036,8 +3078,8 @@ impl VariumApp {
                                     ui.horizontal(|ui| {
                                         ui.label(RichText::new(t.icon).size(22.0));
                                         ui.vertical(|ui| {
-                                            ui.label(RichText::new(t.name).strong());
-                                            ui.label(RichText::new(t.description).small().weak());
+                                            ui.label(RichText::new(tr(t.name)).strong());
+                                            ui.label(RichText::new(tr(t.description)).small().weak());
                                         });
                                     });
                                 })
@@ -3054,11 +3096,11 @@ impl VariumApp {
         ui.add_space(6.0);
         let mut keep = true;
         ui.horizontal(|ui| {
-            if ui.button("Document vierge").clicked() {
+            if ui.button(tr("Document vierge")).clicked() {
                 self.queue.push(Act::NewBlank);
                 keep = false;
             }
-            if ui.button("Annuler").clicked() {
+            if ui.button(tr("Annuler")).clicked() {
                 keep = false;
             }
         });
@@ -3067,7 +3109,7 @@ impl VariumApp {
             let ctx = ui.ctx().clone();
             self.notify(
                 &ctx,
-                format!("Modèle « {} » ouvert", templates::ALL[i].name),
+                trf!("Modèle « {name} » ouvert", name = tr(templates::ALL[i].name)),
                 false,
             );
             return false;
@@ -3076,7 +3118,7 @@ impl VariumApp {
     }
 
     fn page_dialog(&mut self, ui: &mut egui::Ui) -> bool {
-        ui.heading("Mise en page");
+        ui.heading(tr("Mise en page"));
         page_form(ui, &mut self.page, "page");
         ui.add_space(6.0);
         let mut keep = true;
@@ -3084,7 +3126,7 @@ impl VariumApp {
             if ui.button("OK").clicked() {
                 keep = false;
             }
-            if ui.button("Par défaut").clicked() {
+            if ui.button(tr("Par défaut")).clicked() {
                 self.page = PageSetup::default();
             }
         });
@@ -3092,19 +3134,19 @@ impl VariumApp {
     }
 
     fn merge_dialog(&mut self, ui: &mut egui::Ui) -> bool {
-        ui.heading("Publipostage");
-        ui.label("Un document par ligne d'un tableau CSV (Excel, LibreOffice Calc, Google Sheets…). La première ligne donne les noms des colonnes : une colonne remplit le champ de même nom.");
+        ui.heading(tr("Publipostage"));
+        ui.label(tr("Un document par ligne d'un tableau CSV (Excel, LibreOffice Calc, Google Sheets…). La première ligne donne les noms des colonnes : une colonne remplit le champ de même nom."));
         ui.add_space(4.0);
         let mut keep = true;
         let ctx = ui.ctx().clone();
         let names = self.variable_names();
         match &mut self.merge {
             None => {
-                if ui.button("📂 Choisir un fichier CSV…").clicked() {
+                if ui.button(tr("📂 Choisir un fichier CSV…")).clicked() {
                     self.io.open(&ctx, OpenKind::Data);
                 }
                 ui.label(
-                    RichText::new("Exemple : prénom;nom;ville")
+                    RichText::new(tr("Exemple : prénom;nom;ville"))
                         .small()
                         .monospace()
                         .weak(),
@@ -3113,10 +3155,11 @@ impl VariumApp {
             Some(m) => {
                 let n = m.sheet.rows.len();
                 ui.label(
-                    RichText::new(format!(
-                        "« {} » : {n} destinataire(s), {} colonne(s)",
-                        m.file,
-                        m.sheet.headers.len()
+                    RichText::new(trf!(
+                        "« {file} » : {n} destinataire(s), {headers} colonne(s)",
+                        file = m.file,
+                        n,
+                        headers = m.sheet.headers.len()
                     ))
                     .strong(),
                 );
@@ -3130,10 +3173,12 @@ impl VariumApp {
                                 for v in &names {
                                     ui.label(RichText::new(v).monospace());
                                     match m.sheet.column_for(v) {
-                                        Some(c) => ui
-                                            .label(format!("✔ colonne « {} »", m.sheet.headers[c])),
+                                        Some(c) => ui.label(trf!(
+                                            "✔ colonne « {v} »",
+                                            v = m.sheet.headers[c]
+                                        )),
                                         None => {
-                                            ui.label(RichText::new("valeur du document").weak())
+                                            ui.label(RichText::new(tr("valeur du document")).weak())
                                         }
                                     };
                                     ui.end_row();
@@ -3141,7 +3186,7 @@ impl VariumApp {
                             });
                     });
                 ui.horizontal(|ui| {
-                    ui.label("Aperçu :");
+                    ui.label(tr("Aperçu :"));
                     if ui.small_button("◀").clicked() && m.record > 0 {
                         m.record -= 1;
                     }
@@ -3151,14 +3196,15 @@ impl VariumApp {
                     }
                 });
                 ui.separator();
-                ui.label(format!(
-                    "Créer les {n} documents dans un seul fichier, une page par destinataire :"
+                ui.label(trf!(
+                    "Créer les {n} documents dans un seul fichier, une page par destinataire :",
+                    n
                 ));
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("LibreOffice (.odt)").clicked() {
+                    if ui.button(tr("LibreOffice (.odt)")).clicked() {
                         self.queue.push(Act::Export(Format::Odt));
                     }
-                    if ui.button("Word (.docx)").clicked() {
+                    if ui.button(tr("Word (.docx)")).clicked() {
                         self.queue.push(Act::Export(Format::Docx));
                     }
                     if ui.button("PDF").clicked() {
@@ -3169,17 +3215,17 @@ impl VariumApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Autre fichier…").clicked() {
+                    if ui.button(tr("Autre fichier…")).clicked() {
                         self.io.open(&ctx, OpenKind::Data);
                     }
-                    if ui.button("Terminer le publipostage").clicked() {
+                    if ui.button(tr("Terminer le publipostage")).clicked() {
                         self.merge = None;
                         keep = false;
                     }
                 });
             }
         }
-        if ui.button("Fermer").clicked() {
+        if ui.button(tr("Fermer")).clicked() {
             keep = false;
         }
         keep
@@ -3312,26 +3358,26 @@ impl VariumApp {
                 ui.label(RichText::new("{ }").monospace().strong().color(accent(ui)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if icon_button(ui, Icon::Redo, false)
-                        .on_hover_text("Rétablir")
+                        .on_hover_text(tr("Rétablir"))
                         .clicked()
                     {
                         self.queue.push(Act::Redo);
                     }
                     if icon_button(ui, Icon::Undo, false)
-                        .on_hover_text("Annuler")
+                        .on_hover_text(tr("Annuler"))
                         .clicked()
                     {
                         self.queue.push(Act::Undo);
                     }
                     if icon_button(ui, Icon::Pdf, false)
-                        .on_hover_text("Exporter en PDF")
+                        .on_hover_text(tr("Exporter en PDF"))
                         .clicked()
                     {
                         self.queue.push(Act::Export(Format::Pdf));
                     }
                     ui.add(
                         egui::TextEdit::singleline(&mut self.title)
-                            .hint_text("Titre")
+                            .hint_text(tr("Titre"))
                             .desired_width(ui.available_width()),
                     );
                 });
@@ -3358,16 +3404,20 @@ impl VariumApp {
             ui.columns(3, |cols| {
                 let pages = self.pages.max(1);
                 for (col, (tab, icon, label)) in cols.iter_mut().zip([
-                    (Tab::Text, "✏", "Texte".to_string()),
+                    (Tab::Text, "✏", tr("Texte").to_string()),
                     (
                         Tab::Fields,
                         "{ }",
-                        format!("Champs {filled}/{}", vars.len()),
+                        trf!("Champs {filled}/{vars}", filled, vars = vars.len()),
                     ),
                     (
                         Tab::Page,
                         "📄",
-                        format!("Page{} ({pages})", if pages > 1 { "s" } else { "" }),
+                        if pages > 1 {
+                            trf!("Pages ({pages})", pages)
+                        } else {
+                            trf!("Page ({pages})", pages)
+                        },
                     ),
                 ]) {
                     let on = self.tab == tab;
@@ -3443,13 +3493,6 @@ impl eframe::App for VariumApp {
                 }
             }
         }
-        // Menus natifs de macOS
-        #[cfg(target_os = "macos")]
-        if let Some(menu) = &self.native {
-            for act in menu.poll() {
-                self.push_once(act, now);
-            }
-        }
 
         let mobile = ctx.content_rect().width() < MOBILE_WIDTH;
         self.apply_style(&ctx, mobile);
@@ -3501,28 +3544,28 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
         .num_columns(2)
         .spacing([12.0, 6.0])
         .show(ui, |ui| {
-            ui.label("Format");
+            ui.label(tr("Format"));
             egui::ComboBox::from_id_salt((id, "paper"))
-                .selected_text(p.paper.label())
+                .selected_text(labels::paper(p.paper))
                 .show_ui(ui, |ui| {
                     for x in Paper::ALL {
-                        ui.selectable_value(&mut p.paper, x, x.label());
+                        ui.selectable_value(&mut p.paper, x, labels::paper(x));
                     }
                 });
             ui.end_row();
-            ui.label("Orientation");
+            ui.label(tr("Orientation"));
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut p.landscape, false, "Portrait");
-                ui.selectable_value(&mut p.landscape, true, "Paysage");
+                ui.selectable_value(&mut p.landscape, false, tr("Portrait"));
+                ui.selectable_value(&mut p.landscape, true, tr("Paysage"));
             });
             ui.end_row();
-            ui.label("Marges (mm)");
+            ui.label(tr("Marges (mm)"));
             ui.horizontal_wrapped(|ui| {
                 for (l, v) in [
-                    ("haut", &mut p.margin_top),
-                    ("bas", &mut p.margin_bottom),
-                    ("gauche", &mut p.margin_left),
-                    ("droite", &mut p.margin_right),
+                    (tr("haut"), &mut p.margin_top),
+                    (tr("bas"), &mut p.margin_bottom),
+                    (tr("gauche"), &mut p.margin_left),
+                    (tr("droite"), &mut p.margin_right),
                 ] {
                     ui.label(RichText::new(l).small());
                     ui.add(
@@ -3534,7 +3577,7 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
                 }
             });
             ui.end_row();
-            ui.label("Police");
+            ui.label(tr("Police"));
             egui::ComboBox::from_id_salt((id, "font"))
                 .selected_text(p.font.label())
                 .show_ui(ui, |ui| {
@@ -3543,7 +3586,7 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
                     }
                 });
             ui.end_row();
-            ui.label("Taille");
+            ui.label(tr("Taille"));
             ui.add(
                 egui::DragValue::new(&mut p.font_size)
                     .range(8.0..=24.0)
@@ -3551,13 +3594,13 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
                     .custom_formatter(|v, _| format!("{} pt", fr(v))),
             );
             ui.end_row();
-            ui.label("Interligne");
+            ui.label(tr("Interligne"));
             ui.horizontal(|ui| {
                 for (v, l) in [
-                    (1.0, "simple"),
+                    (1.0, tr("simple")),
                     (1.15, "1,15"),
                     (1.5, "1,5"),
-                    (2.0, "double"),
+                    (2.0, tr("double")),
                 ] {
                     if ui
                         .selectable_label((p.line_spacing - v).abs() < 0.01, l)
@@ -3568,36 +3611,36 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
                 }
             });
             ui.end_row();
-            ui.label("Texte");
-            ui.checkbox(&mut p.justify, "Justifié");
+            ui.label(tr("Texte"));
+            ui.checkbox(&mut p.justify, tr("Justifié"));
             ui.end_row();
-            ui.label("En-tête");
+            ui.label(tr("En-tête"));
             ui.add(
                 egui::TextEdit::singleline(&mut p.header)
-                    .hint_text("ex. {{entreprise}} — Confidentiel"),
+                    .hint_text(tr("ex. {{entreprise}} — Confidentiel")),
             );
             ui.end_row();
-            ui.label("Pied de page");
+            ui.label(tr("Pied de page"));
             ui.add(
                 egui::TextEdit::singleline(&mut p.footer)
-                    .hint_text("ex. **{{entreprise}}** · SIRET {{siret}}"),
+                    .hint_text(tr("ex. **{{entreprise}}** · SIRET {{siret}}")),
             );
             ui.end_row();
             ui.label("");
-            ui.checkbox(&mut p.page_numbers, "Numéros de page « Page 1 sur 3 »");
+            ui.checkbox(&mut p.page_numbers, tr("Numéros de page « Page 1 sur 3 »"));
             ui.end_row();
-            ui.label("Langue");
+            ui.label(tr("Langue"));
             egui::ComboBox::from_id_salt((id, "langue"))
-                .selected_text(p.langue.label())
+                .selected_text(labels::lang(p.langue))
                 .show_ui(ui, |ui| {
                     for l in varium_core::Lang::ALL {
-                        ui.selectable_value(&mut p.langue, l, l.label());
+                        ui.selectable_value(&mut p.langue, l, labels::lang(l));
                     }
                 });
             ui.end_row();
-            ui.label("Typographie");
-            ui.checkbox(&mut p.typographie, "Automatique (selon la langue)")
-                    .on_hover_text("« guillemets », apostrophe ’, points de suspension …, espaces fines avant ; : ! ?");
+            ui.label(tr("Typographie"));
+            ui.checkbox(&mut p.typographie, tr("Automatique (selon la langue)"))
+                    .on_hover_text(tr("« guillemets », apostrophe ’, points de suspension …, espaces fines avant ; : ! ?"));
             ui.end_row();
         });
 }
@@ -3606,9 +3649,9 @@ fn page_form(ui: &mut egui::Ui, p: &mut PageSetup, id: &str) {
 /// Taille lisible : « 1,2 Mo ».
 fn human_size(bytes: u64) -> String {
     if bytes >= 1_000_000 {
-        format!("{} Mo", fr((bytes as f64 / 100_000.0).round() / 10.0))
+        trf!("{v} Mo", v = fr((bytes as f64 / 100_000.0).round() / 10.0))
     } else {
-        format!("{} ko", bytes.div_ceil(1000))
+        trf!("{n} ko", n = bytes.div_ceil(1000))
     }
 }
 
@@ -3638,7 +3681,7 @@ fn value_editor(ui: &mut egui::Ui, name: &str, ty: VarType, value: &mut String) 
                     if date != before {
                         *value = date.to_string();
                     }
-                    if ui.small_button("✕").on_hover_text("Effacer").clicked() {
+                    if ui.small_button("✕").on_hover_text(tr("Effacer")).clicked() {
                         value.clear();
                     }
                 }
@@ -3648,7 +3691,7 @@ fn value_editor(ui: &mut egui::Ui, name: &str, ty: VarType, value: &mut String) 
                             .hint_text("AAAA-MM-JJ")
                             .desired_width(110.0),
                     );
-                    if ui.button("📅 Aujourd'hui").clicked() {
+                    if ui.button(tr("📅 Aujourd'hui")).clicked() {
                         *value = today();
                     }
                 }
@@ -3663,10 +3706,10 @@ fn value_editor(ui: &mut egui::Ui, name: &str, ty: VarType, value: &mut String) 
         }
         _ => {
             let hint = match ty {
-                VarType::Number => "ex. 1234,5",
-                VarType::Money => "ex. 12500",
-                VarType::Email => "nom@exemple.fr",
-                _ => "Valeur…",
+                VarType::Number => tr("ex. 1234,5"),
+                VarType::Money => tr("ex. 12500"),
+                VarType::Email => tr("nom@exemple.fr"),
+                _ => tr("Valeur…"),
             };
             ui.add(
                 egui::TextEdit::singleline(value)
@@ -3812,10 +3855,10 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, on: bool) -> egui::Response {
             p.circle_stroke(pt(-2.0, -2.0), 5.0 * u, s);
             p.line_segment([pt(2.0, 2.0), pt(7.0, 7.0)], Stroke::new(2.2, ink));
         }
-        Icon::Bold => text(p, "G", serif(true, false), ink),
-        Icon::Italic => text(p, "I", serif(false, true), ink),
+        Icon::Bold => text(p, tr("G"), serif(true, false), ink),
+        Icon::Italic => text(p, tr("I"), serif(false, true), ink),
         Icon::Underline => {
-            text(p, "S", serif(false, false), ink);
+            text(p, tr("S"), serif(false, false), ink);
             p.line_segment([pt(-5.0, 8.0), pt(5.0, 8.0)], s);
         }
         Icon::Strike => {
@@ -3906,91 +3949,103 @@ fn err(ui: &egui::Ui) -> Color32 {
 }
 
 const SPECIAL: [(&str, &str); 14] = [
-    ("« ", "guillemet ouvrant"),
-    (" »", "guillemet fermant"),
-    ("—", "tiret cadratin"),
-    ("–", "tiret demi-cadratin"),
-    ("…", "points de suspension"),
-    ("€", "euro"),
-    ("°", "degré"),
-    ("§", "paragraphe"),
-    ("©", "copyright"),
-    ("®", "marque déposée"),
-    ("™", "marque"),
-    ("✓", "coche"),
-    ("→", "flèche"),
-    ("\u{a0}", "espace insécable"),
+    ("« ", n_("guillemet ouvrant")),
+    (" »", n_("guillemet fermant")),
+    ("—", n_("tiret cadratin")),
+    ("–", n_("tiret demi-cadratin")),
+    ("…", n_("points de suspension")),
+    ("€", n_("euro")),
+    ("°", n_("degré")),
+    ("§", n_("paragraphe")),
+    ("©", n_("copyright")),
+    ("®", n_("marque déposée")),
+    ("™", n_("marque")),
+    ("✓", n_("coche")),
+    ("→", n_("flèche")),
+    ("\u{a0}", n_("espace insécable")),
 ];
 
 const SYNTAX: &[(&str, &str)] = &[
-    ("{{nom}}", "un champ : la même valeur partout"),
+    (n_("{{nom}}"), n_("un champ : la même valeur partout")),
     (
-        "{{nom | upper}}",
-        "un filtre (upper, lower, capitalize, title, trim)",
+        n_("{{nom | upper}}"),
+        n_("un filtre (upper, lower, capitalize, title, trim)"),
     ),
     (
-        "{{montant | money}}",
-        "un montant : 12 500,00 € (money:usd…)",
+        n_("{{montant | money}}"),
+        n_("un montant : 12 500,00 € (money:usd…)"),
     ),
     (
         "{{date | date:full}}",
-        "une date : lundi 3 novembre 2026 (date, date:short)",
+        n_("une date : lundi 3 novembre 2026 (date, date:short)"),
     ),
-    ("{{x | default:\"…\"}}", "une valeur si le champ est vide"),
     (
-        "{{= q * prix}}",
-        "un champ calculé (+ − * / %, arrondi, min, max, somme)",
+        "{{x | default:\"…\"}}",
+        n_("une valeur si le champ est vide"),
     ),
-    ("{{aujourdhui}}", "la date du jour, automatiquement"),
-    ("# Titre  ## Sous-titre", "titres (Ctrl+1, Ctrl+2, Ctrl+3)"),
-    ("**gras**  *italique*", "caractères (Ctrl+B, Ctrl+I)"),
-    ("__souligné__  ~~barré~~", "caractères (Ctrl+U)"),
-    ("- élément   1. élément", "listes (Maj+F12, F12)"),
-    ("> citation", "citation"),
-    ("-> centré <-", "centré (Ctrl+E)"),
-    ("-> à droite ->", "aligné à droite (Ctrl+R)"),
-    ("| a | b |", "tableau ; |---|---:| sous l'en-tête"),
-    ("---", "ligne horizontale"),
-    ("\\newpage", "saut de page (Ctrl+Entrée)"),
-    ("\\sommaire", "table des matières (liste des titres)"),
-    ("$x^2$   $$ … $$", "formules LaTeX, en ligne ou centrées"),
-    ("\\{{x}}  \\*  \\$", "caractères littéraux"),
+    (
+        n_("{{= q * prix}}"),
+        n_("un champ calculé (+ − * / %, arrondi, min, max, somme)"),
+    ),
+    ("{{aujourdhui}}", n_("la date du jour, automatiquement")),
+    (
+        n_("# Titre  ## Sous-titre"),
+        n_("titres (Ctrl+1, Ctrl+2, Ctrl+3)"),
+    ),
+    (
+        n_("**gras**  *italique*"),
+        n_("caractères (Ctrl+B, Ctrl+I)"),
+    ),
+    (n_("__souligné__  ~~barré~~"), n_("caractères (Ctrl+U)")),
+    (n_("- élément   1. élément"), n_("listes (Maj+F12, F12)")),
+    (n_("> citation"), n_("citation")),
+    (n_("-> centré <-"), n_("centré (Ctrl+E)")),
+    (n_("-> à droite ->"), n_("aligné à droite (Ctrl+R)")),
+    ("| a | b |", n_("tableau ; |---|---:| sous l'en-tête")),
+    ("---", n_("ligne horizontale")),
+    ("\\newpage", n_("saut de page (Ctrl+Entrée)")),
+    ("\\sommaire", n_("table des matières (liste des titres)")),
+    (
+        "$x^2$   $$ … $$",
+        n_("formules LaTeX, en ligne ou centrées"),
+    ),
+    ("\\{{x}}  \\*  \\$", n_("caractères littéraux")),
 ];
 
 fn act_label(a: Act) -> &'static str {
     match a {
-        Act::New => "Nouveau document",
-        Act::Templates => "Nouveau à partir d'un modèle",
-        Act::Open => "Ouvrir",
-        Act::Save => "Enregistrer",
-        Act::SaveAs => "Enregistrer sous",
-        Act::Export(Format::Odt) => "Exporter pour LibreOffice (.odt)",
-        Act::Export(Format::Pdf) => "Exporter en PDF",
-        Act::Export(_) => "Exporter",
-        Act::Print => "Imprimer",
-        Act::Undo => "Annuler",
-        Act::Redo => "Rétablir",
-        Act::Find => "Rechercher",
-        Act::Replace => "Rechercher et remplacer",
-        Act::Wrap("**") => "Gras",
-        Act::Wrap("*") => "Italique",
-        Act::Wrap("__") => "Souligné",
-        Act::Wrap(_) => "Barré",
-        Act::Style(LineStyle::Body) => "Corps de texte / aligner à gauche",
-        Act::Style(LineStyle::Heading(1)) => "Titre 1",
-        Act::Style(LineStyle::Heading(2)) => "Titre 2",
-        Act::Style(LineStyle::Heading(_)) => "Titre 3",
-        Act::Style(LineStyle::Center) => "Centrer",
-        Act::Style(LineStyle::Right) => "Aligner à droite",
-        Act::Style(LineStyle::Bullet) => "Liste à puces",
-        Act::Style(LineStyle::Numbered) => "Liste numérotée",
-        Act::Style(LineStyle::Quote) => "Citation",
-        Act::InsertField => "Insérer un champ",
-        Act::InsertPageBreak => "Saut de page",
-        Act::Syntax => "Guide de la syntaxe",
-        Act::Languages => "Écrire en plusieurs langues",
-        Act::FullScreen => "Plein écran",
-        Act::Focus => "Mode concentration",
+        Act::New => tr("Nouveau document"),
+        Act::Templates => tr("Nouveau à partir d'un modèle"),
+        Act::Open => tr("Ouvrir"),
+        Act::Save => tr("Enregistrer"),
+        Act::SaveAs => tr("Enregistrer sous"),
+        Act::Export(Format::Odt) => tr("Exporter pour LibreOffice (.odt)"),
+        Act::Export(Format::Pdf) => tr("Exporter en PDF"),
+        Act::Export(_) => tr("Exporter"),
+        Act::Print => tr("Imprimer"),
+        Act::Undo => tr("Annuler"),
+        Act::Redo => tr("Rétablir"),
+        Act::Find => tr("Rechercher"),
+        Act::Replace => tr("Rechercher et remplacer"),
+        Act::Wrap("**") => tr("Gras"),
+        Act::Wrap("*") => tr("Italique"),
+        Act::Wrap("__") => tr("Souligné"),
+        Act::Wrap(_) => tr("Barré"),
+        Act::Style(LineStyle::Body) => tr("Corps de texte / aligner à gauche"),
+        Act::Style(LineStyle::Heading(1)) => tr("Titre 1"),
+        Act::Style(LineStyle::Heading(2)) => tr("Titre 2"),
+        Act::Style(LineStyle::Heading(_)) => tr("Titre 3"),
+        Act::Style(LineStyle::Center) => tr("Centrer"),
+        Act::Style(LineStyle::Right) => tr("Aligner à droite"),
+        Act::Style(LineStyle::Bullet) => tr("Liste à puces"),
+        Act::Style(LineStyle::Numbered) => tr("Liste numérotée"),
+        Act::Style(LineStyle::Quote) => tr("Citation"),
+        Act::InsertField => tr("Insérer un champ"),
+        Act::InsertPageBreak => tr("Saut de page"),
+        Act::Syntax => tr("Guide de la syntaxe"),
+        Act::Languages => tr("Écrire en plusieurs langues"),
+        Act::FullScreen => tr("Plein écran"),
+        Act::Focus => tr("Mode concentration"),
         _ => "",
     }
 }
@@ -4000,243 +4055,173 @@ fn act_label(a: Act) -> &'static str {
 // ---------------------------------------------------------------------------------
 
 #[cfg(target_os = "macos")]
-mod native {
-    use muda::accelerator::Accelerator;
-    use muda::{AboutMetadata, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::Submenu>> {
+    use crate::menubar::{clipboard_items, sep};
+    use muda::Submenu;
 
-    use super::{Act, Format, Layout};
-    use crate::editor::LineStyle;
+    let [cut, copy, paste, select_all] = clipboard_items();
+    let export = Submenu::with_items(
+        tr("Exporter vers"),
+        true,
+        &[
+            &b.item("PDF…", Act::Export(Format::Pdf), None),
+            &b.item(tr("Word (.docx)…"), Act::Export(Format::Docx), None),
+            &b.item(tr("LibreOffice (.odt)…"), Act::Export(Format::Odt), None),
+            &b.item(tr("Texte enrichi (.rtf)…"), Act::Export(Format::Rtf), None),
+            &b.item("EPUB…", Act::Export(Format::Epub), None),
+            &b.item(tr("Page web (.html)…"), Act::Export(Format::Html), None),
+            &b.item(tr("LaTeX (.tex)…"), Act::Export(Format::Latex), None),
+            &b.item(tr("Texte brut (.txt)…"), Act::Export(Format::Text), None),
+        ],
+    )?;
+    let file = Submenu::with_items(
+        tr("Fichier"),
+        true,
+        &[
+            &b.item(tr("Nouveau"), Act::New, Some("Cmd+N")),
+            &b.item(
+                tr("Nouveau à partir d'un modèle…"),
+                Act::Templates,
+                Some("Cmd+Shift+N"),
+            ),
+            &b.item(tr("Ouvrir…"), Act::Open, Some("Cmd+O")),
+            &sep(),
+            &b.item(tr("Enregistrer"), Act::Save, Some("Cmd+S")),
+            &b.item(tr("Enregistrer sous…"), Act::SaveAs, Some("Cmd+Shift+S")),
+            &sep(),
+            &export,
+            &b.item(tr("Publipostage…"), Act::Merge, None),
+            &sep(),
+            &b.item(tr("Imprimer…"), Act::Print, Some("Cmd+P")),
+        ],
+    )?;
+    let edit = Submenu::with_items(
+        tr("Édition"),
+        true,
+        &[
+            &b.item(tr("Annuler"), Act::Undo, Some("Cmd+Z")),
+            &b.item(tr("Rétablir"), Act::Redo, Some("Cmd+Shift+Z")),
+            &sep(),
+            &cut,
+            &copy,
+            &paste,
+            &select_all,
+            &sep(),
+            &b.item(tr("Rechercher…"), Act::Find, Some("Cmd+F")),
+            &b.item(
+                tr("Rechercher et remplacer…"),
+                Act::Replace,
+                Some("Cmd+Alt+F"),
+            ),
+            &sep(),
+            &b.item(tr("Effacer toutes les valeurs"), Act::ClearValues, None),
+        ],
+    )?;
+    let insert = Submenu::with_items(
+        tr("Insertion"),
+        true,
+        &[
+            &b.item(tr("Champ…"), Act::InsertField, Some("Cmd+Shift+V")),
+            &b.item(tr("Champ calculé…"), Act::InsertFormula, None),
+            &b.item(tr("Date du jour"), Act::InsertToday, None),
+            &sep(),
+            &b.item(tr("Tableau…"), Act::InsertTable, None),
+            &b.item(tr("Saut de page"), Act::InsertPageBreak, Some("Cmd+Enter")),
+            &b.item(tr("Ligne horizontale"), Act::InsertRule, None),
+            &b.item(tr("Formule"), Act::InsertMath(false), None),
+        ],
+    )?;
+    let format = Submenu::with_items(
+        tr("Format"),
+        true,
+        &[
+            &b.item(tr("Gras"), Act::Wrap("**"), Some("Cmd+B")),
+            &b.item(tr("Italique"), Act::Wrap("*"), Some("Cmd+I")),
+            &b.item(tr("Souligné"), Act::Wrap("__"), Some("Cmd+U")),
+            &b.item(tr("Barré"), Act::Wrap("~~"), None),
+            &sep(),
+            &b.item(
+                tr("Titre 1"),
+                Act::Style(LineStyle::Heading(1)),
+                Some("Cmd+1"),
+            ),
+            &b.item(
+                tr("Titre 2"),
+                Act::Style(LineStyle::Heading(2)),
+                Some("Cmd+2"),
+            ),
+            &b.item(
+                tr("Titre 3"),
+                Act::Style(LineStyle::Heading(3)),
+                Some("Cmd+3"),
+            ),
+            &b.item(
+                tr("Corps de texte"),
+                Act::Style(LineStyle::Body),
+                Some("Cmd+0"),
+            ),
+            &b.item(tr("Citation"), Act::Style(LineStyle::Quote), None),
+            &sep(),
+            &b.item(tr("Liste à puces"), Act::Style(LineStyle::Bullet), None),
+            &b.item(tr("Liste numérotée"), Act::Style(LineStyle::Numbered), None),
+            &sep(),
+            &b.item(tr("Aligner à gauche"), Act::Style(LineStyle::Body), None),
+            &b.item(tr("Centrer"), Act::Style(LineStyle::Center), Some("Cmd+E")),
+            &b.item(
+                tr("Aligner à droite"),
+                Act::Style(LineStyle::Right),
+                Some("Cmd+R"),
+            ),
+            &sep(),
+            &b.item(tr("Mise en page…"), Act::PageSetup, None),
+        ],
+    )?;
+    let view = Submenu::with_items(
+        tr("Affichage"),
+        true,
+        &[
+            &b.item(tr("Texte et page"), Act::Layout(Layout::Split), None),
+            &b.item(tr("Page seule"), Act::Layout(Layout::Page), None),
+            &b.item(tr("Texte seul"), Act::Layout(Layout::Text), None),
+            &sep(),
+            &b.item(
+                tr("Afficher / masquer l'inspecteur"),
+                Act::ToggleFields,
+                Some("Cmd+Alt+I"),
+            ),
+            &b.item(
+                tr("Afficher / masquer la barre d'outils"),
+                Act::ToggleToolbar,
+                Some("Cmd+Alt+T"),
+            ),
+            &b.item(
+                tr("Afficher / masquer la barre d'état"),
+                Act::ToggleStatus,
+                None,
+            ),
+            &b.item(tr("Trame de fond des champs"), Act::ToggleHighlight, None),
+            &b.item(tr("Mode concentration"), Act::Focus, Some("Cmd+Shift+F")),
+            &sep(),
+            &b.item(tr("Zoom avant"), Act::ZoomIn, Some("Cmd+=")),
+            &b.item(tr("Zoom arrière"), Act::ZoomOut, Some("Cmd+-")),
+            &b.item(tr("Largeur de la page"), Act::ZoomFit, None),
+            &sep(),
+            &b.item(tr("Plein écran"), Act::FullScreen, Some("Ctrl+Cmd+F")),
+        ],
+    )?;
+    let help = Submenu::with_items(
+        tr("Aide"),
+        true,
+        &[
+            &b.item(tr("Guide de la syntaxe"), Act::Syntax, None),
+            &b.item(tr("Écrire en plusieurs langues"), Act::Languages, None),
+            &b.item(tr("Raccourcis clavier"), Act::Shortcuts, None),
+            &b.item(tr("Nombre de mots"), Act::Stats, None),
+            &sep(),
+            &b.item(tr("Site de Varium"), crate::menubar::MenuAct::Website, None),
+            &b.item(tr("À propos de Varium"), Act::About, None),
+        ],
+    )?;
 
-    /// Les menus de la barre de l'écran, et l'action de chaque élément.
-    pub struct NativeMenu {
-        _menu: Menu,
-        actions: Vec<(String, Act)>,
-    }
-
-    struct Builder {
-        actions: Vec<(String, Act)>,
-    }
-
-    impl Builder {
-        fn item(&mut self, label: &str, act: Act, keys: Option<&str>) -> MenuItem {
-            let id = format!("varium-{}", self.actions.len());
-            self.actions.push((id.clone(), act));
-            let accel = keys.and_then(|k| k.parse::<Accelerator>().ok());
-            MenuItem::with_id(id, label, true, accel)
-        }
-    }
-
-    impl NativeMenu {
-        /// Installe les menus. `None` si macOS les refuse (on garde alors ceux d'egui).
-        pub fn install() -> Option<Self> {
-            let mut b = Builder {
-                actions: Vec::new(),
-            };
-            let sep = PredefinedMenuItem::separator;
-
-            let about = PredefinedMenuItem::about(
-                Some("À propos de Varium"),
-                Some(AboutMetadata {
-                    name: Some("Varium".into()),
-                    version: Some(env!("CARGO_PKG_VERSION").into()),
-                    comments: Some("Un document. Toutes ses possibilités.".into()),
-                    website: Some("https://maxlestage.github.io/VARIUM/".into()),
-                    ..Default::default()
-                }),
-            );
-            let quit = b.item("Quitter Varium", Act::Quit, Some("Cmd+Q"));
-            let app_menu = Submenu::with_items(
-                "Varium",
-                true,
-                &[
-                    &about,
-                    &sep(),
-                    &PredefinedMenuItem::services(Some("Services")),
-                    &sep(),
-                    &PredefinedMenuItem::hide(Some("Masquer Varium")),
-                    &PredefinedMenuItem::hide_others(Some("Masquer les autres")),
-                    &PredefinedMenuItem::show_all(Some("Tout afficher")),
-                    &sep(),
-                    &quit,
-                ],
-            )
-            .ok()?;
-
-            let export = Submenu::with_items(
-                "Exporter vers",
-                true,
-                &[
-                    &b.item("PDF…", Act::Export(Format::Pdf), None),
-                    &b.item("Word (.docx)…", Act::Export(Format::Docx), None),
-                    &b.item("LibreOffice (.odt)…", Act::Export(Format::Odt), None),
-                    &b.item("Texte enrichi (.rtf)…", Act::Export(Format::Rtf), None),
-                    &b.item("EPUB…", Act::Export(Format::Epub), None),
-                    &b.item("Page web (.html)…", Act::Export(Format::Html), None),
-                    &b.item("LaTeX (.tex)…", Act::Export(Format::Latex), None),
-                    &b.item("Texte brut (.txt)…", Act::Export(Format::Text), None),
-                ],
-            )
-            .ok()?;
-            let file = Submenu::with_items(
-                "Fichier",
-                true,
-                &[
-                    &b.item("Nouveau", Act::New, Some("Cmd+N")),
-                    &b.item(
-                        "Nouveau à partir d'un modèle…",
-                        Act::Templates,
-                        Some("Cmd+Shift+N"),
-                    ),
-                    &b.item("Ouvrir…", Act::Open, Some("Cmd+O")),
-                    &sep(),
-                    &b.item("Enregistrer", Act::Save, Some("Cmd+S")),
-                    &b.item("Enregistrer sous…", Act::SaveAs, Some("Cmd+Shift+S")),
-                    &sep(),
-                    &export,
-                    &b.item("Publipostage…", Act::Merge, None),
-                    &sep(),
-                    &b.item("Imprimer…", Act::Print, Some("Cmd+P")),
-                ],
-            )
-            .ok()?;
-            let edit = Submenu::with_items(
-                "Édition",
-                true,
-                &[
-                    &b.item("Annuler", Act::Undo, Some("Cmd+Z")),
-                    &b.item("Rétablir", Act::Redo, Some("Cmd+Shift+Z")),
-                    &sep(),
-                    &b.item("Rechercher…", Act::Find, Some("Cmd+F")),
-                    &b.item("Rechercher et remplacer…", Act::Replace, Some("Cmd+Alt+F")),
-                    &sep(),
-                    &b.item("Effacer toutes les valeurs", Act::ClearValues, None),
-                ],
-            )
-            .ok()?;
-            let insert = Submenu::with_items(
-                "Insertion",
-                true,
-                &[
-                    &b.item("Champ…", Act::InsertField, Some("Cmd+Shift+V")),
-                    &b.item("Champ calculé…", Act::InsertFormula, None),
-                    &b.item("Date du jour", Act::InsertToday, None),
-                    &sep(),
-                    &b.item("Tableau…", Act::InsertTable, None),
-                    &b.item("Saut de page", Act::InsertPageBreak, Some("Cmd+Enter")),
-                    &b.item("Ligne horizontale", Act::InsertRule, None),
-                    &b.item("Formule", Act::InsertMath(false), None),
-                ],
-            )
-            .ok()?;
-            let format = Submenu::with_items(
-                "Format",
-                true,
-                &[
-                    &b.item("Gras", Act::Wrap("**"), Some("Cmd+B")),
-                    &b.item("Italique", Act::Wrap("*"), Some("Cmd+I")),
-                    &b.item("Souligné", Act::Wrap("__"), Some("Cmd+U")),
-                    &b.item("Barré", Act::Wrap("~~"), None),
-                    &sep(),
-                    &b.item("Titre 1", Act::Style(LineStyle::Heading(1)), Some("Cmd+1")),
-                    &b.item("Titre 2", Act::Style(LineStyle::Heading(2)), Some("Cmd+2")),
-                    &b.item("Titre 3", Act::Style(LineStyle::Heading(3)), Some("Cmd+3")),
-                    &b.item("Corps de texte", Act::Style(LineStyle::Body), Some("Cmd+0")),
-                    &b.item("Citation", Act::Style(LineStyle::Quote), None),
-                    &sep(),
-                    &b.item("Liste à puces", Act::Style(LineStyle::Bullet), None),
-                    &b.item("Liste numérotée", Act::Style(LineStyle::Numbered), None),
-                    &sep(),
-                    &b.item("Aligner à gauche", Act::Style(LineStyle::Body), None),
-                    &b.item("Centrer", Act::Style(LineStyle::Center), Some("Cmd+E")),
-                    &b.item(
-                        "Aligner à droite",
-                        Act::Style(LineStyle::Right),
-                        Some("Cmd+R"),
-                    ),
-                    &sep(),
-                    &b.item("Mise en page…", Act::PageSetup, None),
-                ],
-            )
-            .ok()?;
-            let view = Submenu::with_items(
-                "Présentation",
-                true,
-                &[
-                    &b.item("Texte et page", Act::Layout(Layout::Split), None),
-                    &b.item("Page seule", Act::Layout(Layout::Page), None),
-                    &b.item("Texte seul", Act::Layout(Layout::Text), None),
-                    &sep(),
-                    &b.item(
-                        "Afficher / masquer l'inspecteur",
-                        Act::ToggleFields,
-                        Some("Cmd+Alt+I"),
-                    ),
-                    &b.item(
-                        "Afficher / masquer la barre d'outils",
-                        Act::ToggleToolbar,
-                        Some("Cmd+Alt+T"),
-                    ),
-                    &b.item(
-                        "Afficher / masquer la barre d'état",
-                        Act::ToggleStatus,
-                        None,
-                    ),
-                    &b.item("Trame de fond des champs", Act::ToggleHighlight, None),
-                    &b.item("Mode concentration", Act::Focus, Some("Cmd+Shift+F")),
-                    &sep(),
-                    &b.item("Zoom avant", Act::ZoomIn, Some("Cmd+=")),
-                    &b.item("Zoom arrière", Act::ZoomOut, Some("Cmd+-")),
-                    &b.item("Largeur de la page", Act::ZoomFit, None),
-                    &sep(),
-                    &b.item("Plein écran", Act::FullScreen, Some("Ctrl+Cmd+F")),
-                ],
-            )
-            .ok()?;
-            let window = Submenu::with_items(
-                "Fenêtre",
-                true,
-                &[
-                    &PredefinedMenuItem::minimize(Some("Placer dans le Dock")),
-                    &PredefinedMenuItem::maximize(Some("Zoom")),
-                    &sep(),
-                    &PredefinedMenuItem::bring_all_to_front(Some("Tout ramener au premier plan")),
-                ],
-            )
-            .ok()?;
-            let help = Submenu::with_items(
-                "Aide",
-                true,
-                &[
-                    &b.item("Guide de la syntaxe", Act::Syntax, None),
-                    &b.item("Raccourcis clavier", Act::Shortcuts, None),
-                    &b.item("Nombre de mots", Act::Stats, None),
-                    &b.item("À propos de Varium", Act::About, None),
-                ],
-            )
-            .ok()?;
-
-            let menu = Menu::with_items(&[
-                &app_menu, &file, &edit, &insert, &format, &view, &window, &help,
-            ])
-            .ok()?;
-            menu.init_for_nsapp();
-            window.set_as_windows_menu_for_nsapp();
-            help.set_as_help_menu_for_nsapp();
-            Some(Self {
-                _menu: menu,
-                actions: b.actions,
-            })
-        }
-
-        /// Les actions choisies dans les menus depuis la dernière image.
-        pub fn poll(&self) -> Vec<Act> {
-            let mut out = Vec::new();
-            while let Ok(ev) = MenuEvent::receiver().try_recv() {
-                if let Some((_, act)) = self.actions.iter().find(|(id, _)| ev.id.0 == *id) {
-                    out.push(*act);
-                }
-            }
-            out
-        }
-    }
+    Ok(vec![file, edit, insert, format, view, help])
 }

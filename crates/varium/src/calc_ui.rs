@@ -2,6 +2,8 @@
 //! Numbers. Grille, barre de formule, feuilles, formats, tri, recopie, graphiques,
 //! exports XLSX / ODS / CSV. Le calcul vient du moteur `varium-calc`.
 
+use crate::labels;
+use crate::tr::{n_, tr};
 use std::path::PathBuf;
 
 use egui::{Align2, Color32, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
@@ -43,14 +45,14 @@ impl ChartKind {
 
     fn label(self) -> &'static str {
         match self {
-            ChartKind::Barres => "Histogramme",
-            ChartKind::BarresH => "Barres horizontales",
-            ChartKind::Empilees => "Barres empilées",
-            ChartKind::Courbes => "Courbes",
-            ChartKind::Aires => "Aires",
-            ChartKind::Nuage => "Nuage de points",
-            ChartKind::Secteurs => "Secteurs",
-            ChartKind::Anneau => "Anneau",
+            ChartKind::Barres => tr("Histogramme"),
+            ChartKind::BarresH => tr("Barres horizontales"),
+            ChartKind::Empilees => tr("Barres empilées"),
+            ChartKind::Courbes => tr("Courbes"),
+            ChartKind::Aires => tr("Aires"),
+            ChartKind::Nuage => tr("Nuage de points"),
+            ChartKind::Secteurs => tr("Secteurs"),
+            ChartKind::Anneau => tr("Anneau"),
         }
     }
 }
@@ -60,6 +62,77 @@ struct Chart {
     sheet: usize,
     range: Range,
 }
+
+/// Les commandes du Classeur, communes aux menus egui, à la barre native de macOS
+/// et au clavier.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CalcAction {
+    New,
+    Sample,
+    Open,
+    Save,
+    SaveAs,
+    ExportXlsx,
+    ExportOds,
+    ExportCsv,
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    Clear,
+    SelectAll,
+    FillDown,
+    FillRight,
+    FreezeRow,
+    FreezeCol,
+    FreezeHere,
+    Unfreeze,
+    InsertRow,
+    InsertCol,
+    DeleteRow,
+    DeleteCol,
+    NewSheet,
+    Chart,
+    Functions,
+    Number(NumberFormat),
+    Bold,
+    Italic,
+    /// Couleur de fond : indice dans `FILLS`.
+    Fill(usize),
+    CondFormat,
+    SortAsc,
+    SortDesc,
+    AutoSum,
+}
+
+impl CalcAction {
+    /// Les actions qu'un champ de texte en cours d'édition traite lui-même.
+    fn is_editing(self) -> bool {
+        matches!(
+            self,
+            CalcAction::Undo
+                | CalcAction::Redo
+                | CalcAction::Cut
+                | CalcAction::Copy
+                | CalcAction::Paste
+                | CalcAction::Clear
+                | CalcAction::SelectAll
+                | CalcAction::Bold
+                | CalcAction::Italic
+                | CalcAction::FillDown
+        )
+    }
+}
+
+const NUMBER_FORMATS: [(&str, NumberFormat); 6] = [
+    (n_("Standard"), NumberFormat::General),
+    (n_("Nombre 0,00"), NumberFormat::Number(2)),
+    (n_("Monétaire (€)"), NumberFormat::Currency(2)),
+    (n_("Pourcentage"), NumberFormat::Percent(1)),
+    (n_("Date"), NumberFormat::Date),
+    (n_("Texte"), NumberFormat::Text),
+];
 
 pub struct CalcApp {
     wb: Workbook,
@@ -84,6 +157,10 @@ pub struct CalcApp {
     grid_id: Option<egui::Id>,
     /// Boîte « Mise en forme conditionnelle » ouverte.
     cond_dialog: Option<CondDialog>,
+    /// Dernière action du clavier ou du menu natif, pour ne pas la doubler.
+    last_act: Option<(CalcAction, f64)>,
+    /// Les menus sont dans la barre native de macOS (pas de barre dans la fenêtre).
+    pub native_menu: bool,
 }
 
 impl CalcApp {
@@ -111,6 +188,8 @@ impl CalcApp {
             dragging_col: None,
             grid_id: None,
             cond_dialog: None,
+            last_act: None,
+            native_menu: false,
         }
     }
 
@@ -125,7 +204,7 @@ impl CalcApp {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.wb.title.clone());
-        format!("{name} — Varium Classeur")
+        trf!("{name} — Varium Classeur", name)
     }
 
     fn selection(&self) -> Range {
@@ -294,7 +373,7 @@ impl CalcApp {
                             self.sheet = 0;
                             self.cur = CellRef::new(0, 0);
                             self.anchor = self.cur;
-                            self.notify(ctx, format!("« {name} » ouvert"), false);
+                            self.notify(ctx, trf!("« {name} » ouvert", name), false);
                         }
                         Err(e) => self.notify(ctx, e, true),
                     }
@@ -304,7 +383,11 @@ impl CalcApp {
                     if project {
                         self.path = Some(path.clone());
                     }
-                    self.notify(ctx, format!("Enregistré : {}", path.display()), false);
+                    self.notify(
+                        ctx,
+                        trf!("Enregistré : {path}", path = path.display()),
+                        false,
+                    );
                 }
                 Event::Info(m) => self.notify(ctx, m, false),
                 Event::Error(e) => self.notify(ctx, e, true),
@@ -377,10 +460,12 @@ impl CalcApp {
             self.sheet = 0;
         }
 
-        egui::Panel::top("calc-menu").show(ui, |ui| {
-            ui.add_space(2.0);
-            egui::MenuBar::new().ui(ui, |ui| self.menus(ui));
-        });
+        if !self.native_menu {
+            egui::Panel::top("calc-menu").show(ui, |ui| {
+                ui.add_space(2.0);
+                egui::MenuBar::new().ui(ui, |ui| self.menus(ui));
+            });
+        }
         egui::Panel::top("calc-tools").show(ui, |ui| {
             ui.add_space(3.0);
             self.toolbar(ui);
@@ -424,187 +509,221 @@ impl CalcApp {
         self.toast_ui(&ctx);
     }
 
+    /// Un élément de menu egui qui lance une action.
+    fn entry(&mut self, ui: &mut egui::Ui, label: &str, a: CalcAction) {
+        self.entry_if(ui, true, label, a);
+    }
+
+    fn entry_if(&mut self, ui: &mut egui::Ui, enabled: bool, label: &str, a: CalcAction) {
+        if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+            let ctx = ui.ctx().clone();
+            self.perform(&ctx, a);
+        }
+    }
+
     fn menus(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        ui.menu_button("Fichier", |ui| {
-            if ui.button("Nouveau classeur").clicked() {
+        use CalcAction as A;
+        ui.menu_button(tr("Fichier"), |ui| {
+            self.entry(ui, tr("Nouveau classeur"), A::New);
+            self.entry(ui, tr("Classeur d'exemple"), A::Sample);
+            self.entry(ui, tr("Ouvrir… (classeur, Excel, ODS, CSV)"), A::Open);
+            ui.separator();
+            self.entry(ui, tr("Enregistrer"), A::Save);
+            self.entry(ui, tr("Enregistrer sous…"), A::SaveAs);
+            ui.menu_button(tr("Exporter"), |ui| {
+                self.entry(ui, tr("Excel (.xlsx)"), A::ExportXlsx);
+                self.entry(ui, tr("LibreOffice Calc (.ods)"), A::ExportOds);
+                self.entry(ui, tr("CSV de la feuille (.csv)"), A::ExportCsv);
+            });
+        });
+        ui.menu_button(tr("Édition"), |ui| {
+            self.entry_if(ui, !self.undo.is_empty(), tr("Annuler"), A::Undo);
+            self.entry_if(ui, !self.redo.is_empty(), tr("Rétablir"), A::Redo);
+            ui.separator();
+            self.entry(ui, tr("Couper"), A::Cut);
+            self.entry(ui, tr("Copier"), A::Copy);
+            self.entry_if(ui, self.clip.is_some(), tr("Coller"), A::Paste);
+            self.entry(ui, tr("Effacer le contenu"), A::Clear);
+            ui.separator();
+            self.entry(ui, tr("Recopier vers le bas"), A::FillDown);
+            self.entry(ui, tr("Recopier à droite"), A::FillRight);
+        });
+        ui.menu_button(tr("Affichage"), |ui| {
+            let (fr, fc) = self.frozen();
+            self.entry(ui, tr("Figer la première ligne"), A::FreezeRow);
+            self.entry(ui, tr("Figer la première colonne"), A::FreezeCol);
+            if ui
+                .button(tr("Figer jusqu'à la cellule active"))
+                .on_hover_text(tr("Les lignes au-dessus et les colonnes à gauche de la cellule active restent visibles"))
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.perform(&ctx, A::FreezeHere);
+            }
+            self.entry_if(ui, fr > 0 || fc > 0, tr("Libérer les volets"), A::Unfreeze);
+            ui.separator();
+            crate::tr::menu(ui);
+        });
+        ui.menu_button(tr("Insertion"), |ui| {
+            self.entry(ui, tr("Ligne au-dessus"), A::InsertRow);
+            self.entry(ui, tr("Colonne à gauche"), A::InsertCol);
+            ui.separator();
+            self.entry(ui, tr("Supprimer la ligne"), A::DeleteRow);
+            self.entry(ui, tr("Supprimer la colonne"), A::DeleteCol);
+            ui.separator();
+            self.entry(ui, tr("Feuille"), A::NewSheet);
+            self.entry(ui, tr("Graphique de la sélection"), A::Chart);
+            self.entry(ui, tr("Fonction…"), A::Functions);
+        });
+        ui.menu_button(tr("Format"), |ui| {
+            for (label, nf) in NUMBER_FORMATS {
+                self.entry(ui, tr(label), A::Number(nf));
+            }
+            ui.separator();
+            self.entry(ui, tr("Gras"), A::Bold);
+            self.entry(ui, tr("Italique"), A::Italic);
+            ui.menu_button(tr("Couleur de fond"), |ui| {
+                for (i, (name, _)) in FILLS.iter().enumerate() {
+                    self.entry(ui, tr(name), A::Fill(i));
+                }
+            });
+            ui.separator();
+            self.entry(ui, tr("Mise en forme conditionnelle…"), A::CondFormat);
+        });
+        ui.menu_button(tr("Données"), |ui| {
+            self.entry(ui, tr("Trier par ordre croissant"), A::SortAsc);
+            self.entry(ui, tr("Trier par ordre décroissant"), A::SortDesc);
+            ui.separator();
+            self.entry(ui, tr("Somme automatique"), A::AutoSum);
+        });
+        ui.menu_button(tr("Aide"), |ui| {
+            self.entry(ui, tr("Liste des fonctions"), A::Functions);
+        });
+    }
+
+    /// Lance une action des menus (egui ou barre native de macOS) ou du clavier.
+    pub fn perform(&mut self, ctx: &egui::Context, a: CalcAction) {
+        use CalcAction as A;
+        match a {
+            A::New => {
                 self.snapshot();
                 self.wb = Workbook::new();
                 self.path = None;
                 self.sheet = 0;
             }
-            if ui.button("Classeur d'exemple").clicked() {
+            A::Sample => {
                 self.snapshot();
                 self.wb = Workbook::sample();
                 self.path = None;
                 self.sheet = 0;
             }
-            if ui.button("Ouvrir… (classeur, Excel, ODS, CSV)").clicked() {
-                self.io.open(&ctx, OpenKind::Workbook);
-            }
-            ui.separator();
-            if ui.button("Enregistrer").clicked() {
-                self.save_file(&ctx, false);
-            }
-            if ui.button("Enregistrer sous…").clicked() {
-                self.save_file(&ctx, true);
-            }
-            ui.menu_button("Exporter", |ui| {
-                if ui.button("Excel (.xlsx)").clicked() {
-                    self.export(&ctx, "xlsx");
-                }
-                if ui.button("LibreOffice Calc (.ods)").clicked() {
-                    self.export(&ctx, "ods");
-                }
-                if ui.button("CSV de la feuille (.csv)").clicked() {
-                    self.export(&ctx, "csv");
-                }
-            });
-        });
-        ui.menu_button("Édition", |ui| {
-            if ui
-                .add_enabled(!self.undo.is_empty(), egui::Button::new("Annuler"))
-                .clicked()
-            {
-                self.undo_once();
-            }
-            if ui
-                .add_enabled(!self.redo.is_empty(), egui::Button::new("Rétablir"))
-                .clicked()
-            {
-                self.redo_once();
-            }
-            ui.separator();
-            if ui.button("Copier").clicked() {
-                self.copy(&ctx);
-            }
-            if ui
-                .add_enabled(self.clip.is_some(), egui::Button::new("Coller"))
-                .clicked()
-            {
-                self.paste();
-            }
-            if ui.button("Effacer le contenu").clicked() {
+            A::Open => self.io.open(ctx, OpenKind::Workbook),
+            A::Save => self.save_file(ctx, false),
+            A::SaveAs => self.save_file(ctx, true),
+            A::ExportXlsx => self.export(ctx, "xlsx"),
+            A::ExportOds => self.export(ctx, "ods"),
+            A::ExportCsv => self.export(ctx, "csv"),
+            A::Undo => self.undo_once(),
+            A::Redo => self.redo_once(),
+            A::Cut => {
+                self.copy(ctx);
                 self.clear_selection();
             }
-            ui.separator();
-            if ui.button("Recopier vers le bas").clicked() {
+            A::Copy => self.copy(ctx),
+            A::Paste => self.paste(),
+            A::Clear => self.clear_selection(),
+            A::SelectAll => {
+                let (r, c) = self.wb.used_size(self.sheet);
+                self.anchor = CellRef::new(0, 0);
+                self.cur = CellRef::new(r.max(1) - 1, c.max(1) - 1);
+            }
+            A::FillDown => {
                 self.snapshot();
                 self.wb.fill_down(self.sheet, self.selection());
             }
-            if ui.button("Recopier à droite").clicked() {
+            A::FillRight => {
                 self.snapshot();
                 self.wb.fill_right(self.sheet, self.selection());
             }
-        });
-        ui.menu_button("Affichage", |ui| {
-            let (fr, fc) = self.frozen();
-            if ui.button("Figer la première ligne").clicked() {
-                self.set_frozen(1, 0);
-            }
-            if ui.button("Figer la première colonne").clicked() {
-                self.set_frozen(0, 1);
-            }
-            if ui
-                .button("Figer jusqu'à la cellule active")
-                .on_hover_text("Les lignes au-dessus et les colonnes à gauche de la cellule active restent visibles")
-                .clicked()
-            {
+            A::FreezeRow => self.set_frozen(1, 0),
+            A::FreezeCol => self.set_frozen(0, 1),
+            A::FreezeHere => {
                 let (r, c) = (self.cur.row, self.cur.col);
                 self.set_frozen(r, c);
             }
-            if ui
-                .add_enabled(fr > 0 || fc > 0, egui::Button::new("Libérer les volets"))
-                .clicked()
-            {
-                self.set_frozen(0, 0);
-            }
-        });
-        ui.menu_button("Insertion", |ui| {
-            if ui.button("Ligne au-dessus").clicked() {
+            A::Unfreeze => self.set_frozen(0, 0),
+            A::InsertRow => {
                 self.snapshot();
                 self.wb.insert_rows(self.sheet, self.cur.row, 1);
             }
-            if ui.button("Colonne à gauche").clicked() {
+            A::InsertCol => {
                 self.snapshot();
                 self.wb.insert_cols(self.sheet, self.cur.col, 1);
             }
-            ui.separator();
-            if ui.button("Supprimer la ligne").clicked() {
+            A::DeleteRow => {
                 self.snapshot();
                 self.wb.delete_rows(self.sheet, self.cur.row, 1);
             }
-            if ui.button("Supprimer la colonne").clicked() {
+            A::DeleteCol => {
                 self.snapshot();
                 self.wb.delete_cols(self.sheet, self.cur.col, 1);
             }
-            ui.separator();
-            if ui.button("Feuille").clicked() {
+            A::NewSheet => {
                 self.snapshot();
                 self.sheet = self.wb.add_sheet();
             }
-            if ui.button("Graphique de la sélection").clicked() {
+            A::Chart => {
                 self.chart = Some(Chart {
                     kind: ChartKind::Barres,
                     sheet: self.sheet,
                     range: self.selection(),
                 });
             }
-            if ui.button("Fonction…").clicked() {
-                self.functions_open = true;
-            }
-        });
-        ui.menu_button("Format", |ui| {
-            for (label, nf) in [
-                ("Standard", NumberFormat::General),
-                ("Nombre 0,00", NumberFormat::Number(2)),
-                ("Monétaire (€)", NumberFormat::Currency(2)),
-                ("Pourcentage", NumberFormat::Percent(1)),
-                ("Date", NumberFormat::Date),
-                ("Texte", NumberFormat::Text),
-            ] {
-                if ui.button(label).clicked() {
-                    self.update_format(|f| f.number = nf);
-                }
-            }
-            ui.separator();
-            if ui.button("Gras").clicked() {
+            A::Functions => self.functions_open = true,
+            A::Number(nf) => self.update_format(|f| f.number = nf),
+            A::Bold => {
                 let on = !self.wb.format(self.sheet, self.cur).bold;
                 self.update_format(|f| f.bold = on);
             }
-            if ui.button("Italique").clicked() {
+            A::Italic => {
                 let on = !self.wb.format(self.sheet, self.cur).italic;
                 self.update_format(|f| f.italic = on);
             }
-            ui.menu_button("Couleur de fond", |ui| {
-                for (name, c) in FILLS {
-                    if ui.button(name).clicked() {
-                        self.update_format(|f| f.fill = c);
-                    }
+            A::Fill(i) => {
+                if let Some(&(_, c)) = FILLS.get(i) {
+                    self.update_format(|f| f.fill = c);
                 }
-            });
-            ui.separator();
-            if ui.button("Mise en forme conditionnelle…").clicked() {
-                self.open_cond_dialog();
             }
-        });
-        ui.menu_button("Données", |ui| {
-            if ui.button("Trier par ordre croissant").clicked() {
+            A::CondFormat => self.open_cond_dialog(),
+            A::SortAsc | A::SortDesc => {
                 self.snapshot();
                 self.wb
-                    .sort_rows(self.sheet, self.selection(), self.cur.col, true);
+                    .sort_rows(self.sheet, self.selection(), self.cur.col, a == A::SortAsc);
             }
-            if ui.button("Trier par ordre décroissant").clicked() {
-                self.snapshot();
-                self.wb
-                    .sort_rows(self.sheet, self.selection(), self.cur.col, false);
-            }
-        });
-        ui.menu_button("Aide", |ui| {
-            if ui.button("Liste des fonctions").clicked() {
-                self.functions_open = true;
-            }
-        });
+            A::AutoSum => self.autosum(),
+        }
+    }
+
+    /// Une action venue du clavier ou de la barre native : la même touche peut arriver
+    /// par les deux chemins, on ne l'exécute qu'une fois. Pendant une saisie, le texte
+    /// garde ses propres raccourcis.
+    pub fn perform_once(&mut self, ctx: &egui::Context, a: CalcAction) {
+        let now = ctx.input(|i| i.time);
+        if let Some((last, t)) = self.last_act
+            && last == a
+            && now - t < 0.4
+        {
+            return;
+        }
+        let typing = self.edit.is_some()
+            || ctx
+                .memory(|m| m.focused())
+                .is_some_and(|f| Some(f) != self.grid_id);
+        if typing && a.is_editing() {
+            return;
+        }
+        self.last_act = Some((a, now));
+        self.perform(ctx, a);
     }
 
     fn undo_once(&mut self) {
@@ -622,32 +741,40 @@ impl CalcApp {
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let fmt = self.wb.format(self.sheet, self.cur);
         ui.horizontal_wrapped(|ui| {
-            if ui.button("↶").on_hover_text("Annuler (Ctrl+Z)").clicked() {
+            if ui
+                .button("↶")
+                .on_hover_text(tr("Annuler (Ctrl+Z)"))
+                .clicked()
+            {
                 self.undo_once();
             }
-            if ui.button("↷").on_hover_text("Rétablir (Ctrl+Y)").clicked() {
+            if ui
+                .button("↷")
+                .on_hover_text(tr("Rétablir (Ctrl+Y)"))
+                .clicked()
+            {
                 self.redo_once();
             }
             ui.separator();
             if ui
-                .selectable_label(fmt.bold, RichText::new("G").strong())
-                .on_hover_text("Gras (Ctrl+B)")
+                .selectable_label(fmt.bold, RichText::new(tr("G")).strong())
+                .on_hover_text(tr("Gras (Ctrl+B)"))
                 .clicked()
             {
                 self.update_format(|f| f.bold = !fmt.bold);
             }
             if ui
-                .selectable_label(fmt.italic, RichText::new("I").italics())
-                .on_hover_text("Italique (Ctrl+I)")
+                .selectable_label(fmt.italic, RichText::new(tr("I")).italics())
+                .on_hover_text(tr("Italique (Ctrl+I)"))
                 .clicked()
             {
                 self.update_format(|f| f.italic = !fmt.italic);
             }
             ui.separator();
             for (label, tip, a) in [
-                ("⬅", "Aligner à gauche", HAlign::Left),
-                ("↔", "Centrer", HAlign::Center),
-                ("➡", "Aligner à droite", HAlign::Right),
+                ("⬅", tr("Aligner à gauche"), HAlign::Left),
+                ("↔", tr("Centrer"), HAlign::Center),
+                ("➡", tr("Aligner à droite"), HAlign::Right),
             ] {
                 if ui
                     .selectable_label(fmt.align == Some(a), label)
@@ -659,11 +786,15 @@ impl CalcApp {
             }
             ui.separator();
             for (label, tip, nf) in [
-                ("€", "Monétaire", NumberFormat::Currency(2)),
-                ("%", "Pourcentage", NumberFormat::Percent(1)),
-                ("0,00", "Nombre à deux décimales", NumberFormat::Number(2)),
-                ("📅", "Date", NumberFormat::Date),
-                ("123", "Standard", NumberFormat::General),
+                ("€", tr("Monétaire"), NumberFormat::Currency(2)),
+                ("%", tr("Pourcentage"), NumberFormat::Percent(1)),
+                (
+                    "0,00",
+                    tr("Nombre à deux décimales"),
+                    NumberFormat::Number(2),
+                ),
+                ("📅", tr("Date"), NumberFormat::Date),
+                ("123", tr("Standard"), NumberFormat::General),
             ] {
                 if ui
                     .selectable_label(fmt.number == nf, label)
@@ -676,7 +807,7 @@ impl CalcApp {
             ui.separator();
             if ui
                 .button("A→Z")
-                .on_hover_text("Trier la sélection par la colonne active")
+                .on_hover_text(tr("Trier la sélection par la colonne active"))
                 .clicked()
             {
                 self.snapshot();
@@ -685,7 +816,7 @@ impl CalcApp {
             }
             if ui
                 .button("Z→A")
-                .on_hover_text("Trier par ordre décroissant")
+                .on_hover_text(tr("Trier par ordre décroissant"))
                 .clicked()
             {
                 self.snapshot();
@@ -694,22 +825,22 @@ impl CalcApp {
             }
             ui.separator();
             if ui
-                .button("Σ Somme")
-                .on_hover_text("Insérer une somme sous la sélection")
+                .button(tr("Σ Somme"))
+                .on_hover_text(tr("Insérer une somme sous la sélection"))
                 .clicked()
             {
                 self.autosum();
             }
             if ui
                 .button("fx")
-                .on_hover_text("Liste des fonctions")
+                .on_hover_text(tr("Liste des fonctions"))
                 .clicked()
             {
                 self.functions_open = !self.functions_open;
             }
             if ui
-                .button("📊 Graphique")
-                .on_hover_text("Graphique de la sélection")
+                .button(tr("📊 Graphique"))
+                .on_hover_text(tr("Graphique de la sélection"))
                 .clicked()
             {
                 self.chart = Some(Chart {
@@ -721,7 +852,7 @@ impl CalcApp {
             ui.separator();
             ui.add(
                 egui::TextEdit::singleline(&mut self.wb.title)
-                    .hint_text("Titre du classeur")
+                    .hint_text(tr("Titre du classeur"))
                     .desired_width(180.0),
             );
         });
@@ -836,13 +967,13 @@ impl CalcApp {
                     self.rename = Some((i, name.clone()));
                 }
                 r.context_menu(|ui| {
-                    if ui.button("Renommer").clicked() {
+                    if ui.button(tr("Renommer")).clicked() {
                         self.rename = Some((i, name.clone()));
                     }
                     if ui
                         .add_enabled(
                             self.wb.sheets.len() > 1,
-                            egui::Button::new("Supprimer la feuille"),
+                            egui::Button::new(tr("Supprimer la feuille")),
                         )
                         .clicked()
                     {
@@ -850,7 +981,11 @@ impl CalcApp {
                     }
                 });
             }
-            if ui.button("+").on_hover_text("Nouvelle feuille").clicked() {
+            if ui
+                .button("+")
+                .on_hover_text(tr("Nouvelle feuille"))
+                .clicked()
+            {
                 self.snapshot();
                 self.sheet = self.wb.add_sheet();
             }
@@ -866,20 +1001,20 @@ impl CalcApp {
         let (sum, n, filled, min, max) = self.stats();
         let f = |x: f64| varium_core::filters::format_number((x * 1e9).round() / 1e9, None);
         ui.horizontal(|ui| {
-            ui.label(format!(
-                "Feuille {} sur {}",
-                self.sheet + 1,
-                self.sheet_count()
+            ui.label(trf!(
+                "Feuille {v} sur {sheet_count}",
+                v = self.sheet + 1,
+                sheet_count = self.sheet_count()
             ));
             ui.separator();
             if n > 0 {
-                ui.label(format!("Somme : {}", f(sum)));
-                ui.label(format!("Moyenne : {}", f(sum / n as f64)));
-                ui.label(format!("Min : {}", f(min)));
-                ui.label(format!("Max : {}", f(max)));
+                ui.label(trf!("Somme : {v}", v = f(sum)));
+                ui.label(trf!("Moyenne : {v}", v = f(sum / n as f64)));
+                ui.label(trf!("Min : {v}", v = f(min)));
+                ui.label(trf!("Max : {v}", v = f(max)));
                 ui.separator();
             }
-            ui.label(format!("Nombre : {filled}"));
+            ui.label(trf!("Nombre : {filled}", filled));
         });
     }
 
@@ -1422,32 +1557,16 @@ impl CalcApp {
                         }
                         Key::F2 => self.start_edit(None),
                         Key::Delete | Key::Backspace => self.clear_selection(),
-                        Key::Z if cmd && shift => self.redo_once(),
-                        Key::Z if cmd => self.undo_once(),
-                        Key::Y if cmd => self.redo_once(),
-                        Key::C if cmd => self.copy(ctx),
-                        Key::X if cmd => {
-                            self.copy(ctx);
-                            self.clear_selection();
-                        }
-                        Key::V if cmd => self.paste(),
-                        Key::B if cmd => {
-                            let on = !self.wb.format(self.sheet, self.cur).bold;
-                            self.update_format(|f| f.bold = on);
-                        }
-                        Key::I if cmd => {
-                            let on = !self.wb.format(self.sheet, self.cur).italic;
-                            self.update_format(|f| f.italic = on);
-                        }
-                        Key::D if cmd => {
-                            self.snapshot();
-                            self.wb.fill_down(self.sheet, self.selection());
-                        }
-                        Key::A if cmd => {
-                            let (r, c) = self.wb.used_size(self.sheet);
-                            self.anchor = CellRef::new(0, 0);
-                            self.cur = CellRef::new(r.max(1) - 1, c.max(1) - 1);
-                        }
+                        Key::Z if cmd && shift => self.perform_once(ctx, CalcAction::Redo),
+                        Key::Z if cmd => self.perform_once(ctx, CalcAction::Undo),
+                        Key::Y if cmd => self.perform_once(ctx, CalcAction::Redo),
+                        Key::C if cmd => self.perform_once(ctx, CalcAction::Copy),
+                        Key::X if cmd => self.perform_once(ctx, CalcAction::Cut),
+                        Key::V if cmd => self.perform_once(ctx, CalcAction::Paste),
+                        Key::B if cmd => self.perform_once(ctx, CalcAction::Bold),
+                        Key::I if cmd => self.perform_once(ctx, CalcAction::Italic),
+                        Key::D if cmd => self.perform_once(ctx, CalcAction::FillDown),
+                        Key::A if cmd => self.perform_once(ctx, CalcAction::SelectAll),
                         _ => {}
                     }
                 }
@@ -1464,7 +1583,7 @@ impl CalcApp {
 
     fn functions_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.heading("Fonctions");
+            ui.heading(tr("Fonctions"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("✕").clicked() {
                     self.functions_open = false;
@@ -1473,12 +1592,12 @@ impl CalcApp {
         });
         ui.add(
             egui::TextEdit::singleline(&mut self.function_filter)
-                .hint_text("Chercher : somme, date, texte…"),
+                .hint_text(tr("Chercher : somme, date, texte…")),
         );
         ui.label(
-            RichText::new(
+            RichText::new(tr(
                 "Cliquez pour insérer dans la cellule active. Les arguments se séparent par « ; ».",
-            )
+            ))
             .small()
             .weak(),
         );
@@ -1522,7 +1641,7 @@ impl CalcApp {
         let Some(chart) = &mut self.chart else { return };
         let mut close = false;
         ui.horizontal(|ui| {
-            ui.heading("Graphique");
+            ui.heading(tr("Graphique"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 close = ui.small_button("✕").clicked();
             });
@@ -1533,8 +1652,8 @@ impl CalcApp {
             }
         });
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("Données : {}", chart.range.name())).weak());
-            if ui.small_button("Prendre la sélection").clicked() {
+            ui.label(RichText::new(trf!("Données : {range}", range = chart.range.name())).weak());
+            if ui.small_button(tr("Prendre la sélection")).clicked() {
                 chart.range = Range::new(self.anchor, self.cur);
                 chart.sheet = self.sheet;
             }
@@ -1584,7 +1703,7 @@ impl CalcApp {
             .map(|s| s.cond_formats.clone())
             .unwrap_or_default();
         let selection = self.selection();
-        egui::Window::new("Mise en forme conditionnelle")
+        egui::Window::new(tr("Mise en forme conditionnelle"))
             .id(egui::Id::unique("calc-cond-dialog"))
             .open(&mut open)
             .resizable(true)
@@ -1592,15 +1711,15 @@ impl CalcApp {
             .show(ctx, |ui| {
                 ui.label(
                     RichText::new(
-                        "Les règles s'appliquent dans l'ordre : la première condition vérifiée donne son style ; \
-                         les échelles de couleurs et les barres de données s'y ajoutent.",
+                        tr("Les règles s'appliquent dans l'ordre : la première condition vérifiée donne son style ; \
+                         les échelles de couleurs et les barres de données s'y ajoutent."),
                     )
                     .small()
                     .weak(),
                 );
                 ui.add_space(4.0);
                 if rules.is_empty() {
-                    ui.label(RichText::new("Aucune règle sur cette feuille.").italics());
+                    ui.label(RichText::new(tr("Aucune règle sur cette feuille.")).italics());
                 }
                 egui::ScrollArea::vertical()
                     .max_height(180.0)
@@ -1623,21 +1742,21 @@ impl CalcApp {
                                 }
                                 if ui
                                     .add_enabled(i > 0, egui::Button::new("⬆").small())
-                                    .on_hover_text("Monter (appliquée plus tôt)")
+                                    .on_hover_text(tr("Monter (appliquée plus tôt)"))
                                     .clicked()
                                 {
                                     action = Some(CondAction::Move(i, i - 1));
                                 }
                                 if ui
                                     .add_enabled(i + 1 < rules.len(), egui::Button::new("⬇").small())
-                                    .on_hover_text("Descendre")
+                                    .on_hover_text(tr("Descendre"))
                                     .clicked()
                                 {
                                     action = Some(CondAction::Move(i, i + 1));
                                 }
                                 if ui
                                     .small_button("🗑")
-                                    .on_hover_text("Supprimer la règle")
+                                    .on_hover_text(tr("Supprimer la règle"))
                                     .clicked()
                                 {
                                     action = Some(CondAction::Delete(i));
@@ -1647,39 +1766,39 @@ impl CalcApp {
                     });
                 ui.separator();
                 ui.strong(match dlg.editing {
-                    Some(i) => format!("Modifier la règle {}", i + 1),
-                    None => "Nouvelle règle".to_string(),
+                    Some(i) => trf!("Modifier la règle {v}", v = i + 1),
+                    None => tr("Nouvelle règle").to_string(),
                 });
                 egui::Grid::new("calc-cond-form")
                     .num_columns(2)
                     .spacing([10.0, 6.0])
                     .show(ui, |ui| {
-                        ui.label("Plage");
+                        ui.label(tr("Plage"));
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::TextEdit::singleline(&mut dlg.range_text)
                                     .desired_width(120.0)
                                     .hint_text("A1:B10"),
                             );
-                            if ui.small_button("Sélection actuelle").clicked() {
+                            if ui.small_button(tr("Sélection actuelle")).clicked() {
                                 dlg.range_text = selection.name();
                             }
                             if varium_calc::Range::parse(&dlg.range_text).is_none() {
                                 ui.label(
-                                    RichText::new("plage invalide")
+                                    RichText::new(tr("plage invalide"))
                                         .color(Color32::from_rgb(0xD0, 0x30, 0x2A)),
                                 );
                             }
                         });
                         ui.end_row();
-                        ui.label("Condition");
+                        ui.label(tr("Condition"));
                         let mut kind = rule_kind(&dlg.draft.rule);
                         egui::ComboBox::from_id_salt("calc-cond-kind")
                             .width(260.0)
-                            .selected_text(RULE_KINDS[kind])
+                            .selected_text(tr(RULE_KINDS[kind]))
                             .show_ui(ui, |ui| {
                                 for (k, label) in RULE_KINDS.iter().enumerate() {
-                                    ui.selectable_value(&mut kind, k, *label);
+                                    ui.selectable_value(&mut kind, k, tr(label));
                                 }
                             });
                         if kind != rule_kind(&dlg.draft.rule) {
@@ -1690,7 +1809,7 @@ impl CalcApp {
                         if dlg.draft.rule.has_style() {
                             style_ui(ui, &mut dlg.draft.style);
                         }
-                        ui.label("Aperçu");
+                        ui.label(tr("Aperçu"));
                         let (r, _) = ui.allocate_exact_size(Vec2::new(220.0, 26.0), Sense::hover());
                         paint_cond_preview(ui, r, &dlg.draft);
                         ui.end_row();
@@ -1701,25 +1820,25 @@ impl CalcApp {
                     match dlg.editing {
                         Some(i) => {
                             if ui
-                                .add_enabled(valid, egui::Button::new("Enregistrer la règle"))
+                                .add_enabled(valid, egui::Button::new(tr("Enregistrer la règle")))
                                 .clicked()
                             {
                                 action = Some(CondAction::Save(i));
                             }
-                            if ui.button("Ajouter comme nouvelle règle").clicked() && valid {
+                            if ui.button(tr("Ajouter comme nouvelle règle")).clicked() && valid {
                                 action = Some(CondAction::Add);
                             }
                         }
                         None => {
                             if ui
-                                .add_enabled(valid, egui::Button::new("Ajouter la règle"))
+                                .add_enabled(valid, egui::Button::new(tr("Ajouter la règle")))
                                 .clicked()
                             {
                                 action = Some(CondAction::Add);
                             }
                         }
                     }
-                    if ui.button("Nouvelle règle").clicked() {
+                    if ui.button(tr("Nouvelle règle")).clicked() {
                         action = Some(CondAction::New);
                     }
                 });
@@ -1870,20 +1989,20 @@ fn ranges_meet(a: Range, b: Range) -> bool {
 }
 
 const RULE_KINDS: [&str; 14] = [
-    "La valeur de la cellule est…",
-    "Le texte contient…",
-    "Le texte commence par…",
-    "Le texte finit par…",
-    "La cellule est vide",
-    "La cellule n'est pas vide",
-    "La cellule contient une erreur",
-    "Les N plus grandes valeurs",
-    "Les N plus petites valeurs",
-    "Au-dessus de la moyenne",
-    "Au-dessous de la moyenne",
-    "Échelle de deux couleurs",
-    "Échelle de trois couleurs",
-    "Barre de données",
+    n_("La valeur de la cellule est…"),
+    n_("Le texte contient…"),
+    n_("Le texte commence par…"),
+    n_("Le texte finit par…"),
+    n_("La cellule est vide"),
+    n_("La cellule n'est pas vide"),
+    n_("La cellule contient une erreur"),
+    n_("Les N plus grandes valeurs"),
+    n_("Les N plus petites valeurs"),
+    n_("Au-dessus de la moyenne"),
+    n_("Au-dessous de la moyenne"),
+    n_("Échelle de deux couleurs"),
+    n_("Échelle de trois couleurs"),
+    n_("Barre de données"),
 ];
 
 fn rule_kind(r: &CondRule) -> usize {
@@ -1956,25 +2075,25 @@ fn rule_for_kind(k: usize, old: &CondRule) -> CondRule {
 fn rule_params_ui(ui: &mut egui::Ui, rule: &mut CondRule) {
     match rule {
         CondRule::Compare { op, value, value2 } => {
-            ui.label("Opérateur");
+            ui.label(tr("Opérateur"));
             egui::ComboBox::from_id_salt("calc-cond-op")
                 .width(260.0)
-                .selected_text(op.label())
+                .selected_text(labels::compare(*op))
                 .show_ui(ui, |ui| {
                     for o in CompareOp::ALL {
-                        ui.selectable_value(op, o, o.label());
+                        ui.selectable_value(op, o, labels::compare(o));
                     }
                 });
             ui.end_row();
-            ui.label("Valeur");
+            ui.label(tr("Valeur"));
             ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(value)
                         .desired_width(110.0)
-                        .hint_text("10, 1,5, texte…"),
+                        .hint_text(tr("10, 1,5, texte…")),
                 );
                 if op.two_values() {
-                    ui.label("et");
+                    ui.label(tr("et"));
                     ui.add(egui::TextEdit::singleline(value2).desired_width(110.0));
                 }
             });
@@ -1983,34 +2102,34 @@ fn rule_params_ui(ui: &mut egui::Ui, rule: &mut CondRule) {
         CondRule::Contains { text }
         | CondRule::BeginsWith { text }
         | CondRule::EndsWith { text } => {
-            ui.label("Texte");
+            ui.label(tr("Texte"));
             ui.add(egui::TextEdit::singleline(text).desired_width(200.0));
             ui.end_row();
         }
         CondRule::Top { n, percent, .. } => {
-            ui.label("Nombre");
+            ui.label(tr("Nombre"));
             ui.horizontal(|ui| {
                 ui.add(egui::DragValue::new(n).range(1..=1000));
-                ui.checkbox(percent, "en pourcentage");
+                ui.checkbox(percent, tr("en pourcentage"));
             });
             ui.end_row();
         }
         CondRule::ColorScale { min, mid, max } => {
-            ui.label("Couleurs");
+            ui.label(tr("Couleurs"));
             ui.horizontal(|ui| {
-                ui.label("minimum");
+                ui.label(tr("minimum"));
                 ui.color_edit_button_srgb(min);
                 if let Some(m) = mid {
-                    ui.label("médiane");
+                    ui.label(tr("médiane"));
                     ui.color_edit_button_srgb(m);
                 }
-                ui.label("maximum");
+                ui.label(tr("maximum"));
                 ui.color_edit_button_srgb(max);
             });
             ui.end_row();
         }
         CondRule::DataBar { color } => {
-            ui.label("Couleur");
+            ui.label(tr("Couleur"));
             ui.color_edit_button_srgb(color);
             ui.end_row();
         }
@@ -2030,17 +2149,17 @@ fn style_ui(ui: &mut egui::Ui, style: &mut CondStyle) {
             if let Some(col) = c {
                 ui.color_edit_button_srgb(col);
             } else {
-                ui.label(RichText::new("inchangé").weak());
+                ui.label(RichText::new(tr("inchangé")).weak());
             }
         });
         ui.end_row();
     };
-    color_row(ui, "Fond", &mut style.fill, [0xFB, 0xDD, 0xE4]);
-    color_row(ui, "Texte", &mut style.color, [0x9C, 0x00, 0x06]);
-    ui.label("Police");
+    color_row(ui, tr("Fond"), &mut style.fill, [0xFB, 0xDD, 0xE4]);
+    color_row(ui, tr("Texte"), &mut style.color, [0x9C, 0x00, 0x06]);
+    ui.label(tr("Police"));
     ui.horizontal(|ui| {
-        ui.checkbox(&mut style.bold, "Gras");
-        ui.checkbox(&mut style.italic, "Italique");
+        ui.checkbox(&mut style.bold, tr("Gras"));
+        ui.checkbox(&mut style.italic, tr("Italique"));
     });
     ui.end_row();
 }
@@ -2099,7 +2218,7 @@ fn paint_cond_preview(ui: &egui::Ui, r: Rect, cf: &CondFormat) {
             };
             let family = crate::fonts::family(varium_core::DocFont::Sans, s.bold, false);
             let mut job = egui::text::LayoutJob::single_section(
-                "AaBb 123".to_string(),
+                tr("AaBb 123").to_string(),
                 egui::TextFormat {
                     font_id: FontId::new((r.height() * 0.6).clamp(8.0, 13.0), family),
                     color: ink,
@@ -2165,13 +2284,13 @@ fn sel_contains(r: Range, at: CellRef) -> bool {
 }
 
 const FILLS: [(&str, Option<[u8; 3]>); 7] = [
-    ("Aucune", None),
-    ("Jaune", Some([0xFF, 0xF2, 0xB3])),
-    ("Vert", Some([0xD8, 0xF0, 0xD3])),
-    ("Bleu", Some([0xDB, 0xE8, 0xFB])),
-    ("Rose", Some([0xFB, 0xDD, 0xE4])),
-    ("Gris", Some([0xEC, 0xEC, 0xEC])),
-    ("Orange", Some([0xFD, 0xE4, 0xC8])),
+    (n_("Aucune"), None),
+    (n_("Jaune"), Some([0xFF, 0xF2, 0xB3])),
+    (n_("Vert"), Some([0xD8, 0xF0, 0xD3])),
+    (n_("Bleu"), Some([0xDB, 0xE8, 0xFB])),
+    (n_("Rose"), Some([0xFB, 0xDD, 0xE4])),
+    (n_("Gris"), Some([0xEC, 0xEC, 0xEC])),
+    (n_("Orange"), Some([0xFD, 0xE4, 0xC8])),
 ];
 
 const SERIES: [Color32; 6] = [
@@ -2333,7 +2452,7 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
         p.text(
             rect.center(),
             Align2::CENTER_CENTER,
-            "Sélectionnez des nombres (avec leurs titres)",
+            tr("Sélectionnez des nombres (avec leurs titres)"),
             font,
             weak,
         );
@@ -2443,7 +2562,7 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
             p.text(
                 center,
                 Align2::CENTER_CENTER,
-                format!("Total\n{}", tick_label(total)),
+                trf!("Total\n{v}", v = tick_label(total)),
                 FontId::proportional(13.0),
                 ink,
             );
@@ -2716,4 +2835,131 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
         [Pos2::new(plot.left(), y0), Pos2::new(plot.right(), y0)],
         axis,
     );
+}
+/// Les menus du Classeur dans la barre native de macOS (le dernier est « Aide »).
+#[cfg(target_os = "macos")]
+pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::Submenu>> {
+    use crate::menubar::{MenuAct, clipboard_items, sep};
+    use CalcAction as A;
+    use muda::{IsMenuItem, Submenu};
+
+    let export = Submenu::with_items(
+        tr("Exporter"),
+        true,
+        &[
+            &b.item(tr("Excel (.xlsx)"), A::ExportXlsx, None),
+            &b.item(tr("LibreOffice Calc (.ods)"), A::ExportOds, None),
+            &b.item(tr("CSV de la feuille (.csv)"), A::ExportCsv, None),
+        ],
+    )?;
+    let file = Submenu::with_items(
+        tr("Fichier"),
+        true,
+        &[
+            &b.item(tr("Nouveau classeur"), A::New, Some("Cmd+N")),
+            &b.item(tr("Classeur d'exemple"), A::Sample, None),
+            &b.item(tr("Ouvrir…"), A::Open, Some("Cmd+O")),
+            &sep(),
+            &b.item(tr("Enregistrer"), A::Save, Some("Cmd+S")),
+            &b.item(tr("Enregistrer sous…"), A::SaveAs, Some("Cmd+Shift+S")),
+            &sep(),
+            &export,
+        ],
+    )?;
+    let [cut, copy, paste, select_all] = clipboard_items();
+    let edit = Submenu::with_items(
+        tr("Édition"),
+        true,
+        &[
+            &b.item(tr("Annuler"), A::Undo, Some("Cmd+Z")),
+            &b.item(tr("Rétablir"), A::Redo, Some("Cmd+Shift+Z")),
+            &sep(),
+            &cut,
+            &copy,
+            &paste,
+            &select_all,
+            &sep(),
+            &b.item(tr("Effacer le contenu"), A::Clear, None),
+            &b.item(tr("Recopier vers le bas"), A::FillDown, Some("Cmd+D")),
+            &b.item(tr("Recopier à droite"), A::FillRight, None),
+        ],
+    )?;
+    let insert = Submenu::with_items(
+        tr("Insertion"),
+        true,
+        &[
+            &b.item(tr("Ligne au-dessus"), A::InsertRow, None),
+            &b.item(tr("Colonne à gauche"), A::InsertCol, None),
+            &sep(),
+            &b.item(tr("Supprimer la ligne"), A::DeleteRow, None),
+            &b.item(tr("Supprimer la colonne"), A::DeleteCol, None),
+            &sep(),
+            &b.item(tr("Feuille"), A::NewSheet, None),
+            &b.item(tr("Graphique de la sélection"), A::Chart, None),
+            &b.item(tr("Fonction…"), A::Functions, None),
+        ],
+    )?;
+    let numbers: Vec<_> = NUMBER_FORMATS
+        .iter()
+        .map(|&(label, nf)| b.item(tr(label), A::Number(nf), None))
+        .collect();
+    let fills: Vec<_> = FILLS
+        .iter()
+        .enumerate()
+        .map(|(i, &(name, _))| b.item(tr(name), A::Fill(i), None))
+        .collect();
+    let fill = Submenu::with_items(
+        tr("Couleur de fond"),
+        true,
+        &fills
+            .iter()
+            .map(|i| i as &dyn IsMenuItem)
+            .collect::<Vec<_>>(),
+    )?;
+    let format = Submenu::with_items(
+        tr("Format"),
+        true,
+        &numbers
+            .iter()
+            .map(|i| i as &dyn IsMenuItem)
+            .collect::<Vec<_>>(),
+    )?;
+    format.append_items(&[
+        &sep(),
+        &b.item(tr("Gras"), A::Bold, Some("Cmd+B")),
+        &b.item(tr("Italique"), A::Italic, Some("Cmd+I")),
+        &fill,
+        &sep(),
+        &b.item(tr("Mise en forme conditionnelle…"), A::CondFormat, None),
+    ])?;
+    let view = Submenu::with_items(
+        tr("Affichage"),
+        true,
+        &[
+            &b.item(tr("Figer la première ligne"), A::FreezeRow, None),
+            &b.item(tr("Figer la première colonne"), A::FreezeCol, None),
+            &b.item(tr("Figer jusqu'à la cellule active"), A::FreezeHere, None),
+            &b.item(tr("Libérer les volets"), A::Unfreeze, None),
+        ],
+    )?;
+    let data = Submenu::with_items(
+        tr("Données"),
+        true,
+        &[
+            &b.item(tr("Trier par ordre croissant"), A::SortAsc, None),
+            &b.item(tr("Trier par ordre décroissant"), A::SortDesc, None),
+            &sep(),
+            &b.item(tr("Somme automatique"), A::AutoSum, Some("Cmd+Shift+T")),
+        ],
+    )?;
+    let help = Submenu::with_items(
+        tr("Aide"),
+        true,
+        &[
+            &b.item(tr("Liste des fonctions"), A::Functions, None),
+            &sep(),
+            &b.item(tr("Site de Varium"), MenuAct::Website, None),
+        ],
+    )?;
+    Ok(vec![file, edit, insert, format, view, data, help])
 }

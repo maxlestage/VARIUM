@@ -1,5 +1,6 @@
 //! Ouverture, enregistrement et impression (dialogues natifs rfd).
 
+use crate::tr::tr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -57,26 +58,26 @@ impl Io {
         let ctx = ctx.clone();
         let dialog = match kind {
             OpenKind::Document => rfd::AsyncFileDialog::new()
-                .set_title("Ouvrir un document Varium")
-                .add_filter("Varium / texte", OPEN_EXTENSIONS),
+                .set_title(tr("Ouvrir un document Varium"))
+                .add_filter(tr("Varium / texte"), OPEN_EXTENSIONS),
             OpenKind::Data => rfd::AsyncFileDialog::new()
-                .set_title("Choisir les données du publipostage")
-                .add_filter("Tableau CSV", DATA_EXTENSIONS),
+                .set_title(tr("Choisir les données du publipostage"))
+                .add_filter(tr("Tableau CSV"), DATA_EXTENSIONS),
             OpenKind::Workbook => rfd::AsyncFileDialog::new()
-                .set_title("Ouvrir un classeur")
+                .set_title(tr("Ouvrir un classeur"))
                 .add_filter(
-                    "Classeur (Varium, Excel, OpenDocument, CSV)",
+                    tr("Classeur (Varium, Excel, OpenDocument, CSV)"),
                     &["json", "xlsx", "xlsm", "ods", "csv", "tsv", "txt"],
                 ),
             OpenKind::Deck => rfd::AsyncFileDialog::new()
-                .set_title("Ouvrir une présentation")
+                .set_title(tr("Ouvrir une présentation"))
                 .add_filter(
-                    "Présentation (Varium, Impress, PowerPoint)",
+                    tr("Présentation (Varium, Impress, PowerPoint)"),
                     &["json", "odp", "pptx"],
                 )
-                .add_filter("Présentation Varium", &["json"])
-                .add_filter("LibreOffice Impress", &["odp"])
-                .add_filter("PowerPoint", &["pptx"]),
+                .add_filter(tr("Présentation Varium"), &["json"])
+                .add_filter(tr("LibreOffice Impress"), &["odp"])
+                .add_filter(tr("PowerPoint"), &["pptx"]),
         };
         spawn(async move {
             let Some(file) = dialog.pick_file().await else {
@@ -97,7 +98,7 @@ impl Io {
         );
         let ev = match std::fs::read(path) {
             Ok(bytes) => decode(kind, name, Some(path.to_path_buf()), bytes),
-            Err(e) => Event::Error(format!("Ouverture impossible de « {name} » : {e}")),
+            Err(e) => Event::Error(trf!("Ouverture impossible de « {name} » : {e}", name, e)),
         };
         Self::push(&self.inbox, ctx, ev);
     }
@@ -114,7 +115,7 @@ impl Io {
         let inbox = self.inbox.clone();
         let ctx = ctx.clone();
         let dialog = rfd::AsyncFileDialog::new()
-            .set_title("Enregistrer")
+            .set_title(tr("Enregistrer"))
             .set_file_name(&file_name);
         spawn(async move {
             let Some(handle) = dialog.save_file().await else {
@@ -123,7 +124,7 @@ impl Io {
             let path = handle.path().to_path_buf();
             let ev = match write_atomic(&path, &content) {
                 Ok(()) => Event::Saved { path, project },
-                Err(e) => Event::Error(format!("Écriture impossible : {e}")),
+                Err(e) => Event::Error(trf!("Écriture impossible : {e}", e)),
             };
             Self::push(&inbox, &ctx, ev);
         });
@@ -136,7 +137,7 @@ impl Io {
                 path,
                 project: true,
             },
-            Err(e) => Event::Error(format!("Écriture impossible : {e}")),
+            Err(e) => Event::Error(trf!("Écriture impossible : {e}", e)),
         };
         Self::push(&self.inbox, ctx, ev);
     }
@@ -153,15 +154,16 @@ impl Io {
         let ev = match std::fs::write(&path, html) {
             Ok(()) => match open_in_browser(&path) {
                 Ok(()) => Event::Info(
-                    "Document ouvert dans le navigateur : imprimez-le ou enregistrez-le en PDF"
+                    tr("Document ouvert dans le navigateur : imprimez-le ou enregistrez-le en PDF")
                         .into(),
                 ),
-                Err(e) => Event::Error(format!(
-                    "Navigateur introuvable ({e}) : ouvrez {}",
-                    path.display()
+                Err(e) => Event::Error(trf!(
+                    "Navigateur introuvable ({e}) : ouvrez {path}",
+                    e,
+                    path = path.display()
                 )),
             },
-            Err(e) => Event::Error(format!("Écriture impossible : {e}")),
+            Err(e) => Event::Error(trf!("Écriture impossible : {e}", e)),
         };
         Self::push(&self.inbox, ctx, ev);
     }
@@ -193,7 +195,7 @@ fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -
             content: e.into_bytes().iter().map(|&b| cp1252(b)).collect(),
             path,
         },
-        Err(_) => Event::Error(format!("« {name} » n'est pas un fichier texte UTF-8")),
+        Err(_) => Event::Error(trf!("« {name} » n'est pas un fichier texte UTF-8", name)),
     }
 }
 

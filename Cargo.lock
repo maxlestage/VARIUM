@@ -3909,6 +3909,7 @@ dependencies = [
  "rfd",
  "serde",
  "spellbook",
+ "sys-locale",
  "varium-calc",
  "varium-core",
  "varium-slides",

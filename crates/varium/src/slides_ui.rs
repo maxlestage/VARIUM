@@ -5,6 +5,8 @@
 //! PPTX et exports PDF / ODP / HTML.
 //! Le modèle et les exports viennent du moteur `varium-slides`.
 
+use crate::labels;
+use crate::tr::tr;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -22,6 +24,34 @@ pub const STORAGE_KEY: &str = "varium.slides";
 
 /// Fenêtre du public en mode présentateur.
 const AUDIENCE_ID: &str = "varium-diaporama-public";
+
+/// Les commandes de la Présentation, communes aux menus egui, à la barre native de
+/// macOS et au clavier.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SlideAction {
+    New,
+    Sample,
+    Open,
+    Save,
+    SaveAs,
+    ExportPdf,
+    ExportOdp,
+    ExportHtml,
+    Undo,
+    Redo,
+    DuplicateObject,
+    DeleteObject,
+    InsertImage,
+    InsertShape(ObjectKind),
+    NewSlide,
+    DuplicateSlide,
+    DeleteSlide,
+    MoveUp,
+    MoveDown,
+    StartFirst,
+    StartCurrent,
+    Presenter,
+}
 
 pub struct SlidesApp {
     deck: Deck,
@@ -47,6 +77,10 @@ pub struct SlidesApp {
     textures: Textures,
     /// Images choisies dans le dialogue « Insertion → Image… » : (nom, octets).
     picked: Picked,
+    /// Dernière action du clavier ou du menu natif, pour ne pas la doubler.
+    last_act: Option<(SlideAction, f64)>,
+    /// Les menus sont dans la barre native de macOS (pas de barre dans la fenêtre).
+    pub native_menu: bool,
 }
 
 /// Fichiers choisis dans un dialogue : (nom, octets).
@@ -180,6 +214,8 @@ impl SlidesApp {
             drag: None,
             textures: Textures::default(),
             picked: Arc::default(),
+            last_act: None,
+            native_menu: false,
         }
     }
 
@@ -200,7 +236,7 @@ impl SlidesApp {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.deck.title.clone());
-        format!("{name} — Varium Présentation")
+        trf!("{name} — Varium Présentation", name)
     }
 
     fn snapshot(&mut self, now: f64, coalesce: bool) {
@@ -281,9 +317,9 @@ impl SlidesApp {
                 self.notify(
                     ctx,
                     if imported {
-                        format!("« {name} » importé ({n} diapositive(s))")
+                        trf!("« {name} » importé ({n} diapositive(s))", name, n)
                     } else {
-                        format!("« {name} » ouvert")
+                        trf!("« {name} » ouvert", name)
                     },
                     false,
                 );
@@ -318,7 +354,11 @@ impl SlidesApp {
                     if project {
                         self.path = Some(path.clone());
                     }
-                    self.notify(ctx, format!("Enregistré : {}", path.display()), false);
+                    self.notify(
+                        ctx,
+                        trf!("Enregistré : {path}", path = path.display()),
+                        false,
+                    );
                 }
                 Event::Info(m) => self.notify(ctx, m, false),
                 Event::Error(e) => self.notify(ctx, e, true),
@@ -368,8 +408,8 @@ impl SlidesApp {
         let inbox = self.picked.clone();
         let ctx = ctx.clone();
         let dialog = rfd::AsyncFileDialog::new()
-            .set_title("Insérer une image")
-            .add_filter("Image PNG ou JPEG", &["png", "jpg", "jpeg"]);
+            .set_title(tr("Insérer une image"))
+            .add_filter(tr("Image PNG ou JPEG"), &["png", "jpg", "jpeg"]);
         std::thread::spawn(move || {
             block_on(async move {
                 let Some(file) = dialog.pick_file().await else {
@@ -410,7 +450,7 @@ impl SlidesApp {
                         (y - o.frame.h / 2.0).clamp(-o.frame.h / 2.0, 1.0 - o.frame.h / 2.0);
                 }
                 self.selected = Some((self.current, k));
-                self.notify(ctx, format!("Image « {name} » insérée"), false);
+                self.notify(ctx, trf!("Image « {name} » insérée", name), false);
             }
             Err(e) => self.notify(ctx, format!("« {name} » : {e}"), true),
         }
@@ -434,11 +474,11 @@ impl SlidesApp {
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "fichier".into());
+                .unwrap_or_else(|| tr("fichier").into());
             let bytes = match f.bytes() {
                 Ok(b) => b,
                 Err(e) => {
-                    self.notify(ctx, format!("« {name} » illisible : {e}"), true);
+                    self.notify(ctx, trf!("« {name} » illisible : {e}", name, e), true);
                     continue;
                 }
             };
@@ -521,14 +561,14 @@ impl SlidesApp {
                 let from = if shift { self.current } else { 0 };
                 self.start(&ctx, from);
             }
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::Z)) {
-                self.undo();
-            }
             if ctx.input_mut(|i| {
                 i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::Z)
                     || i.consume_key(egui::Modifiers::COMMAND, Key::Y)
             }) {
-                self.redo();
+                self.perform_once(&ctx, SlideAction::Redo);
+            }
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::Z)) {
+                self.perform_once(&ctx, SlideAction::Undo);
             }
             match self.selected {
                 Some((s, k)) => self.object_keys(&ctx, s, k, now),
@@ -544,13 +584,15 @@ impl SlidesApp {
             }
         }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::M)) {
-            self.add(&ctx);
+            self.perform_once(&ctx, SlideAction::NewSlide);
         }
 
-        egui::Panel::top("slides-menu").show(ui, |ui| {
-            ui.add_space(2.0);
-            egui::MenuBar::new().ui(ui, |ui| self.menus(ui));
-        });
+        if !self.native_menu {
+            egui::Panel::top("slides-menu").show(ui, |ui| {
+                ui.add_space(2.0);
+                egui::MenuBar::new().ui(ui, |ui| self.menus(ui));
+            });
+        }
         egui::Panel::top("slides-tools").show(ui, |ui| {
             ui.add_space(3.0);
             self.toolbar(ui);
@@ -579,7 +621,7 @@ impl SlidesApp {
             ui.painter().text(
                 canvas.center(),
                 Align2::CENTER_CENTER,
-                "Déposez une image (PNG, JPEG) ou une présentation (ODP, PPTX)",
+                tr("Déposez une image (PNG, JPEG) ou une présentation (ODP, PPTX)"),
                 FontId::proportional(18.0),
                 Color32::WHITE,
             );
@@ -590,8 +632,7 @@ impl SlidesApp {
     /// Clavier sur l'objet sélectionné : Suppr, flèches, Ctrl+D, Échap.
     fn object_keys(&mut self, ctx: &egui::Context, s: usize, k: usize, now: f64) {
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::D)) {
-            self.snapshot(now, false);
-            self.selected = self.deck.slides[s].duplicate_object(k).map(|k| (s, k));
+            self.perform_once(ctx, SlideAction::DuplicateObject);
             return;
         }
         if ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
@@ -634,154 +675,211 @@ impl SlidesApp {
         self.current = self.deck.add_slide(self.current, self.new_layout);
     }
 
+    /// Un élément de menu egui qui lance une action.
+    fn entry(&mut self, ui: &mut egui::Ui, enabled: bool, label: &str, keys: &str, a: SlideAction) {
+        let b = egui::Button::new(label).shortcut_text(keys);
+        if ui.add_enabled(enabled, b).clicked() {
+            let ctx = ui.ctx().clone();
+            self.perform(&ctx, a);
+        }
+    }
+
     fn menus(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
+        use SlideAction as A;
+        ui.menu_button(tr("Fichier"), |ui| {
+            self.entry(ui, true, tr("Nouvelle présentation"), "", A::New);
+            self.entry(ui, true, tr("Présentation d'exemple"), "", A::Sample);
+            if ui
+                .button(tr("Ouvrir…"))
+                .on_hover_text(tr(
+                    "Présentation Varium (.json), LibreOffice Impress (.odp) ou PowerPoint (.pptx)",
+                ))
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.perform(&ctx, A::Open);
+            }
+            ui.separator();
+            self.entry(ui, true, tr("Enregistrer"), "", A::Save);
+            self.entry(ui, true, tr("Enregistrer sous…"), "", A::SaveAs);
+            ui.menu_button(tr("Exporter"), |ui| {
+                self.entry(
+                    ui,
+                    true,
+                    tr("PDF (une page par diapositive)"),
+                    "",
+                    A::ExportPdf,
+                );
+                self.entry(ui, true, tr("LibreOffice Impress (.odp)"), "", A::ExportOdp);
+                self.entry(ui, true, tr("Diaporama web (.html)"), "", A::ExportHtml);
+            });
+        });
+        ui.menu_button(tr("Édition"), |ui| {
+            self.entry(
+                ui,
+                !self.undo.is_empty(),
+                tr("Annuler"),
+                tr("Ctrl+Z"),
+                A::Undo,
+            );
+            self.entry(
+                ui,
+                !self.redo.is_empty(),
+                tr("Rétablir"),
+                tr("Ctrl+Y"),
+                A::Redo,
+            );
+            if self.selected.is_some() {
+                ui.separator();
+                self.entry(
+                    ui,
+                    true,
+                    tr("Dupliquer l'objet"),
+                    tr("Ctrl+D"),
+                    A::DuplicateObject,
+                );
+                self.entry(
+                    ui,
+                    true,
+                    tr("Supprimer l'objet"),
+                    tr("Suppr"),
+                    A::DeleteObject,
+                );
+            }
+        });
+        ui.menu_button(tr("Insertion"), |ui| {
+            self.entry(ui, true, tr("🖼 Image…"), "", A::InsertImage);
+            ui.separator();
+            for kind in ObjectKind::SHAPES {
+                self.entry(ui, true, &shape_label(kind), "", A::InsertShape(kind));
+            }
+        });
+        ui.menu_button(tr("Diapositive"), |ui| {
+            self.entry(
+                ui,
+                true,
+                tr("Nouvelle diapositive"),
+                tr("Ctrl+M"),
+                A::NewSlide,
+            );
+            self.entry(ui, true, tr("Dupliquer"), "", A::DuplicateSlide);
+            let several = self.deck.slides.len() > 1;
+            self.entry(ui, several, tr("Supprimer"), "", A::DeleteSlide);
+            ui.separator();
+            self.entry(ui, self.current > 0, tr("Monter"), "", A::MoveUp);
+            let last = self.current + 1 >= self.deck.slides.len();
+            self.entry(ui, !last, tr("Descendre"), "", A::MoveDown);
+        });
+        ui.menu_button(tr("Diaporama"), |ui| {
+            self.entry(ui, true, tr("Depuis la première diapositive"), "F5", A::StartFirst);
+            self.entry(ui, true, tr("Depuis la diapositive actuelle"), tr("Maj+F5"), A::StartCurrent);
+            ui.separator();
+            if ui
+                .button(tr("Mode présentateur"))
+                .on_hover_text(tr(
+                    "Une fenêtre pour le public (à glisser sur le projecteur, F pour le plein écran), \
+                     les notes, la suivante et le chronomètre ici",
+                ))
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.perform(&ctx, A::Presenter);
+            }
+        });
+        ui.menu_button(tr("Aide"), |ui| {
+            crate::tr::menu(ui);
+        });
+    }
+
+    /// Lance une action des menus (egui ou barre native de macOS) ou du clavier.
+    pub fn perform(&mut self, ctx: &egui::Context, a: SlideAction) {
+        use SlideAction as A;
+        if self.presenting.is_some() {
+            return;
+        }
         let now = ctx.input(|i| i.time);
-        ui.menu_button("Fichier", |ui| {
-            if ui.button("Nouvelle présentation").clicked() {
+        match a {
+            A::New => {
                 self.snapshot(now, false);
                 self.deck = Deck::new();
                 self.path = None;
                 self.current = 0;
             }
-            if ui.button("Présentation d'exemple").clicked() {
+            A::Sample => {
                 self.snapshot(now, false);
                 self.deck = Deck::sample();
                 self.path = None;
                 self.current = 0;
             }
-            if ui
-                .button("Ouvrir…")
-                .on_hover_text(
-                    "Présentation Varium (.json), LibreOffice Impress (.odp) ou PowerPoint (.pptx)",
-                )
-                .clicked()
-            {
-                self.io.open(&ctx, OpenKind::Deck);
-            }
-            ui.separator();
-            if ui.button("Enregistrer").clicked() {
-                self.save_file(&ctx, false);
-            }
-            if ui.button("Enregistrer sous…").clicked() {
-                self.save_file(&ctx, true);
-            }
-            ui.menu_button("Exporter", |ui| {
-                if ui.button("PDF (une page par diapositive)").clicked() {
-                    self.export(&ctx, "pdf");
-                }
-                if ui.button("LibreOffice Impress (.odp)").clicked() {
-                    self.export(&ctx, "odp");
-                }
-                if ui.button("Diaporama web (.html)").clicked() {
-                    self.export(&ctx, "html");
-                }
-            });
-        });
-        ui.menu_button("Édition", |ui| {
-            if ui
-                .add_enabled(
-                    !self.undo.is_empty(),
-                    egui::Button::new("Annuler").shortcut_text("Ctrl+Z"),
-                )
-                .clicked()
-            {
-                self.undo();
-            }
-            if ui
-                .add_enabled(
-                    !self.redo.is_empty(),
-                    egui::Button::new("Rétablir").shortcut_text("Ctrl+Y"),
-                )
-                .clicked()
-            {
-                self.redo();
-            }
-            if let Some((s, k)) = self.selected {
-                ui.separator();
-                if ui
-                    .add(egui::Button::new("Dupliquer l'objet").shortcut_text("Ctrl+D"))
-                    .clicked()
-                {
+            A::Open => self.io.open(ctx, OpenKind::Deck),
+            A::Save => self.save_file(ctx, false),
+            A::SaveAs => self.save_file(ctx, true),
+            A::ExportPdf => self.export(ctx, "pdf"),
+            A::ExportOdp => self.export(ctx, "odp"),
+            A::ExportHtml => self.export(ctx, "html"),
+            A::Undo => self.undo(),
+            A::Redo => self.redo(),
+            A::DuplicateObject => {
+                if let Some((s, k)) = self.selected {
                     self.snapshot(now, false);
                     self.selected = self.deck.slides[s].duplicate_object(k).map(|k| (s, k));
                 }
-                if ui
-                    .add(egui::Button::new("Supprimer l'objet").shortcut_text("Suppr"))
-                    .clicked()
-                {
+            }
+            A::DeleteObject => {
+                if let Some((s, k)) = self.selected {
                     self.snapshot(now, false);
                     self.deck.slides[s].remove_object(k);
                     self.selected = None;
                 }
             }
-        });
-        ui.menu_button("Insertion", |ui| {
-            if ui.button("🖼 Image…").clicked() {
-                self.pick_image(&ctx);
-            }
-            ui.separator();
-            for kind in ObjectKind::SHAPES {
-                if ui.button(shape_label(kind)).clicked() {
-                    self.insert_shape(&ctx, kind);
-                }
-            }
-        });
-        ui.menu_button("Diapositive", |ui| {
-            if ui
-                .add(egui::Button::new("Nouvelle diapositive").shortcut_text("Ctrl+M"))
-                .clicked()
-            {
-                self.add(&ctx);
-            }
-            if ui.button("Dupliquer").clicked() {
+            A::InsertImage => self.pick_image(ctx),
+            A::InsertShape(kind) => self.insert_shape(ctx, kind),
+            A::NewSlide => self.add(ctx),
+            A::DuplicateSlide => {
                 self.snapshot(now, false);
                 self.current = self.deck.duplicate(self.current);
             }
-            if ui
-                .add_enabled(self.deck.slides.len() > 1, egui::Button::new("Supprimer"))
-                .clicked()
-            {
-                self.snapshot(now, false);
-                self.deck.remove(self.current);
+            A::DeleteSlide => {
+                if self.deck.slides.len() > 1 {
+                    self.snapshot(now, false);
+                    self.deck.remove(self.current);
+                }
             }
-            ui.separator();
-            if ui.button("Monter").clicked() && self.current > 0 {
-                self.snapshot(now, false);
-                self.deck.move_slide(self.current, self.current - 1);
-                self.current -= 1;
+            A::MoveUp => {
+                if self.current > 0 {
+                    self.snapshot(now, false);
+                    self.deck.move_slide(self.current, self.current - 1);
+                    self.current -= 1;
+                }
             }
-            if ui.button("Descendre").clicked() && self.current + 1 < self.deck.slides.len() {
-                self.snapshot(now, false);
-                self.deck.move_slide(self.current, self.current + 1);
-                self.current += 1;
+            A::MoveDown => {
+                if self.current + 1 < self.deck.slides.len() {
+                    self.snapshot(now, false);
+                    self.deck.move_slide(self.current, self.current + 1);
+                    self.current += 1;
+                }
             }
-        });
-        ui.menu_button("Diaporama", |ui| {
-            if ui
-                .add(egui::Button::new("Depuis la première diapositive").shortcut_text("F5"))
-                .clicked()
-            {
-                self.start(&ctx, 0);
-            }
-            if ui
-                .add(egui::Button::new("Depuis la diapositive actuelle").shortcut_text("Maj+F5"))
-                .clicked()
-            {
-                self.start(&ctx, self.current);
-            }
-            ui.separator();
-            if ui
-                .button("Mode présentateur")
-                .on_hover_text(
-                    "Une fenêtre pour le public (à glisser sur le projecteur, F pour le plein écran), \
-                     les notes, la suivante et le chronomètre ici",
-                )
-                .clicked()
-            {
-                self.start_presenter(&ctx, self.current);
-            }
-        });
+            A::StartFirst => self.start(ctx, 0),
+            A::StartCurrent => self.start(ctx, self.current),
+            A::Presenter => self.start_presenter(ctx, self.current),
+        }
+    }
+
+    /// Une action venue du clavier ou de la barre native : la même touche peut arriver
+    /// par les deux chemins, on ne l'exécute qu'une fois.
+    pub fn perform_once(&mut self, ctx: &egui::Context, a: SlideAction) {
+        let now = ctx.input(|i| i.time);
+        if let Some((last, t)) = self.last_act
+            && last == a
+            && now - t < 0.4
+        {
+            return;
+        }
+        if ctx.egui_wants_keyboard_input() && matches!(a, SlideAction::Undo | SlideAction::Redo) {
+            return;
+        }
+        self.last_act = Some((a, now));
+        self.perform(ctx, a);
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
@@ -789,27 +887,27 @@ impl SlidesApp {
         let now = ctx.input(|i| i.time);
         ui.horizontal_wrapped(|ui| {
             if ui
-                .button("➕ Diapositive")
-                .on_hover_text("Nouvelle diapositive (Ctrl+M)")
+                .button(tr("➕ Diapositive"))
+                .on_hover_text(tr("Nouvelle diapositive (Ctrl+M)"))
                 .clicked()
             {
                 self.add(&ctx);
             }
             egui::ComboBox::from_id_salt("new-layout")
-                .selected_text(self.new_layout.label())
+                .selected_text(labels::layout(self.new_layout))
                 .width(150.0)
                 .show_ui(ui, |ui| {
                     for l in Layout::ALL {
-                        ui.selectable_value(&mut self.new_layout, l, l.label());
+                        ui.selectable_value(&mut self.new_layout, l, labels::layout(l));
                     }
                 });
-            if ui.button("⧉").on_hover_text("Dupliquer").clicked() {
+            if ui.button("⧉").on_hover_text(tr("Dupliquer")).clicked() {
                 self.snapshot(now, false);
                 self.current = self.deck.duplicate(self.current);
             }
             if ui
                 .add_enabled(self.deck.slides.len() > 1, egui::Button::new("🗑"))
-                .on_hover_text("Supprimer")
+                .on_hover_text(tr("Supprimer"))
                 .clicked()
             {
                 self.snapshot(now, false);
@@ -817,13 +915,15 @@ impl SlidesApp {
             }
             ui.separator();
             if ui
-                .button("🖼 Image")
-                .on_hover_text("Insérer une image PNG ou JPEG (ou déposez-la sur la diapositive)")
+                .button(tr("🖼 Image"))
+                .on_hover_text(tr(
+                    "Insérer une image PNG ou JPEG (ou déposez-la sur la diapositive)",
+                ))
                 .clicked()
             {
                 self.pick_image(&ctx);
             }
-            ui.menu_button("⬟ Forme", |ui| {
+            ui.menu_button(tr("⬟ Forme"), |ui| {
                 for kind in ObjectKind::SHAPES {
                     if ui.button(shape_label(kind)).clicked() {
                         self.insert_shape(&ctx, kind);
@@ -832,11 +932,14 @@ impl SlidesApp {
             });
             ui.separator();
             egui::ComboBox::from_id_salt("theme")
-                .selected_text(format!("Thème : {}", self.deck.theme.label()))
+                .selected_text(trf!(
+                    "Thème : {theme}",
+                    theme = labels::theme(self.deck.theme)
+                ))
                 .show_ui(ui, |ui| {
                     for t in Theme::ALL {
                         if ui
-                            .selectable_label(self.deck.theme == t, t.label())
+                            .selectable_label(self.deck.theme == t, labels::theme(t))
                             .clicked()
                         {
                             self.snapshot(now, false);
@@ -847,25 +950,25 @@ impl SlidesApp {
             ui.separator();
             ui.add(
                 egui::TextEdit::singleline(&mut self.deck.title)
-                    .hint_text("Titre de la présentation")
+                    .hint_text(tr("Titre de la présentation"))
                     .desired_width(200.0),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(
-                        egui::Button::new(RichText::new("▶ Présenter").strong())
+                        egui::Button::new(RichText::new(tr("▶ Présenter")).strong())
                             .fill(Color32::from_rgb(0x1F, 0x5F, 0xBF)),
                     )
-                    .on_hover_text(
+                    .on_hover_text(tr(
                         "Lancer le diaporama (F5 ; Maj+F5 depuis la diapositive actuelle)",
-                    )
+                    ))
                     .clicked()
                 {
                     self.start(&ctx, self.current);
                 }
                 if ui
-                    .button("🖥 Présentateur")
-                    .on_hover_text("Mode présentateur sur deuxième écran")
+                    .button(tr("🖥 Présentateur"))
+                    .on_hover_text(tr("Mode présentateur sur deuxième écran"))
                     .clicked()
                 {
                     self.start_presenter(&ctx, self.current);
@@ -902,10 +1005,10 @@ impl SlidesApp {
                             select = Some(i);
                         }
                         resp.context_menu(|ui| {
-                            if ui.button("Présenter à partir d'ici").clicked() {
+                            if ui.button(tr("Présenter à partir d'ici")).clicked() {
                                 self.start(ui.ctx(), i);
                             }
-                            if ui.button("Mode présentateur à partir d'ici").clicked() {
+                            if ui.button(tr("Mode présentateur à partir d'ici")).clicked() {
                                 self.start_presenter(ui.ctx(), i);
                             }
                         });
@@ -956,12 +1059,12 @@ impl SlidesApp {
             let s = &mut self.deck.slides[i];
             egui::Grid::new("slide-form").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                 if bx.title.is_some() {
-                    ui.label("Titre");
-                    ui.add(egui::TextEdit::singleline(&mut s.title).desired_width(f32::INFINITY).hint_text("Titre de la diapositive"));
+                    ui.label(tr("Titre"));
+                    ui.add(egui::TextEdit::singleline(&mut s.title).desired_width(f32::INFINITY).hint_text(tr("Titre de la diapositive")));
                     ui.end_row();
                 }
                 if bx.subtitle.is_some() {
-                    ui.label("Sous-titre");
+                    ui.label(tr("Sous-titre"));
                     ui.add(
                         egui::TextEdit::multiline(&mut s.subtitle)
                             .desired_width(f32::INFINITY)
@@ -970,26 +1073,26 @@ impl SlidesApp {
                     ui.end_row();
                 }
                 if bx.body.is_some() {
-                    ui.label(if bx.body2.is_some() { "Colonne 1" } else { "Contenu" });
+                    ui.label(if bx.body2.is_some() { tr("Colonne 1") } else { tr("Contenu") });
                     ui.add(
                         egui::TextEdit::multiline(&mut s.body)
                             .desired_width(f32::INFINITY)
                             .desired_rows(5)
-                            .hint_text("- une puce\n- **gras**, *italique*, {{champ}}\n  - sous-puce"),
+                            .hint_text(tr("- une puce\n- **gras**, *italique*, {{champ}}\n  - sous-puce")),
                     );
                     ui.end_row();
                 }
                 if bx.body2.is_some() {
-                    ui.label("Colonne 2");
+                    ui.label(tr("Colonne 2"));
                     ui.add(egui::TextEdit::multiline(&mut s.body2).desired_width(f32::INFINITY).desired_rows(5));
                     ui.end_row();
                 }
-                ui.label("Notes");
+                ui.label(tr("Notes"));
                 ui.add(
                     egui::TextEdit::multiline(&mut s.notes)
                         .desired_width(f32::INFINITY)
                         .desired_rows(3)
-                        .hint_text("Notes de l'orateur (touche N pendant le diaporama)"),
+                        .hint_text(tr("Notes de l'orateur (touche N pendant le diaporama)")),
                 );
                 ui.end_row();
             });
@@ -1110,43 +1213,43 @@ impl SlidesApp {
                     self.object_inspector(ui, s, k, now);
                     ui.separator();
                 }
-                ui.label(RichText::new("Diapositive").strong());
+                ui.label(RichText::new(tr("Diapositive")).strong());
                 let i = self.current;
                 let mut layout = self.deck.slides[i].layout;
-                egui::ComboBox::from_label("Disposition")
-                    .selected_text(layout.label())
+                egui::ComboBox::from_label(tr("Disposition"))
+                    .selected_text(labels::layout(layout))
                     .show_ui(ui, |ui| {
                         for l in Layout::ALL {
-                            ui.selectable_value(&mut layout, l, l.label());
+                            ui.selectable_value(&mut layout, l, labels::layout(l));
                         }
                     });
                 if layout != self.deck.slides[i].layout {
                     self.snapshot(now, false);
                     self.deck.slides[i].layout = layout;
                 }
-                let mut tr = self.deck.slides[i].transition;
-                egui::ComboBox::from_label("Transition")
-                    .selected_text(tr.label())
+                let mut trans = self.deck.slides[i].transition;
+                egui::ComboBox::from_label(tr("Transition"))
+                    .selected_text(labels::transition(trans))
                     .show_ui(ui, |ui| {
                         for t in Transition::ALL {
-                            ui.selectable_value(&mut tr, t, t.label());
+                            ui.selectable_value(&mut trans, t, labels::transition(t));
                         }
                     });
-                if tr != self.deck.slides[i].transition {
+                if trans != self.deck.slides[i].transition {
                     self.snapshot(now, false);
-                    self.deck.slides[i].transition = tr;
+                    self.deck.slides[i].transition = trans;
                 }
-                ui.label("Fond");
+                ui.label(tr("Fond"));
                 ui.horizontal_wrapped(|ui| {
                     let theme_bg = self.deck.theme.palette().background;
                     for (name, c) in [
-                        ("Thème", None),
-                        ("Blanc", Some([0xFF, 0xFF, 0xFF])),
-                        ("Nuit", Some([0x14, 0x1B, 0x2D])),
-                        ("Bleu", Some([0x1F, 0x5F, 0xBF])),
-                        ("Sable", Some([0xF4, 0xEC, 0xDC])),
-                        ("Vert", Some([0x1E, 0x5B, 0x46])),
-                        ("Corail", Some([0xF2, 0x6B, 0x5B])),
+                        (tr("Thème"), None),
+                        (tr("Blanc"), Some([0xFF, 0xFF, 0xFF])),
+                        (tr("Nuit"), Some([0x14, 0x1B, 0x2D])),
+                        (tr("Bleu"), Some([0x1F, 0x5F, 0xBF])),
+                        (tr("Sable"), Some([0xF4, 0xEC, 0xDC])),
+                        (tr("Vert"), Some([0x1E, 0x5B, 0x46])),
+                        (tr("Corail"), Some([0xF2, 0x6B, 0x5B])),
                     ] {
                         let fill = rgb(c.unwrap_or(theme_bg));
                         let on = self.deck.slides[i].background == c;
@@ -1174,8 +1277,9 @@ impl SlidesApp {
                 let n = self.deck.slides[i].objects.len();
                 if n > 0 {
                     ui.label(
-                        RichText::new(format!(
-                            "{n} objet(s) : cliquez sur la diapositive pour en sélectionner un."
+                        RichText::new(trf!(
+                            "{n} objet(s) : cliquez sur la diapositive pour en sélectionner un.",
+                            n
                         ))
                         .small()
                         .weak(),
@@ -1183,7 +1287,7 @@ impl SlidesApp {
                 }
 
                 ui.separator();
-                ui.label(RichText::new("Présentation").strong());
+                ui.label(RichText::new(tr("Présentation")).strong());
                 let mut aspect = self.deck.aspect;
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut aspect, Aspect::Large, "16:9");
@@ -1195,22 +1299,22 @@ impl SlidesApp {
                 }
                 ui.add(
                     egui::TextEdit::singleline(&mut self.deck.footer)
-                        .hint_text("Pied de page (ex. {{entreprise}})"),
+                        .hint_text(tr("Pied de page (ex. {{entreprise}})")),
                 );
-                ui.checkbox(&mut self.deck.slide_numbers, "Numéros de diapositive");
+                ui.checkbox(&mut self.deck.slide_numbers, tr("Numéros de diapositive"));
 
                 ui.separator();
-                ui.label(RichText::new("Champs").strong());
+                ui.label(RichText::new(tr("Champs")).strong());
                 ui.label(
-                    RichText::new(
+                    RichText::new(tr(
                         "Écrivez {{nom}} dans une diapositive : la valeur s'affiche partout.",
-                    )
+                    ))
                     .small()
                     .weak(),
                 );
                 let vars = self.deck.variables();
                 if vars.is_empty() {
-                    ui.label(RichText::new("Aucun champ.").weak());
+                    ui.label(RichText::new(tr("Aucun champ.")).weak());
                 }
                 for v in vars {
                     ui.label(RichText::new(&v).monospace());
@@ -1218,15 +1322,15 @@ impl SlidesApp {
                     ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
                 }
                 ui.separator();
-                ui.label(RichText::new("Mise en forme du contenu").strong());
+                ui.label(RichText::new(tr("Mise en forme du contenu")).strong());
                 for (k, d) in [
-                    ("- puce", "liste à puces (2 espaces = sous-puce)"),
-                    ("1. élément", "liste numérotée"),
-                    ("**gras** *italique*", "caractères"),
-                    ("> citation", "citation"),
-                    ("| a | b |", "tableau"),
-                    ("{{champ}}", "valeur partagée"),
-                    ("$x^2$", "formule"),
+                    (tr("- puce"), tr("liste à puces (2 espaces = sous-puce)")),
+                    (tr("1. élément"), tr("liste numérotée")),
+                    (tr("**gras** *italique*"), tr("caractères")),
+                    (tr("> citation"), tr("citation")),
+                    ("| a | b |", tr("tableau")),
+                    (tr("{{champ}}"), tr("valeur partagée")),
+                    ("$x^2$", tr("formule")),
                 ] {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new(k).monospace().small());
@@ -1244,7 +1348,7 @@ impl SlidesApp {
         let ratio = self.deck.media.get(&before.media).map(|m| m.ratio());
         let slide_ratio = self.deck.aspect.ratio();
         let mut o = before.clone();
-        ui.label(RichText::new(format!("Objet : {}", o.kind.label())).strong());
+        ui.label(RichText::new(trf!("Objet : {kind}", kind = labels::object(o.kind))).strong());
         egui::Grid::new("object-geometry")
             .num_columns(4)
             .spacing([6.0, 4.0])
@@ -1268,16 +1372,18 @@ impl SlidesApp {
                 pc(ui, "X", &mut o.frame.x);
                 pc(ui, "Y", &mut o.frame.y);
                 ui.end_row();
-                pc(ui, "Largeur", &mut o.frame.w);
-                pc(ui, "Hauteur", &mut o.frame.h);
+                pc(ui, tr("Largeur"), &mut o.frame.w);
+                pc(ui, tr("Hauteur"), &mut o.frame.h);
                 ui.end_row();
             });
         o.frame.w = o.frame.w.max(0.0);
         o.frame.h = o.frame.h.max(0.0);
         if let Some(r) = ratio
             && ui
-                .button("Proportions d'origine")
-                .on_hover_text("Rétablit les proportions de l'image (largeur conservée)")
+                .button(tr("Proportions d'origine"))
+                .on_hover_text(tr(
+                    "Rétablit les proportions de l'image (largeur conservée)",
+                ))
                 .clicked()
         {
             o.frame.h = o.frame.w * slide_ratio / r;
@@ -1286,7 +1392,7 @@ impl SlidesApp {
             if o.kind.is_closed() {
                 ui.horizontal(|ui| {
                     let mut on = o.fill.is_some();
-                    ui.checkbox(&mut on, "Fond");
+                    ui.checkbox(&mut on, tr("Fond"));
                     let mut c = o.fill.unwrap_or([0x2F, 0x74, 0xD6]);
                     if on {
                         egui::color_picker::color_edit_button_srgb(ui, &mut c);
@@ -1298,9 +1404,9 @@ impl SlidesApp {
                 let mut on = o.stroke.is_some();
                 if o.kind.is_line() {
                     on = true;
-                    ui.label("Trait");
+                    ui.label(tr("Trait"));
                 } else {
-                    ui.checkbox(&mut on, "Trait");
+                    ui.checkbox(&mut on, tr("Trait"));
                 }
                 let mut c = o.stroke.unwrap_or([0x20, 0x20, 0x20]);
                 if on {
@@ -1317,20 +1423,20 @@ impl SlidesApp {
             });
             if o.kind.is_line() {
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut o.flip_h, "Inverser ↔");
-                    ui.checkbox(&mut o.flip_v, "Inverser ↕");
+                    ui.checkbox(&mut o.flip_h, tr("Inverser ↔"));
+                    ui.checkbox(&mut o.flip_v, tr("Inverser ↕"));
                 });
             } else {
-                ui.label("Texte");
+                ui.label(tr("Texte"));
                 ui.add(
                     egui::TextEdit::multiline(&mut o.text)
                         .desired_rows(2)
                         .desired_width(f32::INFINITY)
-                        .hint_text("Texte centré (**gras**, {{champ}}…)"),
+                        .hint_text(tr("Texte centré (**gras**, {{champ}}…)")),
                 );
                 ui.horizontal(|ui| {
                     let mut size = o.text_size * 100.0;
-                    ui.label("Taille");
+                    ui.label(tr("Taille"));
                     if ui
                         .add(
                             egui::DragValue::new(&mut size)
@@ -1343,7 +1449,7 @@ impl SlidesApp {
                         o.text_size = size / 100.0;
                     }
                     let mut auto = o.text_color.is_none();
-                    ui.checkbox(&mut auto, "Couleur auto");
+                    ui.checkbox(&mut auto, tr("Couleur auto"));
                     let pal = self.deck.slide_palette(s);
                     let mut c = o.text_color.unwrap_or_else(|| o.text_ink(&pal));
                     if !auto {
@@ -1358,28 +1464,36 @@ impl SlidesApp {
             self.deck.slides[s].objects[k] = o;
         }
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Premier plan").clicked() {
+            if ui.button(tr("Premier plan")).clicked() {
                 self.snapshot(now, false);
                 let k = self.deck.slides[s].bring_to_front(k);
                 self.selected = Some((s, k));
             }
-            if ui.button("Arrière-plan").clicked() {
+            if ui.button(tr("Arrière-plan")).clicked() {
                 self.snapshot(now, false);
                 let k = self.deck.slides[s].send_to_back(k);
                 self.selected = Some((s, k));
             }
-            if ui.button("Dupliquer").on_hover_text("Ctrl+D").clicked() {
+            if ui
+                .button(tr("Dupliquer"))
+                .on_hover_text(tr("Ctrl+D"))
+                .clicked()
+            {
                 self.snapshot(now, false);
                 self.selected = self.deck.slides[s].duplicate_object(k).map(|k| (s, k));
             }
-            if ui.button("🗑 Supprimer").on_hover_text("Suppr").clicked() {
+            if ui
+                .button(tr("🗑 Supprimer"))
+                .on_hover_text(tr("Suppr"))
+                .clicked()
+            {
                 self.snapshot(now, false);
                 self.deck.slides[s].remove_object(k);
                 self.selected = None;
             }
         });
         ui.label(
-            RichText::new("Glisser pour déplacer, poignées pour redimensionner (Maj : proportions), flèches pour ajuster.")
+            RichText::new(tr("Glisser pour déplacer, poignées pour redimensionner (Maj : proportions), flèches pour ajuster."))
                 .small()
                 .weak(),
         );
@@ -1488,7 +1602,7 @@ impl SlidesApp {
                 if self.show_notes {
                     let notes = self.deck.slides[i].notes.clone();
                     let text = if notes.trim().is_empty() {
-                        "(pas de notes)".to_string()
+                        tr("(pas de notes)").to_string()
                     } else {
                         notes
                     };
@@ -1532,7 +1646,7 @@ impl SlidesApp {
 
         // Fenêtre du public.
         let builder = egui::ViewportBuilder::default()
-            .with_title("Varium — Diaporama (public)")
+            .with_title(tr("Varium — Diaporama (public)"))
             .with_inner_size([960.0, 540.0])
             .with_min_inner_size([320.0, 180.0]);
         let audience = ctx.show_viewport_immediate(
@@ -1579,7 +1693,11 @@ impl SlidesApp {
                     .monospace(),
                 );
                 if ui
-                    .button(if paused { "▶ Reprendre" } else { "⏸ Pause" })
+                    .button(if paused {
+                        tr("▶ Reprendre")
+                    } else {
+                        tr("⏸ Pause")
+                    })
                     .clicked()
                     && let Some(p) = &mut self.presenter
                 {
@@ -1588,7 +1706,7 @@ impl SlidesApp {
                         None => p.paused = Some(now),
                     }
                 }
-                if ui.button("↺ Remettre à zéro").clicked()
+                if ui.button(tr("↺ Remettre à zéro")).clicked()
                     && let Some(p) = &mut self.presenter
                 {
                     p.started = now;
@@ -1601,7 +1719,7 @@ impl SlidesApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add(
-                            egui::Button::new(RichText::new("Terminer (Échap)").strong())
+                            egui::Button::new(RichText::new(tr("Terminer (Échap)")).strong())
                                 .fill(Color32::from_rgb(0xB0, 0x30, 0x2A)),
                         )
                         .clicked()
@@ -1609,17 +1727,17 @@ impl SlidesApp {
                         self.stop(&ctx);
                     }
                     let black = if self.black {
-                        "Rallumer l'écran (B)"
+                        tr("Rallumer l'écran (B)")
                     } else {
-                        "Écran noir (B)"
+                        tr("Écran noir (B)")
                     };
                     if ui.button(black).clicked() {
                         self.black = !self.black;
                     }
-                    if ui.button("Suivante ▶").clicked() {
+                    if ui.button(tr("Suivante ▶")).clicked() {
                         self.apply_nav(&ctx, Nav::Next, false);
                     }
-                    if ui.button("◀ Précédente").clicked() {
+                    if ui.button(tr("◀ Précédente")).clicked() {
                         self.apply_nav(&ctx, Nav::Prev, false);
                     }
                 });
@@ -1634,7 +1752,7 @@ impl SlidesApp {
             .resizable(true)
             .default_size(ui.available_width() * 0.36)
             .show(ui, |ui| {
-                ui.label(RichText::new("Diapositive suivante").strong());
+                ui.label(RichText::new(tr("Diapositive suivante")).strong());
                 let w = ui.available_width();
                 let (r, _) = ui.allocate_exact_size(Vec2::new(w, w / ratio), Sense::hover());
                 if i + 1 < n {
@@ -1644,25 +1762,25 @@ impl SlidesApp {
                     ui.painter().text(
                         r.center(),
                         Align2::CENTER_CENTER,
-                        "Fin du diaporama",
+                        tr("Fin du diaporama"),
                         FontId::proportional(16.0),
                         Color32::GRAY,
                     );
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Notes").strong());
+                    ui.label(RichText::new(tr("Notes")).strong());
                     if let Some(p) = &mut self.presenter {
                         if ui
                             .small_button("A−")
-                            .on_hover_text("Texte plus petit")
+                            .on_hover_text(tr("Texte plus petit"))
                             .clicked()
                         {
                             p.notes_size = (p.notes_size - 2.0).max(10.0);
                         }
                         if ui
                             .small_button("A+")
-                            .on_hover_text("Texte plus grand")
+                            .on_hover_text(tr("Texte plus grand"))
                             .clicked()
                         {
                             p.notes_size = (p.notes_size + 2.0).min(64.0);
@@ -1693,7 +1811,7 @@ impl SlidesApp {
                     ui.painter().text(
                         r.center(),
                         Align2::CENTER_CENTER,
-                        "Écran noir pour le public",
+                        tr("Écran noir pour le public"),
                         FontId::proportional(20.0),
                         Color32::WHITE,
                     );
@@ -1774,7 +1892,7 @@ fn shape_label(kind: ObjectKind) -> String {
         ObjectKind::Arrow => "➚",
         ObjectKind::Image => "🖼",
     };
-    format!("{icon} {}", kind.label())
+    format!("{icon} {}", labels::object(kind))
 }
 
 /// Les notes de l'orateur, mises en forme, à la taille choisie.
@@ -1782,7 +1900,7 @@ fn notes_ui(ui: &mut egui::Ui, notes: &str, values: &Values, size: f32) {
     let paras = varium_core::document(notes, values);
     if paras.is_empty() {
         ui.label(
-            RichText::new("Aucune note pour cette diapositive.")
+            RichText::new(tr("Aucune note pour cette diapositive."))
                 .italics()
                 .weak()
                 .size(size),
@@ -2296,7 +2414,7 @@ fn draw_object(
                 painter.text(
                     r.center(),
                     Align2::CENTER_CENTER,
-                    "Image absente",
+                    tr("Image absente"),
                     FontId::proportional((r.height() * 0.15).clamp(6.0, 16.0)),
                     Color32::DARK_GRAY,
                 );
@@ -2512,6 +2630,109 @@ pub fn render_slide(
             muted,
         );
     }
+}
+
+/// Les menus de la Présentation dans la barre native de macOS (le dernier est « Aide »).
+#[cfg(target_os = "macos")]
+pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::Submenu>> {
+    use crate::menubar::{MenuAct, clipboard_items, sep};
+    use SlideAction as A;
+    use muda::{IsMenuItem, Submenu};
+
+    let export = Submenu::with_items(
+        tr("Exporter"),
+        true,
+        &[
+            &b.item(tr("PDF (une page par diapositive)"), A::ExportPdf, None),
+            &b.item(tr("LibreOffice Impress (.odp)"), A::ExportOdp, None),
+            &b.item(tr("Diaporama web (.html)"), A::ExportHtml, None),
+        ],
+    )?;
+    let file = Submenu::with_items(
+        tr("Fichier"),
+        true,
+        &[
+            &b.item(tr("Nouvelle présentation"), A::New, Some("Cmd+N")),
+            &b.item(tr("Présentation d'exemple"), A::Sample, None),
+            &b.item(tr("Ouvrir…"), A::Open, Some("Cmd+O")),
+            &sep(),
+            &b.item(tr("Enregistrer"), A::Save, Some("Cmd+S")),
+            &b.item(tr("Enregistrer sous…"), A::SaveAs, Some("Cmd+Shift+S")),
+            &sep(),
+            &export,
+        ],
+    )?;
+    let [cut, copy, paste, select_all] = clipboard_items();
+    let edit = Submenu::with_items(
+        tr("Édition"),
+        true,
+        &[
+            &b.item(tr("Annuler"), A::Undo, Some("Cmd+Z")),
+            &b.item(tr("Rétablir"), A::Redo, Some("Cmd+Shift+Z")),
+            &sep(),
+            &cut,
+            &copy,
+            &paste,
+            &select_all,
+            &sep(),
+            &b.item(tr("Dupliquer l'objet"), A::DuplicateObject, Some("Cmd+D")),
+            &b.item(tr("Supprimer l'objet"), A::DeleteObject, None),
+        ],
+    )?;
+    let shapes: Vec<_> = ObjectKind::SHAPES
+        .into_iter()
+        .map(|k| b.item(&shape_label(k), A::InsertShape(k), None))
+        .collect();
+    let insert = Submenu::with_items(
+        tr("Insertion"),
+        true,
+        &[
+            &b.item(tr("🖼 Image…"), A::InsertImage, Some("Cmd+Shift+I")),
+            &sep(),
+        ],
+    )?;
+    insert.append_items(
+        &shapes
+            .iter()
+            .map(|i| i as &dyn IsMenuItem)
+            .collect::<Vec<_>>(),
+    )?;
+    let slide = Submenu::with_items(
+        tr("Diapositive"),
+        true,
+        &[
+            &b.item(tr("Nouvelle diapositive"), A::NewSlide, Some("Cmd+Shift+N")),
+            &b.item(tr("Dupliquer"), A::DuplicateSlide, None),
+            &b.item(tr("Supprimer"), A::DeleteSlide, None),
+            &sep(),
+            &b.item(tr("Monter"), A::MoveUp, None),
+            &b.item(tr("Descendre"), A::MoveDown, None),
+        ],
+    )?;
+    let show = Submenu::with_items(
+        tr("Diaporama"),
+        true,
+        &[
+            &b.item(
+                tr("Depuis la première diapositive"),
+                A::StartFirst,
+                Some("Cmd+Shift+Enter"),
+            ),
+            &b.item(
+                tr("Depuis la diapositive actuelle"),
+                A::StartCurrent,
+                Some("Cmd+Enter"),
+            ),
+            &sep(),
+            &b.item(tr("Mode présentateur"), A::Presenter, Some("Cmd+Alt+Enter")),
+        ],
+    )?;
+    let help = Submenu::with_items(
+        tr("Aide"),
+        true,
+        &[&b.item(tr("Site de Varium"), MenuAct::Website, None)],
+    )?;
+    Ok(vec![file, edit, insert, slide, show, help])
 }
 
 #[cfg(test)]
