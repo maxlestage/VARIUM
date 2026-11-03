@@ -23,6 +23,7 @@ pub mod merge;
 pub mod odt;
 pub mod page;
 pub mod parse;
+pub mod pdf;
 #[cfg(feature = "serde")]
 pub mod project;
 pub mod render;

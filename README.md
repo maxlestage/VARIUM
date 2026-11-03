@@ -54,6 +54,7 @@ la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
   concentration** (⌘⇧F).
 - **Typographie française automatique** : « guillemets », apostrophe ’, …, espaces fines
   avant ; : ! ? (désactivable dans Document).
+- **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur) : polices Times/Helvetica, texte justifié, titres, listes, tableaux coupés entre pages, en-tête, pied de page et « Page X sur N ». Les caractères hors latin-1/WinAnsi (formules exotiques, émojis) sont remplacés par `?` ; l'incorporation des polices est prévue.
 - **Exports Pages** : RTF (Pages, TextEdit) et EPUB (livre numérique), en plus de PDF,
   DOCX, ODT, HTML, LaTeX et texte.
 - **Sur macOS** : menus dans la barre de l'écran (Varium, Fichier, Édition, Insertion,

@@ -26,6 +26,10 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Page /installer/ du site avec les liens de téléchargement — idem
 
 ## 4. Export PDF natif (en-tête, pied de page, numéros de page)
+- [x] PDF natif sans dépendance (`pdf.rs`) : césure, justification, titres, listes, citations, tableaux, filets, sauts de page, en-tête/pied/« Page X sur N » par document, métriques Liberation — « Export PDF natif »
+- [ ] Incorporer les polices Liberation (sous-ensemble TrueType) pour Unicode complet (grec des formules, émojis) au lieu de `?`
+- [ ] Compression Flate des flux (fichiers plus petits) ; formules `$$…$$` en vrai rendu plutôt qu'en texte Unicode
+- [ ] Liens et signets (plan des titres) dans le PDF
 
 ## 5. Proche de Writer
 - [x] Texte conditionnel `{{si champ}}…{{sinon}}…{{fin}}` (conditions.rs) — « Texte conditionnel »

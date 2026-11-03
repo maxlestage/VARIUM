@@ -73,3 +73,29 @@ pub fn family(font: DocFont, bold: bool, italic: bool) -> FontFamily {
     };
     FontFamily::Name(name.into())
 }
+
+/// Largeurs des polices du document pour l'export PDF. Liberation Sans n'a pas de
+/// variante italique incorporée : l'oblique d'Helvetica a les mêmes largeurs.
+pub fn pdf_fonts(font: DocFont) -> varium_core::pdf::PdfFonts {
+    let face = |name: &str| {
+        FACES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, b)| *b)
+            .unwrap_or(&[])
+    };
+    match font {
+        DocFont::Serif => varium_core::pdf::PdfFonts::from_ttf(
+            face("serif"),
+            face("serif-b"),
+            face("serif-i"),
+            face("serif-bi"),
+        ),
+        DocFont::Sans => varium_core::pdf::PdfFonts::from_ttf(
+            face("sans"),
+            face("sans-b"),
+            face("sans"),
+            face("sans-b"),
+        ),
+    }
+}
