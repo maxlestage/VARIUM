@@ -46,7 +46,7 @@ const FONCTIONS: [(&str, &str, &str); 12] = [
     (
         "📝",
         "Comme un traitement de texte",
-        "Titres, gras, italique, souligné, listes, citations, tableaux, alignement : la barre d'outils et les raccourcis de LibreOffice Writer.",
+        "Titres, gras, italique, souligné, listes, citations, tableaux, alignement : la barre d'outils et les raccourcis de LibreOffice Writer, avec Ctrl+S, « Enregistrer sous », documents récents et confirmation avant de perdre vos modifications.",
     ),
     (
         "📄",
