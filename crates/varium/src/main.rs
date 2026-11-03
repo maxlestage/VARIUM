@@ -11,6 +11,7 @@ mod files;
 mod fonts;
 mod io;
 mod pageview;
+mod secours;
 mod templates;
 
 fn main() -> eframe::Result {
