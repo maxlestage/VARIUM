@@ -1,13 +1,13 @@
-//! Les pages : accueil, syntaxe, 404, et les fichiers pour les moteurs de recherche.
+//! Les pages : accueil, syntaxe, installation, introuvable, l'aiguillage vers une langue
+//! (`/` et les anciennes adresses), et les fichiers pour les moteurs de recherche.
 
 use paquets::prelude::*;
 use varium_core::{Values, VarType, filters};
 
-use crate::demo::{document, source_coloree};
+use crate::demo::{document, libelle_type, source_coloree};
+use crate::i18n::{Langue, Textes, langue_preferee, remplir};
+use crate::routes::{Rubrique, langue_du_chemin};
 use crate::{Options, REPO, layout};
-
-/// Les pages du site (sans la base), pour `sitemap.xml` et l'export statique.
-pub const PAGES: [&str; 4] = ["/", "/syntaxe/", "/essayer/", "/installer/"];
 
 fn code_bloc(code_source: &str) -> Element {
     pre().child(code().text(code_source.to_string()))
@@ -26,10 +26,32 @@ fn carte(icone: &str, titre: &str, texte: &str) -> Element {
         .child(p().class("muted").text(texte.to_string()))
 }
 
+/// Un texte avec un `{}` remplacé par un élément (un lien, en général).
+fn a_trou(modele: &str, element: Element) -> Vec<Node> {
+    let (avant, apres) = modele.split_once("{}").unwrap_or((modele, ""));
+    vec![
+        text(avant.to_string()),
+        element.into(),
+        text(apres.to_string()),
+    ]
+}
+
+/// La description d'une page, pour `<meta name="description">`.
+fn description(rubrique: Rubrique, langue: Langue, statique: bool) -> &'static str {
+    let t = langue.textes();
+    match rubrique {
+        Rubrique::Accueil => t.description_accueil,
+        Rubrique::Syntaxe => t.syntaxe_description,
+        Rubrique::Installer => t.installer_description,
+        Rubrique::Essayer => t.essayer_description[usize::from(statique)],
+    }
+}
+
 // ---------------------------------------------------------------------------------
 // Accueil
 // ---------------------------------------------------------------------------------
 
+/// Le modèle de l'aperçu (en français, comme les formats que le moteur lui applique).
 const AVANT: &str = "## Dossier {{référence}}\nBonjour **{{prénom}} {{nom | upper}}**,\n\nVotre dossier d'un montant de **{{montant | money}}** sera clôturé le {{échéance | date:full}}, soit {{= montant / 12 | money}} par mois.\n\n-> À bientôt, {{prénom}} ! <-";
 
 fn valeurs_accueil() -> Values {
@@ -42,200 +64,235 @@ fn valeurs_accueil() -> Values {
     v
 }
 
-const FONCTIONS: [(&str, &str, &str); 13] = [
-    (
-        "📝",
-        "Comme un traitement de texte",
-        "Titres, gras, listes, tableaux, alignement : la barre d'outils de LibreOffice Writer et un inspecteur Format, Document, Champs et Plan comme dans Pages, avec Ctrl+S, « Enregistrer sous », documents récents et sauvegarde de secours.",
-    ),
-    (
-        "📄",
-        "Vraies pages",
-        "Aperçu page par page au format A4, A5 ou Lettre, avec marges, en-tête, pied de page, numéros de page et zoom.",
-    ),
-    (
-        "📤",
-        "Exports LibreOffice et Word",
-        "PDF natif (sans navigateur), Word (DOCX), LibreOffice (ODT), RTF pour Pages et TextEdit, EPUB, HTML, LaTeX et texte : la mise en page suit.",
-    ),
-    (
-        "🔁",
-        "Champs globaux",
-        "Une valeur saisie une fois met à jour toutes ses occurrences. {{prénom}} et {{nom}} restent toujours distincts.",
-    ),
-    (
-        "🧮",
-        "Champs calculés",
-        "{{= quantité * prix | money}} : totaux, TVA, mensualités et pourcentages se recalculent tout seuls.",
-    ),
-    (
-        "🔀",
-        "Texte conditionnel",
-        "{{si remise}}…{{sinon}}…{{fin}} : un paragraphe n'apparaît que si le champ est renseigné.",
-    ),
-    (
-        "✉️",
-        "Publipostage",
-        "Un tableau CSV d'Excel ou de Calc, et Varium produit un document par destinataire, dans un seul fichier.",
-    ),
-    (
-        "🗂️",
-        "Modèles prêts à l'emploi",
-        "Lettre, facture, devis, attestation, contrat, convocation : un clic pour démarrer.",
-    ),
-    (
-        "🏷️",
-        "Champs typés et filtres",
-        "Date avec calendrier, montant, nombre, e-mail, au format français ; filtres upper, date:full, money:usd…",
-    ),
-    (
-        "🔍",
-        "Rechercher, remplacer, annuler",
-        "Recherche avec ou sans casse, remplacement un par un ou en bloc, annuler et rétablir sans limite pratique.",
-    ),
-    (
-        "«»",
-        "Typographie française",
-        "Guillemets « », apostrophe ’, points de suspension et espaces fines avant ; : ! ? posés tout seuls, comme dans Pages.",
-    ),
-    (
-        "∑",
-        "Formules LaTeX",
-        "$…$ en ligne, $$…$$ centrées. Un $ qui vient d'une valeur (10,00 $US) n'ouvre jamais de formule.",
-    ),
-    (
-        "📱",
-        "Une vraie application Mac",
-        "Menus dans la barre de l'écran, raccourcis ⌘, icône, plein écran et mode concentration ; aussi pour Windows et Linux.",
-    ),
+/// Les trois applications : (icône, nom). Les noms sont ceux de l'application, en
+/// français dans toutes les langues ; leur genre est traduit.
+const APPLIS: [(&str, &str); 3] = [
+    ("📝", "Documents"),
+    ("📊", "Classeur"),
+    ("🎞️", "Présentation"),
 ];
 
-/// `GET /`
-pub async fn accueil(req: Request) -> Page {
+/// Les icônes des cartes de [`Textes::langues`] : typographie, révision, formats.
+const ICONES_LANGUES: [&str; 3] = ["«»", "✔️", "📅"];
+
+/// Les icônes des cartes de [`Textes::fonctions`].
+const ICONES_FONCTIONS: [&str; 12] = [
+    "🔁", "🧮", "🔀", "✉️", "🗂️", "🏷️", "📄", "📤", "💾", "🔍", "∑", "📱",
+];
+
+/// Les paquets du workspace, dans l'ordre de [`Textes::capot_roles`].
+const PAQUETS: [&str; 4] = ["varium-core", "varium-calc", "varium-slides", "varium"];
+
+const EXEMPLE_RUST: &str = "use varium_core::{Values, Missing, render};\n\nlet mut v = Values::default();\nv.set(\"prénom\", \"Marc\");\nlet doc = render(\"Bonjour {{prénom}} {{nom}}\", &v, Missing::Keep);\nassert_eq!(doc, \"Bonjour Marc {{nom}}\");";
+
+/// `GET /{langue}/`
+pub async fn accueil(req: Request, langue: Langue) -> Page {
     let o = Options::de(&req);
+    let t = langue.textes();
     let valeurs = valeurs_accueil();
 
     let hero = section()
         .class("hero")
-        .child(p().class("surtitre").text("Éditeur de documents à variables · Rust"))
-        .child(h1().text("Un document. Toutes ses possibilités."))
-        .child(p().class("chapo").text(
-            "Écrivez {{prénom}}, {{nom}} ou {{montant}} dans votre document, changez une valeur une seule fois : toutes ses occurrences se mettent à jour, sans toucher aux autres champs.",
-        ))
+        .child(p().class("surtitre").text(t.surtitre))
+        .child(h1().text(t.accroche))
+        .child(p().class("chapo").text(t.chapo))
         .child(
             div()
                 .class("row centre")
-                .child(a().class("button").href(o.lien_application()).text("Installer Varium"))
-                .child(a().class("button ghost").href(o.lien("/essayer/")).text("Voir un exemple"))
-                .child(a().class("button ghost").href(REPO).text("Code source")),
+                .child(
+                    a().class("button")
+                        .href(o.lien_application(langue))
+                        .text(t.installer_varium),
+                )
+                .child(
+                    a().class("button ghost")
+                        .href(o.lien(&Rubrique::Essayer.chemin(langue)))
+                        .text(t.voir_exemple),
+                )
+                .child(a().class("button ghost").href(REPO).text(t.code_source)),
         )
-        .child(p().class("muted petit").text("Application de bureau pour Linux, macOS et Windows · vos documents restent chez vous · 100 % Rust"));
+        .child(p().class("muted petit").text(t.sous_hero));
 
     let apercu = section()
-        .class("apercu")
+        .class("apercu-bloc")
         .child(
             div()
-                .class("card")
-                .child(p().class("etiquette").text("Le modèle"))
-                .child(source_coloree(AVANT)),
+                .class("apercu")
+                .attr("lang", "fr")
+                .child(
+                    div()
+                        .class("card")
+                        .child(
+                            p().class("etiquette")
+                                .text(t.apercu[0])
+                                .attr("lang", langue.code()),
+                        )
+                        .child(source_coloree(AVANT)),
+                )
+                .child(div().class("fleche").attr("aria-hidden", "true").text("→"))
+                .child(
+                    div()
+                        .class("card")
+                        .child(
+                            p().class("etiquette")
+                                .text(t.apercu[1])
+                                .attr("lang", langue.code()),
+                        )
+                        .child(document(AVANT, &valeurs, Langue::Fr.textes())),
+                ),
         )
-        .child(div().class("fleche").attr("aria-hidden", "true").text("→"))
+        .child(p().class("center muted petit").text(t.apercu_note));
+
+    // Les noms des applications sont français : les lecteurs d'écran les lisent comme tels.
+    let nom_appli = |nom: &str| {
+        let titre = h3().text(nom.to_string());
+        if langue == Langue::Fr {
+            titre
+        } else {
+            titre.attr("lang", "fr")
+        }
+    };
+    let applis = section()
+        .child(h2().class("center").text(t.applis_titre))
+        .child(p().class("center muted").text(t.applis_intro))
         .child(
             div()
-                .class("card")
-                .child(p().class("etiquette").text("Le document"))
-                .child(document(AVANT, &valeurs)),
+                .class("grid applis")
+                .children(APPLIS.iter().zip(&t.applis).map(|((icone, nom), appli)| {
+                    article()
+                        .class("card appli")
+                        .child(
+                            span()
+                                .class("icone")
+                                .attr("aria-hidden", "true")
+                                .text(icone.to_string()),
+                        )
+                        .child(nom_appli(nom))
+                        .child(p().class("genre").text(appli.genre))
+                        .child(p().class("muted").text(appli.texte))
+                        .child(
+                            ul().class("points")
+                                .children(appli.points.map(|pt| li().text(pt))),
+                        )
+                })),
         );
 
-    let fonctions = section()
-        .child(h2().class("center").text("Tout ce qu'il faut pour vos documents répétitifs"))
-        .child(p().class("center muted").text("Courriers, devis, contrats, attestations : un seul modèle, autant de documents que nécessaire."))
+    let ecrire = section()
+        .child(h2().class("center").text(t.langues_titre))
+        .child(p().class("center muted").text(t.langues_intro))
         .child(
-            div()
-                .class("grid")
-                .children(FONCTIONS.iter().map(|(i, t, d)| carte(i, t, d))),
+            ul().class("pastilles centre")
+                .children(Langue::ALL.map(|l| li().attr("lang", l.code()).text(l.nom()))),
+        )
+        .child(
+            div().class("grid").children(
+                ICONES_LANGUES
+                    .iter()
+                    .zip(&t.langues)
+                    .map(|(icone, item)| carte(icone, item.titre, item.texte)),
+            ),
+        )
+        .child(p().class("center muted petit").text(t.langues_note));
+
+    let fonctions = section()
+        .child(h2().class("center").text(t.fonctions_titre))
+        .child(p().class("center muted").text(t.fonctions_intro))
+        .child(
+            div().class("grid").children(
+                ICONES_FONCTIONS
+                    .iter()
+                    .zip(&t.fonctions)
+                    .map(|(icone, item)| carte(icone, item.titre, item.texte)),
+            ),
         );
 
     let etapes = section()
-        .child(h2().class("center").text("Comment ça marche"))
-        .child(
-            ol().class("etapes")
-                .child(li().child(h3().text("Écrivez")).child(p().class("muted").text(
-                    "Rédigez votre texte et placez des {{variables}} là où il change d'un document à l'autre.",
-                )))
-                .child(li().child(h3().text("Remplissez")).child(p().class("muted").text(
-                    "Varium détecte chaque variable et vous propose un champ, avec le bon type : date, montant, e-mail…",
-                )))
-                .child(li().child(h3().text("Exportez")).child(p().class("muted").text(
-                    "Le document final, formules comprises, en HTML, en PDF, en LaTeX ou en texte.",
-                ))),
-        );
+        .child(h2().class("center").text(t.etapes_titre))
+        .child(ol().class("etapes").children(t.etapes.iter().map(|etape| {
+            li().child(h3().text(etape.titre))
+                .child(p().class("muted").text(etape.texte))
+        })));
 
     let plateformes = section()
         .class("deux")
         .child(
             div()
                 .class("card")
-                .child(h3().text("🖥️ Sur le bureau"))
-                .child(p().class("muted").text("Une application native rapide, construite avec egui, pour Linux, macOS et Windows."))
+                .child(h3().text(format!("🖥️ {}", t.bureau.titre)))
+                .child(p().class("muted").text(t.bureau.texte))
                 .child(code_bloc("cargo run -p varium --release")),
         )
         .child(
             div()
                 .class("card")
-                .child(h3().text("🔒 Vos documents restent chez vous"))
-                .child(p().class("muted").text("Pas de compte, pas de serveur, pas de version en ligne : Varium enregistre vos projets sur votre disque, et rien ne quitte votre ordinateur."))
-                .child(p().child(a().href(o.lien_application()).text("Installer Varium →"))),
+                .child(h3().text(format!("🔒 {}", t.prive.titre)))
+                .child(p().class("muted").text(t.prive.texte))
+                .child(
+                    p().child(
+                        a().href(o.lien_application(langue))
+                            .text(format!("{} →", t.installer_varium)),
+                    ),
+                ),
         );
 
     let architecture = section()
-        .child(h2().class("center").text("Sous le capot"))
-        .child(p().class("center muted").text(
-            "Un workspace Cargo en deux paquets : un moteur pur, sans interface, et l'application qui l'utilise.",
-        ))
+        .child(h2().class("center").text(t.capot_titre))
+        .child(p().class("center muted").text(t.capot_intro))
         .child(
             table()
-                .child(thead().child(tr().child(th().text("Paquet")).child(th().text("Rôle"))))
+                .class("paquets")
                 .child(
-                    tbody()
-                        .child(tr().child(td().child(code().text("varium-core"))).child(td().text(
-                            "Le moteur : analyse, rendu, filtres, formules, exports, format de projet. Testé, sans dépendance graphique.",
-                        )))
-                        .child(tr().child(td().child(code().text("varium"))).child(td().text(
-                            "L'application de bureau egui/eframe, pour Linux, macOS et Windows.",
-                        ))),
-                ),
+                    thead().child(
+                        tr().child(th().text(t.capot_colonnes[0]))
+                            .child(th().text(t.capot_colonnes[1])),
+                    ),
+                )
+                .child(tbody().children(PAQUETS.iter().zip(t.capot_roles).map(
+                    |(paquet, role)| {
+                        tr().child(td().child(code().text(paquet.to_string())))
+                            .child(td().text(role))
+                    },
+                ))),
         )
-        .child(code_bloc(
-            "use varium_core::{Values, Missing, render};\n\nlet mut v = Values::default();\nv.set(\"prénom\", \"Marc\");\nlet doc = render(\"Bonjour {{prénom}} {{nom}}\", &v, Missing::Keep);\nassert_eq!(doc, \"Bonjour Marc {{nom}}\");",
-        ));
+        .child(code_bloc(EXEMPLE_RUST));
 
     let appel = section()
         .class("hero appel")
-        .child(h2().text("Prêt à essayer ?"))
-        .child(p().class("muted").text("Installez Varium sur votre ordinateur : écrivez votre modèle, remplissez les valeurs, exportez le document."))
+        .child(h2().text(t.appel_titre))
+        .child(p().class("muted").text(t.appel_texte))
         .child(
             div()
                 .class("row centre")
-                .child(a().class("button").href(o.lien_application()).text("Installer Varium"))
-                .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
+                .child(
+                    a().class("button")
+                        .href(o.lien_application(langue))
+                        .text(t.installer_varium),
+                )
+                .child(
+                    a().class("button ghost")
+                        .href(o.lien(&Rubrique::Syntaxe.chemin(langue)))
+                        .text(t.lire_syntaxe),
+                ),
         );
 
     let contenu = fragment([
         hero.into(),
         apercu.into(),
+        applis.into(),
+        ecrire.into(),
         fonctions.into(),
         etapes.into(),
         plateformes.into(),
         architecture.into(),
         appel.into(),
-    ] as [Node; 7]);
+    ] as [Node; 9]);
 
     layout::page(
         &req,
+        langue,
+        Some(Rubrique::Accueil),
         "Varium",
-        "Varium est un éditeur de documents à variables écrit en Rust : écrivez {{prénom}} une fois, changez sa valeur, tout le document suit. Pour Linux, macOS et Windows.",
-        "/",
+        t.description_accueil,
         contenu,
     )
 }
@@ -244,210 +301,181 @@ pub async fn accueil(req: Request) -> Page {
 // Syntaxe
 // ---------------------------------------------------------------------------------
 
-const SYNTAXE: [(&str, &str); 20] = [
-    ("{{nom}}", "un champ : la même valeur partout"),
-    (
-        "{{ nom | upper | trim }}",
-        "un champ et des filtres chaînés",
-    ),
-    (
-        "{{montant | money}}",
-        "un montant en euros (money:usd, money:gbp, money:chf…)",
-    ),
-    (
-        "{{date | date}}",
-        "une date longue : 15 mars 2026 (date:full, date:short)",
-    ),
-    ("{{x | number:2}}", "un nombre à deux décimales : 3,14"),
-    (
-        "{{t | default:\"texte\"}}",
-        "une valeur par défaut si le champ est vide",
-    ),
-    (
-        "{{= quantité * prix | money}}",
-        "un champ calculé : + − * / ( ), 20%, arrondi(x; 2), min, max, somme",
-    ),
-    ("{{aujourdhui}}", "la date du jour, remplie automatiquement"),
-    ("# Titre, ## Sous-titre, ### Titre 3", "des titres"),
-    ("**gras**, *italique*", "gras et italique"),
-    ("__souligné__, ~~barré~~", "souligné et barré"),
-    (
-        "- élément, 1. élément",
-        "listes à puces et numérotées (2 espaces de retrait par niveau)",
-    ),
-    ("> citation", "une citation"),
-    ("-> centré <-, -> à droite ->", "alignement du paragraphe"),
-    (
-        "| a | b |  puis  |---|---:|",
-        "un tableau, son en-tête et l'alignement des colonnes",
-    ),
-    ("---, \\newpage", "ligne horizontale, saut de page"),
-    (
-        "\\sommaire",
-        "une table des matières générée depuis les titres",
-    ),
-    (
-        "$E = mc^2$, $$ \\sum_i x_i $$",
-        "des formules LaTeX, en ligne ou centrées",
-    ),
-    ("\\{{nom}}", "des accolades littérales, sans champ"),
-    ("\\$, \\*, \\|", "un caractère littéral"),
+/// (filtre, argument, valeur d'exemple) ; l'argument de `default` vient de la langue.
+fn filtres_exemples(t: &Textes) -> [(&'static str, Option<&'static str>, &'static str); 12] {
+    [
+        ("upper", None, "Atelier Lumen"),
+        ("lower", None, "ATELIER LUMEN"),
+        ("capitalize", None, "marc"),
+        ("title", None, "jean-pierre dupont"),
+        ("trim", None, "  Varium  "),
+        ("number", Some("2"), "3.14159"),
+        ("money", None, "12500"),
+        ("money", Some("usd"), "1999.5"),
+        ("date", None, "2026-03-01"),
+        ("date", Some("full"), "2026-03-15"),
+        ("date", Some("short"), "2026-03-15"),
+        ("default", Some(t.filtre_defaut), ""),
+    ]
+}
+
+/// Les fonctions du Classeur : (français, anglais), dans l'ordre de
+/// [`Textes::classeur_fonctions`].
+const FONCTIONS_CLASSEUR: [(&str, &str); 3] =
+    [("SOMME", "SUM"), ("SI", "IF"), ("RECHERCHEV", "VLOOKUP")];
+
+/// Les formats d'export qui ont un nom propre ; les trois suivants viennent de
+/// [`Textes::exports_noms`].
+const FORMATS: [&str; 7] = ["PDF", "DOCX", "ODT", "RTF", "EPUB", "HTML", "LaTeX"];
+
+/// Les ancres du sommaire, dans l'ordre de [`Textes::sommaire`].
+const ANCRES: [&str; 7] = [
+    "ecriture", "filtres", "types", "formules", "classeur", "exports", "api",
 ];
 
-/// (filtre, argument, valeur d'exemple)
-const FILTRES: [(&str, Option<&str>, &str); 12] = [
-    ("upper", None, "Atelier Lumen"),
-    ("lower", None, "ATELIER LUMEN"),
-    ("capitalize", None, "marc"),
-    ("title", None, "jean-pierre dupont"),
-    ("trim", None, "  espaces  "),
-    ("number", Some("2"), "3.14159"),
-    ("money", None, "12500"),
-    ("money", Some("usd"), "1999.5"),
-    ("date", None, "2026-03-01"),
-    ("date", Some("full"), "2026-03-15"),
-    ("date", Some("short"), "2026-03-15"),
-    ("default", Some("Madame, Monsieur"), ""),
-];
-
-/// `GET /syntaxe`
-pub async fn syntaxe(req: Request) -> Page {
+/// `GET /{langue}/syntaxe/`
+pub async fn syntaxe(req: Request, langue: Langue) -> Page {
     let o = Options::de(&req);
+    let t = langue.textes();
     let syntaxe = section()
-        .child(h2().id("ecriture").text("Écrire des variables"))
-        .child(p().text(
-            "Une variable s'écrit entre doubles accolades. Les noms acceptent les accents, les chiffres, _, . et - : {{prénom}}, {{client.ville}}, {{date-1}}.",
-        ))
+        .child(h2().id(ANCRES[0]).text(t.ecrire_titre))
+        .child(p().text(t.ecrire_texte))
         .child(
             table()
-                .child(thead().child(tr().child(th().text("Écriture")).child(th().text("Effet"))))
-                .child(tbody().children(SYNTAXE.iter().map(|(e, d)| {
-                    tr().child(td().child(code().text(e.to_string()))).child(td().text(d.to_string()))
+                .child(
+                    thead().child(
+                        tr().child(th().text(t.syntaxe_colonnes[0]))
+                            .child(th().text(t.syntaxe_colonnes[1])),
+                    ),
+                )
+                .child(tbody().children(t.syntaxe.iter().map(|ligne| {
+                    tr().child(td().child(code().text(ligne.code)))
+                        .child(td().text(ligne.effet))
                 }))),
         );
 
     let filtres = section()
-        .child(h2().id("filtres").text("Filtres"))
-        .child(p().text(
-            "Les filtres transforment la valeur d'une occurrence, et seulement elle. Ils s'enchaînent de gauche à droite : {{nom | trim | upper}}. Les résultats ci-dessous sont calculés par varium-core à l'affichage de la page.",
-        ))
+        .child(h2().id(ANCRES[1]).text(t.filtres_titre))
+        .child(p().text(t.filtres_texte))
         .child(
             table()
-                .child(thead().child(
-                    tr().child(th().text("Filtre"))
-                        .child(th().text("Valeur"))
-                        .child(th().text("Résultat")),
-                ))
-                .child(tbody().children(FILTRES.iter().map(|(nom, arg, valeur)| {
-                    let ecrit = match arg {
-                        Some(a) if a.parse::<f64>().is_ok() || a.chars().all(|c| c.is_ascii_alphabetic()) => format!("{nom}:{a}"),
-                        Some(a) => format!("{nom}:\"{a}\""),
-                        None => nom.to_string(),
-                    };
-                    let resultat = filters::apply_one(valeur, nom, *arg);
-                    tr().child(td().child(code().text(ecrit)))
-                        .child(td().child(code().text(format!("{valeur:?}"))))
-                        .child(td().child(strong().text(resultat)))
-                }))),
+                .child(
+                    thead().child(
+                        tr().child(th().text(t.filtres_colonnes[0]))
+                            .child(th().text(t.filtres_colonnes[1]))
+                            .child(th().text(t.filtres_colonnes[2])),
+                    ),
+                )
+                .child(tbody().children(filtres_exemples(t).into_iter().map(
+                    |(nom, arg, valeur)| {
+                        let ecrit = match arg {
+                            Some(a)
+                                if a.parse::<f64>().is_ok()
+                                    || a.chars().all(|c| c.is_ascii_alphabetic()) =>
+                            {
+                                format!("{nom}:{a}")
+                            }
+                            Some(a) => format!("{nom}:\"{a}\""),
+                            None => nom.to_string(),
+                        };
+                        let resultat = filters::apply_one(valeur, nom, arg);
+                        tr().child(td().child(code().text(ecrit)))
+                            .child(td().child(code().text(format!("{valeur:?}"))))
+                            .child(td().child(strong().text(resultat)))
+                    },
+                ))),
         );
 
     let types = section()
-        .child(h2().id("types").text("Types de variables"))
-        .child(p().text(
-            "Chaque variable a un type, qui choisit son champ de saisie, vérifie la valeur et donne un format par défaut quand l'occurrence n'a pas de filtre : une date s'affiche « 1er mars 2026 », un montant « 12 500,00 € ».",
-        ))
+        .child(h2().id(ANCRES[2]).text(t.types_titre))
+        .child(p().text(t.types_texte))
         .child(
-            ul().class("pastilles")
-                .children(VarType::ALL.into_iter().map(|t| li().text(t.label()))),
+            ul().class("pastilles").children(
+                VarType::ALL
+                    .into_iter()
+                    .map(|ty| li().text(libelle_type(t, ty))),
+            ),
         );
 
     let formules = section()
-        .child(h2().id("formules").text("Formules"))
-        .child(p().text(
-            "Entre $…$ (en ligne) ou $$…$$ (centrée), le texte est du LaTeX, et les variables y fonctionnent aussi. Seuls les $ écrits dans la source ouvrent une formule : une valeur comme « 10,00 $US » ne casse jamais le document.",
-        ))
-        .child(code_bloc("La mensualité vaut $m = \\frac{M}{n}$, avec\n$$ C_n = C_0 \\times (1 + t)^n $$"));
+        .child(h2().id(ANCRES[3]).text(t.formules_titre))
+        .child(p().text(t.formules_texte))
+        .child(code_bloc(t.formules_exemple));
 
-    let exports = section().child(h2().id("exports").text("Exports")).child(
-        ul().child(li().child(strong().text("HTML")).child(text(
-            " : un fichier autonome, formules composées par KaTeX, prêt à imprimer en PDF.",
-        )))
+    let classeur = section()
+        .child(h2().id(ANCRES[4]).text(t.classeur_titre))
+        .child(p().text(t.classeur_texte))
         .child(
-            li().child(strong().text("ODT"))
-                .child(text(" : un document LibreOffice Writer, avec ses styles, son en-tête et ses numéros de page.")),
+            table()
+                .class("fonctions-classeur")
+                .child(
+                    thead().child(
+                        tr().child(th().text(t.classeur_colonnes[0]))
+                            .child(th().text(t.classeur_colonnes[1])),
+                    ),
+                )
+                .child(
+                    tbody().children(FONCTIONS_CLASSEUR.iter().zip(t.classeur_fonctions).map(
+                        |((fr, en), role)| {
+                            tr().child(
+                                td().child(code().text(fr.to_string()))
+                                    .child(text(" · "))
+                                    .child(code().text(en.to_string())),
+                            )
+                            .child(td().text(role))
+                        },
+                    )),
+                ),
         )
+        .child(p().class("muted").text(t.classeur_note));
+
+    let noms_exports = FORMATS.iter().copied().chain(t.exports_noms);
+    // Le français met une espace avant les deux-points, pas les autres langues.
+    let deux_points = if langue == Langue::Fr {
+        "\u{a0}: "
+    } else {
+        ": "
+    };
+    let exports = section()
+        .child(h2().id(ANCRES[5]).text(t.exports_titre))
         .child(
-            li().child(strong().text("DOCX"))
-                .child(text(" : un document Word, lisible aussi par LibreOffice et Google Docs.")),
-        )
-        .child(
-            li().child(strong().text("PDF"))
-                .child(text(" : par l'impression, en pages au bon format, avec en-tête et pied de page.")),
-        )
-        .child(
-            li().child(strong().text("LaTeX"))
-                .child(text(" : un .tex complet, à compiler tel quel.")),
-        )
-        .child(
-            li().child(strong().text("Texte"))
-                .child(text(" : le document final, sans mise en forme.")),
-        )
-        .child(
-            li().child(strong().text("Modèle"))
-                .child(text(" : la source brute, avec ses {{variables}}.")),
-        )
-        .child(li().child(strong().text("Projet")).child(text(
-            " : un fichier .varium.json avec la source, les valeurs et les types.",
-        ))),
-    );
+            ul().children(noms_exports.zip(t.exports).map(|(nom, effet)| {
+                li().child(strong().text(nom))
+                    .child(text(format!("{deux_points}{effet}")))
+            })),
+        );
 
     // Un hôte statique n'a pas d'API : c'est le serveur du site (`cargo run`) qui la sert.
     let (intro_api, adresse_api) = if o.est_statique() {
-        (
-            "Le serveur de ce site (cd site && cargo run) expose le moteur en JSON, pour l'essayer depuis un terminal :",
-            "http://localhost:3000",
-        )
+        (t.api_intro_statique, "http://localhost:3000")
     } else {
-        (
-            "Ce site expose le moteur en JSON, pour l'essayer depuis un terminal :",
-            "https://<ce-site>",
-        )
+        (t.api_intro_serveur, "https://<ce-site>")
     };
     let api = section()
-        .child(h2().id("api").text("API de rendu"))
+        .child(h2().id(ANCRES[6]).text(t.api_titre))
         .child(p().text(intro_api))
         .child(code_bloc(&format!(
             "curl -X POST {adresse_api}/api/rendu \\\n  -H 'content-type: application/json' \\\n  -d '{{\"source\": \"Bonjour {{{{prénom | upper}}}}\", \"valeurs\": {{\"prénom\": \"Marc\"}}}}'",
         )))
-        .child(p().class("muted").text(
-            "La réponse contient le texte rendu (texte), l'export HTML complet (html) et les variables détectées avec leur nombre d'occurrences (variables).",
-        ));
+        .child(p().class("muted").text(t.api_reponse));
 
     let sommaire = nav().class("sommaire").children(
-        [
-            ("#ecriture", "Variables"),
-            ("#filtres", "Filtres"),
-            ("#types", "Types"),
-            ("#formules", "Formules"),
-            ("#exports", "Exports"),
-            ("#api", "API"),
-        ]
-        .into_iter()
-        .map(|(h, t)| a().href(h).text(t)),
+        ANCRES
+            .iter()
+            .zip(t.sommaire)
+            .map(|(ancre, titre)| a().href(format!("#{ancre}")).text(titre)),
     );
 
     let contenu = article()
         .class("prose")
-        .child(h1().text("Syntaxe"))
-        .child(
-            p().class("chapo")
-                .text("Tout ce que l'on peut écrire dans un document Varium."),
-        )
+        .child(h1().text(Rubrique::Syntaxe.nom(langue)))
+        .child(p().class("chapo").text(t.syntaxe_chapo))
         .child(sommaire)
         .child(syntaxe)
         .child(filtres)
         .child(types)
         .child(formules)
+        .child(classeur)
         .child(exports)
         .child(api)
         .child(
@@ -455,153 +483,316 @@ pub async fn syntaxe(req: Request) -> Page {
                 .class("row")
                 .child(
                     a().class("button")
-                        .href(o.lien_application())
-                        .text("Installer Varium"),
+                        .href(o.lien_application(langue))
+                        .text(t.installer_varium),
                 )
                 .child(
                     a().class("button ghost")
-                        .href(o.lien("/essayer/"))
-                        .text("Voir l'exemple"),
+                        .href(o.lien(&Rubrique::Essayer.chemin(langue)))
+                        .text(t.voir_exemple),
                 ),
         );
 
     layout::page(
         &req,
-        "Syntaxe",
-        "La syntaxe de Varium : variables {{…}}, filtres, types, formules LaTeX et exports.",
-        "/syntaxe/",
+        langue,
+        Some(Rubrique::Syntaxe),
+        Rubrique::Syntaxe.nom(langue),
+        t.syntaxe_description,
         contenu.into(),
     )
 }
 
 // ---------------------------------------------------------------------------------
-// 404, robots.txt, sitemap.xml
+// Installer
 // ---------------------------------------------------------------------------------
 
 /// Où télécharger les binaires : la dernière Release GitHub (noms de fichiers stables).
 pub const TELECHARGEMENTS: &str = "https://github.com/maxlestage/VARIUM/releases/latest/download/";
 
-/// (système, fichier, taille indicative, étapes)
-const SYSTEMES: [(&str, &str, &str, &[&str]); 3] = [
-    (
-        "Windows",
-        "varium-windows-x86_64.zip",
-        "Windows 10 et 11, 64 bits",
-        &[
-            "Décompressez le fichier (clic droit → Extraire tout).",
-            "Lancez varium.exe.",
-            "Si Windows affiche « Windows a protégé votre ordinateur » : « Informations complémentaires » → « Exécuter quand même ».",
-        ],
-    ),
-    (
-        "macOS",
-        "varium-macos.zip",
-        "macOS 11 ou plus récent, Apple Silicon et Intel",
-        &[
-            "Décompressez le fichier et glissez Varium dans le dossier Applications.",
-            "Au premier lancement : clic droit sur Varium → Ouvrir → Ouvrir.",
-            "Si macOS refuse encore : Réglages Système → Confidentialité et sécurité → « Ouvrir quand même ».",
-        ],
-    ),
-    (
-        "Linux",
-        "varium-linux-x86_64.tar.gz",
-        "x86_64, glibc 2.35 ou plus récente (Ubuntu 22.04, Debian 12, Fedora 36…)",
-        &[
-            "Décompressez : tar xzf varium-linux-x86_64.tar.gz",
-            "Lancez : ./varium/varium",
-            "Pour le menu des applications : copiez varium dans ~/.local/bin, varium.desktop dans ~/.local/share/applications et varium.svg dans ~/.local/share/icons.",
-        ],
-    ),
+/// (système, fichier), dans l'ordre de [`Textes::systemes`].
+const SYSTEMES: [(&str, &str); 3] = [
+    ("Windows", "varium-windows-x86_64.zip"),
+    ("macOS", "varium-macos.zip"),
+    ("Linux", "varium-linux-x86_64.tar.gz"),
 ];
 
-/// `GET /installer/` : télécharger l'application de bureau.
-pub async fn installer(req: Request) -> Page {
+/// `GET /{langue}/installer/` : télécharger l'application de bureau.
+pub async fn installer(req: Request, langue: Langue) -> Page {
     let o = Options::de(&req);
-    let cartes = div()
-        .class("grid telechargements")
-        .children(SYSTEMES.iter().map(|(nom, fichier, compat, etapes)| {
-            article()
-                .class("card")
-                .id(nom.to_lowercase())
-                .child(h2().text(nom.to_string()))
-                .child(p().class("muted petit").text(compat.to_string()))
-                .child(
-                    a().class("button")
-                        .href(format!("{TELECHARGEMENTS}{fichier}"))
-                        .text(format!("Télécharger pour {nom}")),
-                )
-                .child(
-                    p().class("muted petit")
-                        .child(code().text(fichier.to_string())),
-                )
-                .child(ol().children(etapes.iter().map(|e| li().text(e.to_string()))))
-        }));
+    let t = langue.textes();
+    let cartes =
+        div()
+            .class("grid telechargements")
+            .children(
+                SYSTEMES
+                    .iter()
+                    .zip(&t.systemes)
+                    .map(|((nom, fichier), systeme)| {
+                        article()
+                            .class("card")
+                            .id(nom.to_lowercase())
+                            .child(h2().text(nom.to_string()))
+                            .child(p().class("muted petit").text(systeme.compat))
+                            .child(
+                                a().class("button")
+                                    .href(format!("{TELECHARGEMENTS}{fichier}"))
+                                    .text(remplir(t.telecharger_pour, &[nom])),
+                            )
+                            .child(
+                                p().class("muted petit")
+                                    .child(code().text(fichier.to_string())),
+                            )
+                            .child(ol().children(systeme.etapes.map(|e| li().text(e))))
+                    }),
+            );
     let contenu = article()
         .class("prose large")
-        .child(h1().text("Installer Varium"))
-        .child(p().class("chapo").text(
-            "Varium est une application de bureau gratuite pour Windows, macOS et Linux. Pas de compte, pas de version en ligne : vos documents restent sur votre ordinateur.",
-        ))
+        .child(h1().text(t.installer_varium))
+        .child(p().class("chapo").text(t.installer_chapo))
+        .child(p().class("muted").text(t.langues_note))
         .child(cartes)
-        .child(p().class("muted").child(text("Toutes les versions et leurs notes : ")).child(
-            a().href("https://github.com/maxlestage/VARIUM/releases").text("page des versions sur GitHub"),
-        ).child(text(". Les applications ne sont pas encore signées par Apple ni Microsoft, d'où l'avertissement au premier lancement.")))
+        .child(p().class("muted").children(a_trou(
+            t.versions,
+            a().href("https://github.com/maxlestage/VARIUM/releases")
+                .text(t.versions_lien),
+        )))
         .child(
             section()
-                .child(h2().text("Depuis le code source"))
-                .child(p().text(
-                    "Avec Rust (rustup.rs), la commande varium s'installe sur n'importe quel système :",
-                ))
+                .child(h2().text(t.source_titre))
+                .child(p().text(t.source_texte))
                 .child(code_bloc(
                     "cargo install --git https://github.com/maxlestage/VARIUM varium --locked\nvarium",
                 ))
-                .child(p().class("muted").text(
-                    "Sous Linux, Varium utilise les bibliothèques graphiques habituelles (libxkbcommon, Wayland ou X11, un pilote OpenGL ou Vulkan), déjà présentes sur un bureau.",
-                )),
+                .child(p().class("muted").text(t.source_linux)),
         )
         .child(
             div()
                 .class("row")
-                .child(a().class("button ghost").href(REPO).text("Code source sur GitHub"))
-                .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
+                .child(a().class("button ghost").href(REPO).text(t.source_github))
+                .child(
+                    a().class("button ghost")
+                        .href(o.lien(&Rubrique::Syntaxe.chemin(langue)))
+                        .text(t.lire_syntaxe),
+                ),
         );
     layout::page(
         &req,
-        "Installer",
-        "Télécharger Varium, l'éditeur de documents à champs, pour Windows, macOS et Linux.",
-        "/installer/",
+        langue,
+        Some(Rubrique::Installer),
+        Rubrique::Installer.nom(langue),
+        t.installer_description,
         contenu.into(),
     )
 }
 
-/// Toute route inconnue.
-pub async fn introuvable(req: Request) -> Page {
-    let o = Options::de(&req);
+// ---------------------------------------------------------------------------------
+// Introuvable
+// ---------------------------------------------------------------------------------
+
+/// La page introuvable de `langue`.
+fn introuvable(req: &Request, langue: Langue) -> Page {
+    let o = Options::de(req);
+    let t = langue.textes();
     let contenu = section()
         .class("hero")
-        .child(h1().text("{{page}} introuvable"))
-        .child(
-            p().class("muted")
-                .text("Cette variable n'a pas de valeur : la page demandée n'existe pas."),
-        )
+        .child(h1().text(t.introuvable_h1))
+        .child(p().class("muted").text(t.introuvable_texte))
         .child(
             div().class("row centre").child(
                 a().class("button")
-                    .href(o.lien("/"))
-                    .text("Retour à l'accueil"),
+                    .href(o.lien(&Rubrique::Accueil.chemin(langue)))
+                    .text(t.retour_accueil),
             ),
         );
     layout::page(
-        &req,
-        "Page introuvable",
-        "Cette page n'existe pas.",
-        "/404",
+        req,
+        langue,
+        None,
+        t.introuvable_titre,
+        t.introuvable_description,
+        contenu.into(),
+    )
+    .status(404)
+}
+
+/// La page introuvable sans langue (une adresse hors de `/{langue}/`, et le `404.html`
+/// de l'export, que GitHub Pages sert pour toute adresse inconnue) : le message et le
+/// chemin de l'accueil dans chaque langue.
+fn introuvable_multilingue(req: &Request) -> Page {
+    let o = Options::de(req);
+    let fr = Langue::Fr.textes();
+    let contenu = section()
+        .class("hero aiguillage")
+        .child(h1().text(fr.introuvable_h1))
+        .child(p().class("muted").text(fr.introuvable_texte))
+        .child(ul().class("langues-liste").children(Langue::ALL.map(|l| {
+            let t = l.textes();
+            li().child(
+                a().href(o.lien(&Rubrique::Accueil.chemin(l)))
+                    .attr("hreflang", l.code())
+                    .attr("lang", l.code())
+                    .child(strong().text(t.introuvable_titre))
+                    .child(span().class("muted").text(t.retour_accueil)),
+            )
+        })));
+    layout::page_neutre(
+        req,
+        &format!("{} · Varium", fr.introuvable_titre),
+        fr.introuvable_description,
         contenu.into(),
     )
     .seo(Seo::new().noindex(true))
     .status(404)
 }
+
+/// Toute route inconnue : l'introuvable de la langue de l'adresse (`/en/…`), sinon
+/// celui de toutes les langues.
+pub async fn introuvable_partout(req: Request) -> Page {
+    match langue_du_chemin(req.path()) {
+        Some(langue) => introuvable(&req, langue),
+        None => introuvable_multilingue(&req),
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// `/` et anciennes adresses
+// ---------------------------------------------------------------------------------
+
+/// Une chaîne JavaScript qui ne peut pas fermer l'élément `<script>`.
+fn chaine_js(s: &str) -> String {
+    let mut sortie = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => sortie.push_str("\\\""),
+            '\\' => sortie.push_str("\\\\"),
+            '<' => sortie.push_str("\\u003c"),
+            '\n' => sortie.push_str("\\n"),
+            c => sortie.push(c),
+        }
+    }
+    sortie.push('"');
+    sortie
+}
+
+/// Le choix de la langue dans le navigateur, pour la racine de l'export : la première
+/// des langues du navigateur (`navigator.languages`) que le site parle, le français
+/// sinon. Sans JavaScript, `<meta http-equiv="refresh">` mène au français.
+fn redirection_langue(o: &Options) -> String {
+    let codes: Vec<String> = Langue::ALL.iter().map(|l| chaine_js(l.code())).collect();
+    format!(
+        concat!(
+            "<script>(function(){{var L=[{codes}],c=null,",
+            "n=navigator.languages||[navigator.language||\"\"];",
+            "for(var i=0;i<n.length&&!c;i++){{var x=String(n[i]).slice(0,2).toLowerCase();",
+            "if(L.indexOf(x)>=0)c=x}}",
+            "location.replace({base}+\"/\"+(c||\"fr\")+\"/\"+location.search+location.hash)}})()</script>",
+            r#"<noscript><meta http-equiv="refresh" content="0; url={francais}"/></noscript>"#,
+        ),
+        codes = codes.join(","),
+        base = chaine_js(o.chemin_base()),
+        francais = o.lien(&Rubrique::Accueil.chemin(Langue::Fr)),
+    )
+}
+
+/// La page qui mène à `rubrique` dans une langue, avec un lien vers chacune : la
+/// racine de l'export (`racine`, qui choisit la langue du navigateur) ou une ancienne
+/// adresse (`/syntaxe/`…, qui mène à la version française).
+fn aiguillage(req: &Request, rubrique: Rubrique, racine: bool) -> Page {
+    let o = Options::de(req);
+    let fr = Langue::Fr.textes();
+    let choisir = Langue::ALL.iter().enumerate().flat_map(|(i, l)| {
+        let separateur = (i > 0).then(|| text(" · "));
+        [
+            separateur,
+            Some(
+                span()
+                    .attr("lang", l.code())
+                    .text(l.textes().langue_choisir)
+                    .into(),
+            ),
+        ]
+        .into_iter()
+        .flatten()
+    });
+    let contenu = section()
+        .class("hero aiguillage")
+        .child(h1().text("Varium"))
+        .child(p().class("muted").children(choisir))
+        .child(ul().class("langues-liste").children(Langue::ALL.map(|l| {
+            let sous_titre = match rubrique {
+                Rubrique::Accueil => l.textes().accroche,
+                r => r.nom(l),
+            };
+            li().child(
+                a().href(o.lien(&rubrique.chemin(l)))
+                    .attr("hreflang", l.code())
+                    .attr("lang", l.code())
+                    .child(strong().text(l.nom()))
+                    .child(span().class("muted").text(sous_titre)),
+            )
+        })));
+    let titre = match rubrique {
+        Rubrique::Accueil => format!("Varium · {}", fr.accroche),
+        r => format!("{} · Varium", r.nom(Langue::Fr)),
+    };
+    let page = layout::page_neutre(
+        req,
+        &titre,
+        description(rubrique, Langue::Fr, o.est_statique()),
+        contenu.into(),
+    );
+    if racine {
+        let mut seo = Seo::new().canonical("/");
+        for l in Langue::ALL {
+            seo = seo.alternate(l.code(), Rubrique::Accueil.chemin(l));
+        }
+        page.seo(seo.alternate("x-default", "/"))
+            .head(redirection_langue(o))
+    } else {
+        let francais = rubrique.chemin(Langue::Fr);
+        page.seo(Seo::new().canonical(francais.clone()))
+            .head(format!(
+                r#"<meta http-equiv="refresh" content="0; url={}"/>"#,
+                o.lien(&francais)
+            ))
+    }
+}
+
+/// `GET /` : l'accueil dans la langue du navigateur (`Accept-Language`), le français
+/// sinon. Dans l'export statique, une page qui fait ce choix dans le navigateur.
+pub async fn racine(req: Request) -> Response {
+    let o = Options::de(&req);
+    if o.est_statique() {
+        return aiguillage(&req, Rubrique::Accueil, true).into_response();
+    }
+    let langue = langue_preferee(req.header("accept-language").unwrap_or(""));
+    Redirect::to(o.lien(&Rubrique::Accueil.chemin(langue)))
+        .into_response()
+        .header("vary", "Accept-Language")
+        .header("cache-control", "no-cache")
+}
+
+/// `GET /syntaxe/`, `/essayer/`, `/installer/` : les adresses d'avant les langues, qui
+/// étaient en français. Le serveur redirige pour de bon vers `/fr/…` ; l'export écrit
+/// une page qui y mène.
+pub async fn ancienne(req: Request, rubrique: Rubrique) -> Response {
+    let o = Options::de(&req);
+    if o.est_statique() {
+        return aiguillage(&req, rubrique, false).into_response();
+    }
+    let requete = req
+        .uri()
+        .query()
+        .map(|q| format!("?{q}"))
+        .unwrap_or_default();
+    Redirect::permanent(format!("{}{requete}", o.lien(&rubrique.chemin(Langue::Fr))))
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------------
+// robots.txt, sitemap.xml
+// ---------------------------------------------------------------------------------
 
 /// `GET /robots.txt`
 pub async fn robots(req: Request) -> Response {
@@ -612,15 +803,32 @@ pub async fn robots(req: Request) -> Response {
     res::text(corps)
 }
 
-/// `GET /sitemap.xml`
+/// `GET /sitemap.xml` : chaque page dans chaque langue, avec ses versions (`hreflang`).
 pub async fn sitemap(req: Request) -> Response {
     let origine = Options::de(&req).origine(&req);
-    let urls: String = PAGES
-        .iter()
-        .map(|p| format!("<url><loc>{origine}{p}</loc></url>"))
-        .collect();
+    let mut urls = String::new();
+    for rubrique in Rubrique::ALL {
+        for langue in Langue::ALL {
+            urls.push_str(&format!(
+                "<url><loc>{origine}{}</loc>",
+                rubrique.chemin(langue)
+            ));
+            for l in Langue::ALL {
+                urls.push_str(&format!(
+                    r#"<xhtml:link rel="alternate" hreflang="{}" href="{origine}{}"/>"#,
+                    l.code(),
+                    rubrique.chemin(l)
+                ));
+            }
+            urls.push_str(&format!(
+                r#"<xhtml:link rel="alternate" hreflang="x-default" href="{origine}{}"/></url>"#,
+                rubrique.chemin_par_defaut()
+            ));
+            urls.push('\n');
+        }
+    }
     let corps = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>"#
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">\n{urls}</urlset>\n"
     );
     res::text(corps).header("content-type", "application/xml; charset=utf-8")
 }

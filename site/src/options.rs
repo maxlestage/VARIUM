@@ -6,17 +6,20 @@
 
 use paquets::prelude::*;
 
+use crate::i18n::Langue;
+use crate::routes::Rubrique;
+
 /// L'origine de GitHub Pages pour le dépôt, utilisée par l'export quand `SITE_URL` manque.
 const ORIGINE_PAGES: &str = "https://maxlestage.github.io";
 
 /// La configuration du site.
 ///
 /// ```
-/// use varium_site::Options;
+/// use varium_site::{Langue, Options};
 ///
 /// let o = Options::new().base("/VARIUM/");
-/// assert_eq!(o.lien("/syntaxe/"), "/VARIUM/syntaxe/");
-/// assert_eq!(o.lien_application(), "/VARIUM/installer/");
+/// assert_eq!(o.lien("/fr/syntaxe/"), "/VARIUM/fr/syntaxe/");
+/// assert_eq!(o.lien_application(Langue::En), "/VARIUM/en/installer/");
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct Options {
@@ -78,8 +81,9 @@ impl Options {
         self
     }
 
-    /// Le rendu pour un hôte statique (GitHub Pages) : `/essayer` montre l'exemple en
-    /// lecture seule et renvoie vers l'application, au lieu d'un formulaire.
+    /// Le rendu pour un hôte statique (GitHub Pages) : `/{langue}/essayer/` montre
+    /// l'exemple en lecture seule au lieu d'un formulaire, `/` est une page qui choisit
+    /// la langue dans le navigateur et les anciennes adresses des pages de redirection.
     pub fn statique(mut self, statique: bool) -> Options {
         self.statique = statique;
         self
@@ -121,11 +125,12 @@ impl Options {
         format!("{}{chemin}", self.base)
     }
 
-    /// Où obtenir Varium (une application de bureau) : `APP_URL`, sinon la page `{base}/installer/`.
-    pub fn lien_application(&self) -> String {
+    /// Où obtenir Varium (une application de bureau) : `APP_URL`, sinon la page
+    /// d'installation dans `langue` (`{base}/fr/installer/`).
+    pub fn lien_application(&self, langue: Langue) -> String {
         self.application
             .clone()
-            .unwrap_or_else(|| self.lien("/installer/"))
+            .unwrap_or_else(|| self.lien(&Rubrique::Installer.chemin(langue)))
     }
 
     /// L'adresse publique du site, base comprise et sans `/` final : [`Options::site`],
@@ -167,12 +172,15 @@ mod tests {
 
     #[test]
     fn application_par_defaut() {
-        assert_eq!(Options::new().lien_application(), "/installer/");
+        assert_eq!(
+            Options::new().lien_application(Langue::Fr),
+            "/fr/installer/"
+        );
         assert_eq!(
             Options::new()
                 .base("/VARIUM")
                 .application("https://exemple.fr/app/")
-                .lien_application(),
+                .lien_application(Langue::De),
             "https://exemple.fr/app/"
         );
     }

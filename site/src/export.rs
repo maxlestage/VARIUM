@@ -3,22 +3,30 @@
 //!
 //! Chaque page vient de l'application elle-même, par le client en mémoire de Paquets
 //! (`app.test()`) : l'export et le serveur sont identiques. Seule différence, le mode
-//! statique ([`Options::statique`]) : `/essayer/` montre l'exemple en lecture seule et
-//! renvoie vers l'application web, puisqu'un hôte statique ne reçoit pas de formulaire.
+//! statique ([`Options::statique`]), pour ce qu'un hôte statique ne sait pas faire :
+//!
+//! - `/{langue}/essayer/` montre l'exemple en lecture seule et renvoie vers
+//!   l'installation, puisqu'un hôte statique ne reçoit pas de formulaire ;
+//! - `/` ne peut pas lire `Accept-Language` : c'est une page qui choisit la langue dans
+//!   le navigateur (`navigator.languages`, le français sinon, et sans JavaScript un
+//!   `<meta http-equiv="refresh">` vers `/fr/`), avec un lien vers chaque langue ;
+//! - les anciennes adresses (`/syntaxe/`…) sont des pages qui mènent à `/fr/…`.
+//!
 //! `/api/rendu` n'est pas exporté.
 //!
 //! | Fichier | Contenu |
 //! |---|---|
-//! | `index.html`, `syntaxe/index.html`, `essayer/index.html` | les pages |
-//! | `404.html` | la page « introuvable », servie par GitHub Pages pour toute adresse inconnue |
+//! | `{langue}/index.html`, `{langue}/syntaxe/index.html`… | les pages, dans les six langues |
+//! | `index.html` | le choix de la langue |
+//! | `syntaxe/index.html`, `essayer/index.html`, `installer/index.html` | les anciennes adresses |
+//! | `404.html` | la page « introuvable » dans toutes les langues, servie par GitHub Pages pour toute adresse inconnue |
 //! | `sitemap.xml`, `robots.txt` | pour les moteurs de recherche |
 //! | `site.css`, `favicon.svg`… | le contenu de `public/` |
 
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::pages::PAGES;
-use crate::{Options, app_with};
+use crate::{Langue, Options, Rubrique, app_with};
 
 /// Écrit le site dans `dossier` et renvoie les fichiers écrits (chemins relatifs, avec
 /// des `/`). Les liens sont derrière la base des `options` ; sans adresse publique,
@@ -56,7 +64,13 @@ pub async fn exporter(dossier: &Path, options: Options) -> io::Result<Vec<String
         }
     };
 
-    for chemin in PAGES {
+    // Chaque page dans chaque langue, puis la racine et les anciennes adresses.
+    let mut chemins: Vec<String> = Langue::ALL
+        .iter()
+        .flat_map(|l| Rubrique::ALL.map(|r| r.chemin(*l)))
+        .collect();
+    chemins.extend(Rubrique::ALL.map(Rubrique::ancien_chemin));
+    for chemin in &chemins {
         let html = obtenir(chemin, 200).await?;
         ecrire(
             &format!("{}index.html", chemin.trim_start_matches('/')),

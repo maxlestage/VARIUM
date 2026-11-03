@@ -1,0 +1,12 @@
+[package]
+name = "varium-slides"
+description = "Moteur de présentations de Varium : diapositives, dispositions, thèmes, exports HTML/ODP/PDF"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+varium-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
