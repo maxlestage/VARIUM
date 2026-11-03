@@ -4,7 +4,7 @@
 //! `cargo run -- export <dossier>` : le site en fichiers statiques (`dist` par défaut),
 //! pour GitHub Pages. `BASE_PATH` (`/VARIUM`) préfixe chaque lien, `SITE_URL`
 //! (`https://maxlestage.github.io/VARIUM`) fait les URL absolues, `APP_URL` est
-//! l'adresse de l'application web (`{BASE_PATH}/app/` par défaut).
+//! la page où obtenir Varium (`{BASE_PATH}/installer/` par défaut).
 
 use std::path::PathBuf;
 

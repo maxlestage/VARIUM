@@ -7,7 +7,7 @@ use crate::demo::{document, source_coloree};
 use crate::{Options, REPO, layout};
 
 /// Les pages du site (sans la base), pour `sitemap.xml` et l'export statique.
-pub const PAGES: [&str; 3] = ["/", "/syntaxe/", "/essayer/"];
+pub const PAGES: [&str; 4] = ["/", "/syntaxe/", "/essayer/", "/installer/"];
 
 fn code_bloc(code_source: &str) -> Element {
     pre().child(code().text(code_source.to_string()))
@@ -100,8 +100,8 @@ const FONCTIONS: [(&str, &str, &str); 12] = [
     ),
     (
         "📱",
-        "Partout, même sur téléphone",
-        "Bureau (Linux, macOS, Windows) et navigateur ; sur un écran étroit, Texte, Champs et Pages passent en onglets.",
+        "Sur tous les ordinateurs",
+        "Linux, macOS et Windows ; dans une fenêtre étroite, Texte, Champs et Pages passent en onglets.",
     ),
 ];
 
@@ -120,11 +120,11 @@ pub async fn accueil(req: Request) -> Page {
         .child(
             div()
                 .class("row centre")
-                .child(a().class("button").href(o.lien_application()).text("Ouvrir l'application"))
+                .child(a().class("button").href(o.lien_application()).text("Installer Varium"))
                 .child(a().class("button ghost").href(o.lien("/essayer/")).text("Voir un exemple"))
                 .child(a().class("button ghost").href(REPO).text("Code source")),
         )
-        .child(p().class("muted petit").text("Dans le navigateur, sans rien installer (WebAssembly) · sur le bureau (Linux, macOS, Windows) · 100 % Rust"));
+        .child(p().class("muted petit").text("Application de bureau pour Linux, macOS et Windows · vos documents restent chez vous · 100 % Rust"));
 
     let apercu = section()
         .class("apercu")
@@ -178,12 +178,9 @@ pub async fn accueil(req: Request) -> Page {
         .child(
             div()
                 .class("card")
-                .child(h3().text("🌐 Dans le navigateur"))
-                .child(p().class("muted").text("La même application, compilée en WebAssembly, sans rien installer."))
-                .child(p().child(a().href(o.lien_application()).text("Ouvrir l'application web →")))
-                .child(code_bloc(
-                    "rustup target add wasm32-unknown-unknown\ncargo install trunk --locked\ncd crates/varium && trunk serve --release",
-                )),
+                .child(h3().text("🔒 Vos documents restent chez vous"))
+                .child(p().class("muted").text("Pas de compte, pas de serveur, pas de version en ligne : Varium enregistre vos projets sur votre disque, et rien ne quitte votre ordinateur."))
+                .child(p().child(a().href(o.lien_application()).text("Installer Varium →"))),
         );
 
     let architecture = section()
@@ -200,7 +197,7 @@ pub async fn accueil(req: Request) -> Page {
                             "Le moteur : analyse, rendu, filtres, formules, exports, format de projet. Testé, sans dépendance graphique.",
                         )))
                         .child(tr().child(td().child(code().text("varium"))).child(td().text(
-                            "L'application egui/eframe : binaire de bureau et site WebAssembly (Trunk).",
+                            "L'application de bureau egui/eframe, pour Linux, macOS et Windows.",
                         ))),
                 ),
         )
@@ -211,11 +208,11 @@ pub async fn accueil(req: Request) -> Page {
     let appel = section()
         .class("hero appel")
         .child(h2().text("Prêt à essayer ?"))
-        .child(p().class("muted").text("L'application complète tourne dans votre navigateur : écrivez votre modèle, remplissez les valeurs, exportez le document."))
+        .child(p().class("muted").text("Installez Varium sur votre ordinateur : écrivez votre modèle, remplissez les valeurs, exportez le document."))
         .child(
             div()
                 .class("row centre")
-                .child(a().class("button").href(o.lien_application()).text("Ouvrir l'application"))
+                .child(a().class("button").href(o.lien_application()).text("Installer Varium"))
                 .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
         );
 
@@ -232,7 +229,7 @@ pub async fn accueil(req: Request) -> Page {
     layout::page(
         &req,
         "Varium",
-        "Varium est un éditeur de documents à variables écrit en Rust : écrivez {{prénom}} une fois, changez sa valeur, tout le document suit. Bureau et navigateur.",
+        "Varium est un éditeur de documents à variables écrit en Rust : écrivez {{prénom}} une fois, changez sa valeur, tout le document suit. Pour Linux, macOS et Windows.",
         "/",
         contenu,
     )
@@ -450,7 +447,7 @@ pub async fn syntaxe(req: Request) -> Page {
                 .child(
                     a().class("button")
                         .href(o.lien_application())
-                        .text("Ouvrir l'application"),
+                        .text("Installer Varium"),
                 )
                 .child(
                     a().class("button ghost")
@@ -471,6 +468,69 @@ pub async fn syntaxe(req: Request) -> Page {
 // ---------------------------------------------------------------------------------
 // 404, robots.txt, sitemap.xml
 // ---------------------------------------------------------------------------------
+
+/// `GET /installer/` : installer l'application de bureau.
+pub async fn installer(req: Request) -> Page {
+    let o = Options::de(&req);
+    let etape = |titre: &str, texte: &str, code: &str| {
+        div()
+            .class("card")
+            .child(h3().text(titre.to_string()))
+            .child(p().class("muted").text(texte.to_string()))
+            .child(code_bloc(code))
+    };
+    let contenu = article()
+        .class("prose")
+        .child(h1().text("Installer Varium"))
+        .child(p().class("chapo").text(
+            "Varium est une application de bureau pour Linux, macOS et Windows. Pas de compte, pas de version en ligne : vos documents restent sur votre ordinateur.",
+        ))
+        .child(etape(
+            "1. Installer Rust",
+            "Une seule fois, depuis rustup.rs (Linux, macOS) ou l'installateur Windows.",
+            "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+        ))
+        .child(etape(
+            "2. Installer Varium",
+            "Cargo télécharge, compile et installe la commande varium.",
+            "cargo install --git https://github.com/maxlestage/VARIUM varium --locked",
+        ))
+        .child(etape(
+            "3. Lancer Varium",
+            "Ouvrez Varium depuis un terminal ; la fenêtre s'ouvre sur la lettre d'exemple.",
+            "varium",
+        ))
+        .child(
+            section()
+                .child(h2().text("Sous Linux"))
+                .child(p().text(
+                    "Varium a besoin des bibliothèques graphiques habituelles (souvent déjà présentes) : libxkbcommon-x11, libwayland et un pilote Vulkan ou OpenGL. Sous Debian ou Ubuntu :",
+                ))
+                .child(code_bloc(
+                    "sudo apt install libxkbcommon-x11-0 libwayland-client0 libgl1",
+                )),
+        )
+        .child(
+            section()
+                .child(h2().text("Depuis le code source"))
+                .child(code_bloc(
+                    "git clone https://github.com/maxlestage/VARIUM\ncd VARIUM\ncargo run -p varium --release",
+                )),
+        )
+        .child(
+            div()
+                .class("row")
+                .child(a().class("button").href(REPO).text("Code source sur GitHub"))
+                .child(a().class("button ghost").href(o.lien("/syntaxe/")).text("Lire la syntaxe")),
+        );
+    layout::page(
+        &req,
+        "Installer",
+        "Installer Varium, l'éditeur de documents à champs, sur Linux, macOS ou Windows.",
+        "/installer/",
+        contenu.into(),
+    )
+}
 
 /// Toute route inconnue.
 pub async fn introuvable(req: Request) -> Page {
