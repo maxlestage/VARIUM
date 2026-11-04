@@ -394,3 +394,28 @@ fn ecrire_le_html_des_fixtures() {
     std::fs::create_dir_all(&dossier).unwrap();
     std::fs::write(dossier.join("libreoffice.html"), html).unwrap();
 }
+
+#[test]
+fn couleurs_retraits_et_formules_reviennent() {
+    let src = "Un {couleur:#c9211e}mot rouge{/} et ==surligné==.\n{: retrait=1cm} En retrait.\nAire $x^2$ ici.\n$$\\frac{a}{b}$$";
+    let p = PageSetup {
+        typographie: false,
+        ..PageSetup::default()
+    };
+    let r = export::prepare(src, &Values::default(), &p);
+    for (nom, octets) in [
+        ("c.odt", odt::odt("c", std::slice::from_ref(&r), &p)),
+        ("c.docx", docx::docx("c", std::slice::from_ref(&r), &p)),
+    ] {
+        let imp = importer(nom, &octets).unwrap();
+        let s = &imp.source;
+        assert!(s.contains("{couleur:#c9211e}mot rouge{/}"), "{nom} :\n{s}");
+        assert!(s.contains("==surligné=="), "{nom} :\n{s}");
+        assert!(s.contains("retrait=1cm} En retrait."), "{nom} :\n{s}");
+        assert!(s.contains("$x^2$") || s.contains("$x^{2}$"), "{nom} :\n{s}");
+        assert!(s.contains("$$\\frac{a}{b}$$"), "{nom} :\n{s}");
+        let a = structure(&document(src, &Values::default()));
+        let b = structure(&document(s, &Values::default()));
+        assert_eq!(a, b, "{nom}");
+    }
+}
