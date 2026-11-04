@@ -56,8 +56,8 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Menus natifs macOS (muda), raccourcis ⌘, plein écran, mode concentration — idem
 - [x] Typographie française automatique, exports RTF et EPUB — idem
 - [x] Icône de l'application (Dock, .icns, varium.exe, Linux) et job CI macOS — idem
-- [ ] Ouvrir un document par double-clic dans le Finder (événements Apple « open documents » non transmis par winit)
-- [ ] Barre de titre unifiée façon macOS, à valider sur un vrai Mac
+- [x] Ouvrir un document par double-clic dans le Finder (gestionnaire « open documents » via objc2, types de documents dans Info.plist) — version 0.7.0, à valider sur un vrai Mac
+- [x] Barre de titre unifiée façon macOS — version 0.7.0, à valider sur un vrai Mac
 - [x] Vignettes des pages dans la barre latérale (comme Pages), page courante entourée, clic pour y aller — idem
 - [x] Commentaires et suivi des modifications (CriticMarkup, `critic.rs`)
 
@@ -72,9 +72,9 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Dictionnaires orthographiques (Hunspell) par langue : installés, importés ou téléchargés — version 0.5.0
 - [x] Interface traduite en six langues (choix automatique ou manuel, sans redémarrer) — version 0.5.0
 - [x] Menus natifs macOS pour le Classeur et la Présentation (à valider sur un vrai Mac) — version 0.5.0
-- [ ] Classeur : couleurs de thème à l'import XLSX, hauteur de ligne variable
-- [ ] Présentation : rotations, dégradés et tableaux à l'import PPTX
-- [ ] Messages du moteur (remarques de révision, erreurs de formule) traduits
+- [x] Classeur : couleurs de thème à l'import XLSX, hauteur de ligne variable — version 0.7.0
+- [x] Présentation : rotations, dégradés, couleurs de thème et tableaux à l'import PPTX — version 0.7.0
+- [x] Messages du moteur (remarques de révision, erreurs de formule, erreurs d'import) traduits — version 0.7.0
 
 ## 11. Faciliter la vie des utilisateurs
 - [x] Palette de commandes (Ctrl+K / ⌘K) sur les trois modules, aide-mémoire des raccourcis (F1) — version 0.6.0
@@ -86,13 +86,19 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Modèles intelligents qui posent les questions puis remplissent le document (`modele.rs`, `lettres.rs`)
 - [x] Détection automatique des champs dans un document existant (dates, montants, e-mails, téléphones, noms répétés ; `detection.rs`, Outils → Détecter les champs…) — « Détecter les champs »
 - [x] Classeur : « Poser une question » en langage simple (`question.rs`, Données → Poser une question…, Ctrl+Maj+Q ; total, moyenne, nombre, max, min, médiane, par groupe) — « Poser une question »
-- [ ] Classeur : tableau croisé dynamique en glisser-déposer
+- [x] Classeur : tableau croisé dynamique en glisser-déposer — version 0.7.0
 - [x] Signature manuscrite dessinée à la souris (`signature.rs`, Insertion → Signature…) — idem
 - [x] Lecture à voix haute (synthèse vocale du système ; `doc_voix.rs`)
-- [ ] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation
+- [x] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation — version 0.7.0
 - [x] Thèmes d'interface (automatique, clair, sombre, sépia, contraste élevé) et zoom de l'interface (`apparence.rs`, bouton 🎨) — « Apparence de l'interface »
 - [x] Ouvrir .docx/.odt dans Documents
 - [x] « Découper en modèle » — à partir d'un document détecté, enregistrer le modèle (champs vides + questions) dans la galerie de modèles, et proposer d'en refaire un nouveau en répondant aux questions
-- [ ] Idée : « Apparence selon l'heure » — bascule automatique en sépia/sombre le soir, et thème par module mémorisé
+- [x] Idée : « Apparence selon l'heure » — bascule automatique en sépia/sombre le soir, et thème par module mémorisé — version 0.7.0
 - [x] Détection des champs à la volée — un petit badge « 3 champs possibles » dans la barre d'état quand on colle un document contenant dates et montants
-- [ ] Idée : « Poser une question » par période (« total par mois », « par trimestre ») à partir d'une colonne de dates, avec proposition d'un graphique du résultat ; et mémoire des questions fréquentes dans la palette de commandes
+- [x] Idée : « Poser une question » par période, graphique du résultat, questions fréquentes — version 0.7.0
+- [x] Site installable (PWA) : manifestes par langue, hors ligne, icônes, favicon, partage, images sociales
+- [ ] Tableau croisé : déplacer la sortie quand on insère des lignes ; vrai `table:data-pilot-table` en ODS
+- [ ] Mise en page : crénage, ligatures, césure ; polices CJK
+- [ ] Varium par défaut pour ses fichiers sous Windows et macOS (extensions propres plutôt que `.json`)
+- [ ] Présentation : poignées de redimensionnement des objets tournés
+- [ ] Idée : « Le document se relit » — lecture à voix haute avec mise en évidence et dictée vocale (reconnaissance du système) pour écrire sans clavier
