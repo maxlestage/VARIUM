@@ -10,7 +10,8 @@
 //! Gère : césure des lignes, alignements (justifié compris), titres, listes,
 //! citations, tableaux (lignes coupées d'une page à l'autre), filets, sauts de
 //! page, gras/italique/souligné/barré, en-tête, pied de page et « Page X sur N »
-//! (numérotés document par document en publipostage).
+//! (numérotés document par document en publipostage), plus un plan de signets
+//! (un signet par titre, imbriqués selon leur niveau).
 
 use crate::doc::{Align, Para, Run, Style, Table};
 use crate::export::Rendered;
@@ -387,6 +388,8 @@ struct Layout<'a> {
     pages: Vec<PageBuf>,
     /// Pages de départ de chaque document.
     starts: Vec<usize>,
+    /// Titres rencontrés : (niveau, texte, page, distance depuis le haut de la zone de texte).
+    marks: Vec<(u8, String, usize, f32)>,
     pw: f32,
     ph: f32,
     ml: f32,
@@ -726,7 +729,12 @@ impl Layout<'_> {
                 self.space(size * 0.5);
                 let bold = Style { bold: true, ..none };
                 let lines = self.ctx.wrap(self.ctx.atoms(runs, hs, bold), tw);
-                self.place(&lines, ml, tw, Align::Left, hs, lh, true);
+                let (pg, y) = self.place(&lines, ml, tw, Align::Left, hs, lh, true);
+                let titre = crate::doc::plain(runs);
+                let titre = titre.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !titre.is_empty() {
+                    self.marks.push(((*level).clamp(1, 3), titre, pg, y));
+                }
                 self.space(size * 0.25);
             }
             Para::Item {
@@ -851,6 +859,7 @@ pub fn pdf(title: &str, docs: &[Rendered], page: &PageSetup, fonts: &PdfFonts) -
         page,
         pages: Vec::new(),
         starts: Vec::new(),
+        marks: Vec::new(),
         pw: mm(w),
         ph: mm(h),
         ml: mm(ml.min(w - 20.0)),
@@ -932,7 +941,31 @@ pub fn pdf(title: &str, docs: &[Rendered], page: &PageSetup, fonts: &PdfFonts) -
     let _ = sans;
     let mut objs: Vec<Vec<u8>> = Vec::new();
     // 1 catalogue, 2 pages, 3 info, 4-7 polices, puis (page, contenu) par page.
-    objs.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
+    // Signets : un titre est rattaché au titre de niveau inférieur qui le précède.
+    let marks: Vec<&(u8, String, usize, f32)> = lay.marks.iter().filter(|m| m.2 < np).collect();
+    let nm = marks.len();
+    let mut parent: Vec<Option<usize>> = vec![None; nm];
+    let mut pile: Vec<usize> = Vec::new();
+    for i in 0..nm {
+        while pile.last().is_some_and(|&j| marks[j].0 >= marks[i].0) {
+            pile.pop();
+        }
+        parent[i] = pile.last().copied();
+        pile.push(i);
+    }
+    let enfants =
+        |p: Option<usize>| -> Vec<usize> { (0..nm).filter(|&i| parent[i] == p).collect() };
+    let racine = 8 + 2 * np; // numéro d'objet de la racine des signets
+    if nm == 0 {
+        objs.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
+    } else {
+        objs.push(
+            format!(
+                "<< /Type /Catalog /Pages 2 0 R /Outlines {racine} 0 R /PageMode /UseOutlines >>"
+            )
+            .into_bytes(),
+        );
+    }
     let kids: String = (0..np).map(|i| format!("{} 0 R ", 8 + i * 2)).collect();
     objs.push(format!("<< /Type /Pages /Kids [{kids}] /Count {np} >>").into_bytes());
     objs.push(
@@ -963,6 +996,48 @@ pub fn pdf(title: &str, docs: &[Rendered], page: &PageSetup, fonts: &PdfFonts) -
         c.extend_from_slice(content.as_bytes());
         c.extend_from_slice(b"endstream");
         objs.push(c);
+    }
+    if nm > 0 {
+        let id = |i: usize| racine + 1 + i;
+        let top = enfants(None);
+        objs.push(
+            format!(
+                "<< /Type /Outlines /First {} 0 R /Last {} 0 R /Count {} >>",
+                id(top[0]),
+                id(top[top.len() - 1]),
+                nm
+            )
+            .into_bytes(),
+        );
+        for (i, m) in marks.iter().enumerate() {
+            let freres = enfants(parent[i]);
+            let pos = freres.iter().position(|&x| x == i).unwrap_or(0);
+            let fils = enfants(Some(i));
+            let mut d = format!(
+                "<< /Title <{}> /Parent {} 0 R /Dest [{} 0 R /XYZ {} {} null]",
+                utf16_hex(&m.1),
+                parent[i].map_or(racine, id),
+                8 + 2 * m.2,
+                n(lay.ml),
+                n((lay.ph - lay.mt - m.3 + 4.0).min(lay.ph))
+            );
+            if pos > 0 {
+                d.push_str(&format!(" /Prev {} 0 R", id(freres[pos - 1])));
+            }
+            if pos + 1 < freres.len() {
+                d.push_str(&format!(" /Next {} 0 R", id(freres[pos + 1])));
+            }
+            if let (Some(a), Some(b)) = (fils.first(), fils.last()) {
+                d.push_str(&format!(
+                    " /First {} 0 R /Last {} 0 R /Count {}",
+                    id(*a),
+                    id(*b),
+                    fils.len()
+                ));
+            }
+            d.push_str(" >>");
+            objs.push(d.into_bytes());
+        }
     }
     let mut out = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = Vec::with_capacity(objs.len());
