@@ -32,7 +32,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Incorporer les polices Liberation (sous-ensemble TrueType) pour Unicode complet (grec des formules, émojis) au lieu de `?`
 - [ ] Compression Flate des flux (fichiers plus petits) ; formules `$$…$$` en vrai rendu plutôt qu'en texte Unicode
 - [x] Signets (plan des titres, imbriqués par niveau) dans le PDF — « PDF : signets des titres »
-- [ ] Liens cliquables dans le PDF
+- [x] Liens cliquables dans le PDF (adresses http, https, mailto détectées dans le texte, annotations /Link ; une adresse coupée sur deux lignes n’est cliquable que sur son début) — « PDF : liens cliquables »
 
 ## 5. Proche de Writer
 - [x] Texte conditionnel `{{si champ}}…{{sinon}}…{{fin}}` (conditions.rs) — « Texte conditionnel »
