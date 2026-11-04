@@ -31,7 +31,7 @@ pub const TEXTES: Textes = Textes {
             texte: "Des courriers, devis et contrats qui se remplissent tout seuls.",
             points: [
                 "Titres, listes, tableaux et vraies pages A4, A5 ou Lettre",
-                "Champs {{…}} globaux, calculés et conditionnels, publipostage",
+                "Champs {{…}} globaux, calculés et conditionnels, publipostage, détection automatique des champs",
                 "Barre d'outils façon Writer, inspecteur façon Pages",
                 "Exports PDF, DOCX, ODT, RTF, EPUB, HTML et LaTeX",
                 "Orthographe dans six langues, avec de vrais dictionnaires Hunspell",

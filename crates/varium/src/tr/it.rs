@@ -450,6 +450,7 @@ pub static T: &[(&str, &str)] = &[
         "Créer les {n} documents dans un seul fichier, une page par destinataire :",
         "Crea i {n} documenti in un unico file, una pagina per destinatario:",
     ),
+    ("Créer {n} champ(s)", "Crea {n} campo/i"),
     ("Ctrl+D", "Ctrl+D"),
     (
         "Ctrl+K ouvre la palette de commandes : tapez quelques lettres pour retrouver n'importe quelle action.",
@@ -566,6 +567,8 @@ pub static T: &[(&str, &str)] = &[
         "Déposez une image (PNG, JPEG) ou une présentation (ODP, PPTX)",
         "Trascina qui un'immagine (PNG, JPEG) o una presentazione (ODP, PPTX)",
     ),
+    ("Détecter les champs", "Rileva campi"),
+    ("Détecter les champs…", "Rileva campi…"),
     ("E-mail", "E-mail"),
     ("Effacer", "Cancella"),
     ("Effacer l'encre", "Cancella l'inchiostro"),
@@ -1013,6 +1016,7 @@ pub static T: &[(&str, &str)] = &[
         "Ne plus signaler ce mot dans ce document",
         "Non segnalare più questa parola in questo documento",
     ),
+    ("Nom", "Nome"),
     (
         "Nom invalide (lettres, chiffres, _ . -)",
         "Nome non valido (lettere, cifre, _ . -)",
@@ -1283,6 +1287,10 @@ pub static T: &[(&str, &str)] = &[
         "Torna alla vista abituale",
     ),
     ("Rien", "Niente"),
+    (
+        "Rien à proposer : ni date, ni montant, ni e-mail, ni téléphone, ni nom répété.",
+        "Niente da proporre: né data, né importo, né e-mail, né telefono, né nome ripetuto.",
+    ),
     ("Rose", "Rosa"),
     ("Règles…", "Regole…"),
     ("Récemment utilisées", "Usati di recente"),
@@ -1489,6 +1497,7 @@ pub static T: &[(&str, &str)] = &[
         "Scaricamento {step}/{steps}: {file} ({v})",
     ),
     ("Téléchargement…", "Scaricamento…"),
+    ("Téléphone", "Telefono"),
     (
         "Un code QR qu'on lit avec l'appareil photo d'un téléphone : adresse d'un site, texte, numéro… Il s'imprime dans tous les exports (PDF, Word, LibreOffice, page web).",
         "Un codice QR che si legge con la fotocamera di un telefono: indirizzo di un sito, testo, numero… Viene stampato in tutte le esportazioni (PDF, Word, LibreOffice, pagina web).",
@@ -1533,6 +1542,10 @@ pub static T: &[(&str, &str)] = &[
     ("Valider et aller à droite", "Conferma e vai a destra"),
     ("Valider et descendre", "Conferma e scendi"),
     ("Varium / texte", "Varium / testo"),
+    (
+        "Varium a repéré des valeurs qui peuvent devenir des champs {{…}} : on les remplit ensuite une seule fois, ou depuis un tableur, pour tous les documents du même type.",
+        "Varium ha trovato valori che possono diventare campi {{…}}: poi si compilano una sola volta, o da un foglio di calcolo, per tutti i documenti dello stesso tipo.",
+    ),
     (
         "Varium s'est arrêté sans que « {title} » soit enregistré. Une sauvegarde automatique plus récente existe.",
         "Varium si è chiuso senza che «{title}» fosse salvato. Esiste un salvataggio automatico più recente.",
@@ -1963,6 +1976,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} / {total} renseignés", "{n} / {total} compilati"),
     (
+        "{n} champ(s) créé(s) · Ctrl+Z pour annuler",
+        "{n} campo/i creato/i · Ctrl+Z per annullare",
+    ),
+    (
         "{n} champ(s) du document rempli(s) depuis le classeur",
         "{n} campo/i del documento compilato/i dal foglio di calcolo",
     ),
@@ -2148,6 +2165,7 @@ pub static T: &[(&str, &str)] = &[
     ("Édition", "Modifica"),
     ("Élégant", "Elegante"),
     ("Étendre la sélection", "Estendi la selezione"),
+    ("× {n}", "× {n}"),
     (
         "écriture impossible sur le disque",
         "impossibile scrivere sul disco",

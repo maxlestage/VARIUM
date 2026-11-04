@@ -31,7 +31,7 @@ pub const TEXTES: Textes = Textes {
             texte: "Cartas, presupuestos y contratos que se rellenan solos.",
             points: [
                 "Títulos, listas, tablas y páginas reales en A4, A5 o Carta",
-                "Campos {{…}} globales, calculados y condicionales; combinación de correspondencia",
+                "Campos {{…}} globales, calculados y condicionales; combinación de correspondencia; detección automática de campos",
                 "Barra de herramientas al estilo de Writer, inspector al estilo de Pages",
                 "Exportación a PDF, DOCX, ODT, RTF, EPUB, HTML y LaTeX",
                 "Ortografía en seis idiomas, con verdaderos diccionarios Hunspell",
