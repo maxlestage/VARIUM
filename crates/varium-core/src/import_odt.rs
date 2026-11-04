@@ -16,6 +16,9 @@ struct StyleOdt {
     italique: Option<bool>,
     souligne: Option<bool>,
     barre: Option<bool>,
+    /// `Some(None)` : noir ou transparent, qui annule le style parent.
+    couleur: Option<Option<String>>,
+    fond: Option<Option<String>>,
     align: Option<Align>,
     saut_avant: bool,
     saut_apres: bool,
@@ -36,12 +39,14 @@ struct Styles {
 }
 
 /// Le style résolu (parents compris).
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct Resolu {
     gras: Option<bool>,
     italique: Option<bool>,
     souligne: Option<bool>,
     barre: Option<bool>,
+    couleur: Option<Option<String>>,
+    fond: Option<Option<String>>,
     align: Option<Align>,
     saut_avant: bool,
     saut_apres: bool,
@@ -132,6 +137,8 @@ impl Styles {
                         .map(|v| v == "italic" || v == "oblique");
                     st.souligne = t.attr("style:text-underline-style").map(|v| v != "none");
                     st.barre = t.attr("style:text-line-through-style").map(|v| v != "none");
+                    st.couleur = t.attr("fo:color").map(import::couleur_hex);
+                    st.fond = t.attr("fo:background-color").map(import::couleur_hex);
                 }
                 if let Some(p) = s.child("paragraph-properties") {
                     st.align = p.attr("fo:text-align").and_then(alignement);
@@ -161,6 +168,7 @@ impl Styles {
     fn resoudre(&self, famille: &str, nom: Option<&str>) -> Resolu {
         let mut r = Resolu::default();
         let (mut gras, mut ital, mut soul, mut barre) = (None, None, None, None);
+        let (mut couleur, mut fond) = (None, None);
         let mut align = None;
         let mut retrait = None;
         let mut titre = None;
@@ -175,6 +183,8 @@ impl Styles {
             ital = ital.or(st.italique);
             soul = soul.or(st.souligne);
             barre = barre.or(st.barre);
+            couleur = couleur.or(st.couleur.clone());
+            fond = fond.or(st.fond.clone());
             align = align.or(st.align);
             retrait = retrait.or(st.retrait);
             titre = titre.or(st.titre);
@@ -192,6 +202,8 @@ impl Styles {
         r.italique = ital;
         r.souligne = soul;
         r.barre = barre;
+        r.couleur = couleur;
+        r.fond = fond;
         r.align = align;
         r.retrait = retrait.unwrap_or(0.0);
         r.titre = titre;
@@ -215,6 +227,8 @@ struct Forme {
     souligne: bool,
     barre: bool,
     lien: Option<String>,
+    couleur: Option<String>,
+    fond: Option<String>,
 }
 
 impl Forme {
@@ -226,6 +240,8 @@ impl Forme {
             souligne: self.souligne,
             barre: self.barre,
             lien: self.lien.clone(),
+            couleur: self.couleur.clone(),
+            fond: self.fond.clone(),
             brut: false,
         }
     }
@@ -238,6 +254,8 @@ impl Forme {
             souligne: r.souligne.unwrap_or(self.souligne),
             barre: r.barre.unwrap_or(self.barre),
             lien: self.lien.clone(),
+            couleur: r.couleur.clone().unwrap_or_else(|| self.couleur.clone()),
+            fond: r.fond.clone().unwrap_or_else(|| self.fond.clone()),
         }
     }
 }
@@ -362,6 +380,12 @@ impl Lecteur<'_> {
 
     /// Un cadre : code QR de Varium, image (non importée) ou zone de texte.
     fn cadre(&mut self, e: &Node, forme: &Forme, out: &mut Vec<Seg>, profondeur: usize) {
+        // Formule de Varium : objet LibreOffice Math, la source LaTeX dans svg:desc.
+        let desc = e.child("desc").map(|d| d.text()).unwrap_or_default();
+        if e.child("object").is_some() && !desc.trim().is_empty() && !desc.contains('$') {
+            out.push(Seg::brut(format!("${}$", desc.trim())));
+            return;
+        }
         if e.child("image").is_some() {
             let titre = e.child("title").map(|t| t.text()).unwrap_or_default();
             let nom = e.attr("draw:name").unwrap_or("");
@@ -390,6 +414,18 @@ impl Lecteur<'_> {
         let base = Forme::default().avec(&r);
         let mut segs = Vec::new();
         self.en_ligne(p, &base, &mut segs, 0);
+        // Une formule seule dans son paragraphe : formule centrée.
+        let pleins: Vec<usize> = (0..segs.len())
+            .filter(|&i| !segs[i].texte.trim().is_empty())
+            .collect();
+        if let [i] = pleins[..]
+            && segs[i].brut
+            && segs[i].texte.starts_with('$')
+            && !segs[i].texte.starts_with("$$")
+        {
+            let t = segs[i].texte.trim_matches('$').to_string();
+            segs = vec![Seg::brut(format!("$${t}$$"))];
+        }
         let vide = import::texte_de(&segs).trim().is_empty();
         let genre = if let Some(g) = item {
             g

@@ -92,6 +92,9 @@ pub(crate) struct Seg {
     pub souligne: bool,
     pub barre: bool,
     pub lien: Option<String>,
+    /// Couleur du texte (`#rrggbb`) et surlignage.
+    pub couleur: Option<String>,
+    pub fond: Option<String>,
     /// Déjà du texte Varium (`[^1]`, `{{qr:…}}`, `{>>…<<}`) : écrit tel quel.
     pub brut: bool,
 }
@@ -111,6 +114,8 @@ impl Seg {
             && self.souligne == o.souligne
             && self.barre == o.barre
             && self.lien == o.lien
+            && self.couleur == o.couleur
+            && self.fond == o.fond
             && self.brut == o.brut
     }
 }
@@ -134,6 +139,8 @@ pub(crate) enum Bloc {
         genre: Genre,
         align: Align,
         segs: Vec<Seg>,
+        /// Retrait à gauche (mm), écrit `{: retrait=…}` pour un paragraphe ordinaire.
+        retrait: f32,
     },
     Tableau {
         lignes: Vec<Vec<Vec<Seg>>>,
@@ -224,6 +231,7 @@ impl Brouillon {
                 genre: g,
                 align,
                 segs: l,
+                retrait: retrait_mm,
             });
         }
     }
@@ -242,8 +250,13 @@ impl Brouillon {
         let mut lignes: Vec<String> = Vec::new();
         for b in &self.blocs {
             match b {
-                Bloc::Para { genre, align, segs } => {
-                    lignes.push(ligne(*genre, *align, segs, justifie));
+                Bloc::Para {
+                    genre,
+                    align,
+                    segs,
+                    retrait,
+                } => {
+                    lignes.push(ligne(*genre, *align, segs, justifie, *retrait));
                 }
                 Bloc::Tableau {
                     lignes: rangs,
@@ -359,7 +372,7 @@ pub(crate) fn texte_de(segs: &[Seg]) -> String {
 
 /// Puce ou numéro écrits à la main au début d'un paragraphe en retrait (c'est ainsi
 /// que Varium et beaucoup d'outils exportent les listes) : on en fait un élément.
-fn puce_ecrite(segs: &mut Vec<Seg>, retrait_mm: f32) -> Option<Genre> {
+fn puce_ecrite(segs: &mut [Seg], retrait_mm: f32) -> Option<Genre> {
     let premier = segs.iter().position(|s| !s.texte.is_empty())?;
     if segs[premier].brut {
         return None;
@@ -496,6 +509,19 @@ pub(crate) fn en_ligne(segs: &[Seg], tableau: bool) -> String {
                 c = format!("{m}{c}{m}");
             }
         }
+        // Couleurs (pas sur un lien ni sur un {{champ}} sans valeur, que les exports
+        // colorent d'eux-mêmes).
+        let neutre = lien_valide || coeur.contains("{{");
+        if let Some(h) = s.couleur.as_deref().filter(|_| !neutre) {
+            c = format!("{{couleur:#{h}}}{c}{{/}}");
+        }
+        if let Some(h) = s.fond.as_deref().filter(|_| !neutre) {
+            c = if h == "ffff00" || h == "fff176" {
+                format!("=={c}==")
+            } else {
+                format!("{{surlignage:#{h}}}{c}{{/}}")
+            };
+        }
         out.push_str(&c);
         if !fin.is_empty() {
             out.push(' ');
@@ -518,7 +544,6 @@ fn proteger_debut(t: &str) -> String {
     if liste
         || regle
         || t.starts_with("->")
-        || t.starts_with("$$")
         || t.starts_with("[^")
         || t == "\\newpage"
         || t == "\\sommaire"
@@ -529,7 +554,7 @@ fn proteger_debut(t: &str) -> String {
     t.to_string()
 }
 
-fn ligne(genre: Genre, align: Align, segs: &[Seg], justifie: bool) -> String {
+fn ligne(genre: Genre, align: Align, segs: &[Seg], justifie: bool, retrait: f32) -> String {
     // Les titres sont déjà gras, les citations en italique : on n'écrit pas
     // `# **Titre**` ni `> *citation*`.
     let segs: Vec<Seg> = segs
@@ -544,6 +569,10 @@ fn ligne(genre: Genre, align: Align, segs: &[Seg], justifie: bool) -> String {
     if t.is_empty() {
         return String::new();
     }
+    // Une formule seule sur sa ligne : déjà centrée.
+    if t.starts_with("$$") && t.ends_with("$$") && t.len() > 4 {
+        return t;
+    }
     let corps = match genre {
         Genre::Titre(n) => format!("{} {t}", "#".repeat(n.clamp(1, 3) as usize)),
         Genre::Citation => format!("> {t}"),
@@ -553,6 +582,20 @@ fn ligne(genre: Genre, align: Align, segs: &[Seg], justifie: bool) -> String {
                 Some(n) => format!("{retrait}{n}. {t}"),
                 None => format!("{retrait}- {t}"),
             }
+        }
+        Genre::Corps if retrait > 0.5 && matches!(align, Align::Left | Align::Justify) => {
+            let a = crate::doc::Attributs {
+                format: crate::doc::ParaFormat {
+                    gauche: Some((retrait * 10.0).round() / 10.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            format!(
+                "{} {}",
+                crate::doc::ecrire_attributs(&a),
+                proteger_debut(&t)
+            )
         }
         Genre::Corps => proteger_debut(&t),
     };
@@ -679,6 +722,13 @@ pub(crate) fn police(nom: &str) -> DocFont {
     } else {
         DocFont::Serif
     }
+}
+
+/// Une couleur `#rrggbb` (ou `rrggbb`) en minuscules ; `None` pour le noir, `auto`,
+/// `transparent` ou une écriture inconnue.
+pub(crate) fn couleur_hex(v: &str) -> Option<String> {
+    let h = v.trim().trim_start_matches('#').to_lowercase();
+    (h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()) && h != "000000").then_some(h)
 }
 
 /// Une taille de police plausible (6 à 72 pt).

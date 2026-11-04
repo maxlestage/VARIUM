@@ -1412,7 +1412,6 @@ pub static T: &[(&str, &str)] = &[
     ("Ouvrir", "Apri"),
     ("Ouvrir un classeur", "Apri un foglio elettronico"),
     ("Ouvrir un document", "Apri un documento"),
-    ("Ouvrir un document Varium", "Apri un documento Varium"),
     (
         "Ouvrir un fichier (tous formats)…",
         "Apri un file (tutti i formati)…",
@@ -2012,7 +2011,6 @@ pub static T: &[(&str, &str)] = &[
     ("Valeur…", "Valore…"),
     ("Valider et aller à droite", "Conferma e vai a destra"),
     ("Valider et descendre", "Conferma e scendi"),
-    ("Varium / texte", "Varium / testo"),
     (
         "Varium a repéré des valeurs qui peuvent devenir des champs {{…}} : on les remplit ensuite une seule fois, ou depuis un tableur, pour tous les documents du même type.",
         "Varium ha trovato valori che possono diventare campi {{…}}: poi si compilano una sola volta, o da un foglio di calcolo, per tutti i documenti dello stesso tipo.",
@@ -2580,20 +2578,12 @@ pub static T: &[(&str, &str)] = &[
         "«{from}» rinominato in «{to}» ovunque",
     ),
     (
-        "« {name} » : Varium exporte en Word et en OpenDocument texte, mais ne sait pas encore les ouvrir",
-        "«{name}»: Varium esporta in Word e OpenDocument testo, ma non sa ancora aprirli",
-    ),
-    (
         "« {name} » : ce format ne s'ouvre pas encore ; enregistrez-le en .docx ou en .odt depuis Word, LibreOffice ou Pages",
         "«{name}»: questo formato non si apre ancora; salvalo in .docx o .odt da Word, LibreOffice o Pages",
     ),
     (
         "« {name} » : type de fichier non pris en charge (documents .varium.json, .docx, .odt, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
         "«{name}»: tipo di file non supportato (documenti .varium.json, .docx, .odt, .md, .txt; fogli .xlsx, .ods, .csv; presentazioni .odp, .pptx)",
-    ),
-    (
-        "« {name} » : type de fichier non pris en charge (documents .varium.json, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
-        "«{name}»: tipo di file non supportato (documenti .varium.json, .md, .txt; fogli di calcolo .xlsx, .ods, .csv; presentazioni .odp, .pptx)",
     ),
     (
         "« {name} » est abîmé : contenu récupéré ({detail}). Enregistrez-le sous un nouveau nom.",

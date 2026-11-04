@@ -1340,7 +1340,6 @@ pub static T: &[(&str, &str)] = &[
     ("Ouvrir", "Open"),
     ("Ouvrir un classeur", "Open a Spreadsheet"),
     ("Ouvrir un document", "Open a document"),
-    ("Ouvrir un document Varium", "Open a Varium Document"),
     (
         "Ouvrir un fichier (tous formats)…",
         "Open a File (All Formats)…",
@@ -1910,7 +1909,6 @@ pub static T: &[(&str, &str)] = &[
     ("Valeur…", "Value…"),
     ("Valider et aller à droite", "Confirm and move right"),
     ("Valider et descendre", "Confirm and move down"),
-    ("Varium / texte", "Varium / text"),
     (
         "Varium a repéré des valeurs qui peuvent devenir des champs {{…}} : on les remplit ensuite une seule fois, ou depuis un tableur, pour tous les documents du même type.",
         "Varium found values that can become {{…}} fields: you then fill them in once, or from a spreadsheet, for every document of the same kind.",
@@ -2460,20 +2458,12 @@ pub static T: &[(&str, &str)] = &[
         "“{from}” renamed to “{to}” everywhere",
     ),
     (
-        "« {name} » : Varium exporte en Word et en OpenDocument texte, mais ne sait pas encore les ouvrir",
-        "“{name}”: Varium exports to Word and OpenDocument Text, but cannot open them yet",
-    ),
-    (
         "« {name} » : ce format ne s'ouvre pas encore ; enregistrez-le en .docx ou en .odt depuis Word, LibreOffice ou Pages",
         "“{name}”: this format cannot be opened yet; save it as .docx or .odt from Word, LibreOffice or Pages",
     ),
     (
         "« {name} » : type de fichier non pris en charge (documents .varium.json, .docx, .odt, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
         "“{name}”: unsupported file type (documents .varium.json, .docx, .odt, .md, .txt; spreadsheets .xlsx, .ods, .csv; presentations .odp, .pptx)",
-    ),
-    (
-        "« {name} » : type de fichier non pris en charge (documents .varium.json, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
-        "“{name}”: unsupported file type (documents .varium.json, .md, .txt; spreadsheets .xlsx, .ods, .csv; presentations .odp, .pptx)",
     ),
     (
         "« {name} » est abîmé : contenu récupéré ({detail}). Enregistrez-le sous un nouveau nom.",

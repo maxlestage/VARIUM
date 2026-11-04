@@ -207,7 +207,13 @@ pub(super) fn phrases(src: &str, debut: usize, fin: usize, valeurs: &Values) -> 
     let fin = fin.min(cs.len());
     let mut debut = debut.min(fin);
     // On commence au début de la phrase où se trouve le curseur.
-    while debut > 0 && !matches!(cs[debut - 1], '.' | '!' | '?' | '…' | '\n') {
+    while debut > 0 {
+        let fin_de_phrase = cs[debut - 1] == '\n'
+            || (matches!(cs[debut - 1], '.' | '!' | '?' | '…')
+                && cs.get(debut).is_none_or(|c| c.is_whitespace()));
+        if fin_de_phrase {
+            break;
+        }
         debut -= 1;
     }
     let mut out = Vec::new();

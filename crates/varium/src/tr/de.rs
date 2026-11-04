@@ -1376,7 +1376,6 @@ pub static T: &[(&str, &str)] = &[
     ("Ouvrir", "Öffnen"),
     ("Ouvrir un classeur", "Tabellendokument öffnen"),
     ("Ouvrir un document", "Dokument öffnen"),
-    ("Ouvrir un document Varium", "Varium-Dokument öffnen"),
     (
         "Ouvrir un fichier (tous formats)…",
         "Datei öffnen (alle Formate)…",
@@ -1973,7 +1972,6 @@ pub static T: &[(&str, &str)] = &[
     ("Valeur…", "Wert…"),
     ("Valider et aller à droite", "Bestätigen und nach rechts"),
     ("Valider et descendre", "Bestätigen und nach unten"),
-    ("Varium / texte", "Varium / Text"),
     (
         "Varium a repéré des valeurs qui peuvent devenir des champs {{…}} : on les remplit ensuite une seule fois, ou depuis un tableur, pour tous les documents du même type.",
         "Varium hat Werte gefunden, die zu {{…}}-Feldern werden können: Sie werden danach nur einmal oder aus einer Tabelle für alle gleichartigen Dokumente ausgefüllt.",
@@ -2541,20 +2539,12 @@ pub static T: &[(&str, &str)] = &[
         "„{from}“ überall in „{to}“ umbenannt",
     ),
     (
-        "« {name} » : Varium exporte en Word et en OpenDocument texte, mais ne sait pas encore les ouvrir",
-        "„{name}“: Varium exportiert nach Word und OpenDocument-Text, kann diese aber noch nicht öffnen",
-    ),
-    (
         "« {name} » : ce format ne s'ouvre pas encore ; enregistrez-le en .docx ou en .odt depuis Word, LibreOffice ou Pages",
         "„{name}“: Dieses Format lässt sich noch nicht öffnen; speichern Sie es in Word, LibreOffice oder Pages als .docx oder .odt",
     ),
     (
         "« {name} » : type de fichier non pris en charge (documents .varium.json, .docx, .odt, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
         "„{name}“: Dateityp wird nicht unterstützt (Dokumente .varium.json, .docx, .odt, .md, .txt; Tabellen .xlsx, .ods, .csv; Präsentationen .odp, .pptx)",
-    ),
-    (
-        "« {name} » : type de fichier non pris en charge (documents .varium.json, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
-        "„{name}“: nicht unterstützter Dateityp (Dokumente .varium.json, .md, .txt; Tabellen .xlsx, .ods, .csv; Präsentationen .odp, .pptx)",
     ),
     (
         "« {name} » est abîmé : contenu récupéré ({detail}). Enregistrez-le sous un nouveau nom.",
