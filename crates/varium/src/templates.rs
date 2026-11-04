@@ -554,7 +554,21 @@ mod tests {
                     format!("{genre}:{t}")
                 })
                 .filter(|s| !s.ends_with(':') || s.starts_with('T'))
-                .collect()
+                // Varium n'a pas de retour à la ligne dans un paragraphe : une valeur
+                // sur deux lignes (adresse) revient en deux paragraphes qui se suivent.
+                .fold(Vec::new(), |mut v: Vec<String>, s| {
+                    let genre = |x: &str| x.split(':').next().unwrap_or("").to_string();
+                    match v.last_mut() {
+                        Some(l)
+                            if genre(l) == genre(&s)
+                                && ["Left", "Right", "Center"].contains(&genre(&s).as_str()) =>
+                        {
+                            l.push_str(s.split_once(':').map_or("", |(_, t)| t))
+                        }
+                        _ => v.push(s),
+                    }
+                    v
+                })
         }
         for t in ALL {
             let p = t.project();

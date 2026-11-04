@@ -1252,6 +1252,8 @@ impl VariumApp {
                         let mut p = Project::new(title, content, &self.values);
                         p.page = self.page.clone();
                         self.load(p);
+                        let source = self.source.clone();
+                        self.signaler_champs(&source);
                         self.notify(
                             ctx,
                             trf!("Modèle « {name} » ouvert, valeurs conservées", name),

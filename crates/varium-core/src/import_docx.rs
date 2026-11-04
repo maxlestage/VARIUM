@@ -15,6 +15,9 @@ struct StyleW {
     italique: Option<bool>,
     souligne: Option<bool>,
     barre: Option<bool>,
+    /// `Some(None)` : couleur automatique (noir), qui annule celle du style.
+    couleur: Option<Option<String>>,
+    fond: Option<Option<String>>,
     align: Option<Align>,
     titre: Option<u8>,
     citation: bool,
@@ -38,8 +41,36 @@ fn proprietes_caracteres(rpr: &Node, st: &mut StyleW) {
             st.souligne = Some(bascule(c));
         } else if c.is("strike") || c.is("dstrike") {
             st.barre = Some(bascule(c));
+        } else if c.is("color") {
+            st.couleur = Some(c.attr("w:val").and_then(import::couleur_hex));
+        } else if c.is("highlight") {
+            st.fond = Some(c.attr("w:val").and_then(surlignage_word));
+        } else if c.is("shd") && st.fond.is_none() {
+            st.fond = Some(c.attr("w:fill").and_then(import::couleur_hex));
         }
     }
+}
+
+/// Les couleurs de surlignage de Word (`w:highlight`).
+fn surlignage_word(nom: &str) -> Option<String> {
+    let h = match nom {
+        "yellow" => "ffff00",
+        "green" => "00ff00",
+        "cyan" => "00ffff",
+        "magenta" => "ff00ff",
+        "blue" => "0000ff",
+        "red" => "ff0000",
+        "darkBlue" => "000080",
+        "darkCyan" => "008080",
+        "darkGreen" => "008000",
+        "darkMagenta" => "800080",
+        "darkRed" => "800000",
+        "darkYellow" => "808000",
+        "darkGray" => "808080",
+        "lightGray" => "c0c0c0",
+        _ => return None,
+    };
+    Some(h.to_string())
 }
 
 fn alignement(v: &str) -> Option<Align> {
@@ -211,6 +242,8 @@ impl Styles {
             r.italique = r.italique.or(st.italique);
             r.souligne = r.souligne.or(st.souligne);
             r.barre = r.barre.or(st.barre);
+            r.couleur = r.couleur.clone().or(st.couleur.clone());
+            r.fond = r.fond.clone().or(st.fond.clone());
             r.align = r.align.or(st.align);
             r.titre = r.titre.or(st.titre);
             r.num = r.num.clone().or(st.num.clone());
@@ -240,6 +273,8 @@ struct Forme {
     souligne: bool,
     barre: bool,
     lien: Option<String>,
+    couleur: Option<String>,
+    fond: Option<String>,
 }
 
 impl Forme {
@@ -251,6 +286,8 @@ impl Forme {
             souligne: self.souligne,
             barre: self.barre,
             lien: self.lien.clone(),
+            couleur: self.couleur.clone(),
+            fond: self.fond.clone(),
             brut: false,
         }
     }
@@ -262,6 +299,8 @@ impl Forme {
             souligne: st.souligne.unwrap_or(self.souligne),
             barre: st.barre.unwrap_or(self.barre),
             lien: self.lien.clone(),
+            couleur: st.couleur.clone().unwrap_or_else(|| self.couleur.clone()),
+            fond: st.fond.clone().unwrap_or_else(|| self.fond.clone()),
         }
     }
 }
@@ -319,6 +358,19 @@ impl<'a> Lecteur<'a> {
                     out.push(Seg::brut(PAGE));
                 } else {
                     self.runs(c, forme, out, profondeur + 1);
+                }
+            } else if c.is("oMathPara") {
+                // Formule centrée (OMML) : relue en LaTeX.
+                for m in c.children_named("oMath") {
+                    let t = omml_latex(m, 0);
+                    if !t.trim().is_empty() {
+                        out.push(Seg::brut(format!("$${}$$", t.trim())));
+                    }
+                }
+            } else if c.is("oMath") {
+                let t = omml_latex(c, 0);
+                if !t.trim().is_empty() {
+                    out.push(Seg::brut(format!("${}$", t.trim())));
                 }
             } else if c.is("AlternateContent") {
                 if let Some(ch) = c.child("Choice").or_else(|| c.child("Fallback")) {
@@ -395,12 +447,12 @@ impl<'a> Lecteur<'a> {
                 }
             } else if e.is("drawing") || e.is("pict") || e.is("object") {
                 out.push(self.dessin(e));
-            } else if e.is("AlternateContent") {
-                if let Some(ch) = e.child("Choice").or_else(|| e.child("Fallback")) {
-                    for d in ch.elems() {
-                        if d.is("drawing") || d.is("pict") {
-                            out.push(self.dessin(d));
-                        }
+            } else if e.is("AlternateContent")
+                && let Some(ch) = e.child("Choice").or_else(|| e.child("Fallback"))
+            {
+                for d in ch.elems() {
+                    if d.is("drawing") || d.is("pict") {
+                        out.push(self.dessin(d));
                     }
                 }
             }
@@ -667,6 +719,168 @@ impl<'a> Lecteur<'a> {
             }
         }
     }
+}
+
+/// Une formule OMML (Word) relue en LaTeX, au mieux : fractions, exposants, indices,
+/// racines, délimiteurs, sommes et intégrales, fonctions, matrices.
+fn omml_latex(n: &Node, profondeur: usize) -> String {
+    if profondeur > 64 {
+        return String::new();
+    }
+    let enfant = |nom: &str| {
+        n.child(nom)
+            .map(|c| omml_latex(c, profondeur + 1))
+            .unwrap_or_default()
+    };
+    let groupe = |t: String| {
+        if t.chars().count() == 1 {
+            t
+        } else {
+            format!("{{{t}}}")
+        }
+    };
+    let val = |pr: &str, k: &str| {
+        n.child(pr)
+            .and_then(|p| p.child(k))
+            .and_then(|c| c.attr("m:val"))
+            .map(str::to_string)
+    };
+    match n.name.rsplit_once(':').map_or(n.name.as_str(), |(_, l)| l) {
+        "r" => n
+            .children_named("t")
+            .map(|t| tex_de_texte(&t.text()))
+            .collect(),
+        "f" => format!("\\frac{{{}}}{{{}}}", enfant("num"), enfant("den")),
+        "sSup" => format!("{}^{}", groupe(enfant("e")), groupe(enfant("sup"))),
+        "sSub" => format!("{}_{}", groupe(enfant("e")), groupe(enfant("sub"))),
+        "sSubSup" => format!(
+            "{}_{}^{}",
+            groupe(enfant("e")),
+            groupe(enfant("sub")),
+            groupe(enfant("sup"))
+        ),
+        "rad" => {
+            let deg = enfant("deg");
+            if deg.trim().is_empty() {
+                format!("\\sqrt{{{}}}", enfant("e"))
+            } else {
+                format!("\\sqrt[{deg}]{{{}}}", enfant("e"))
+            }
+        }
+        "d" => {
+            let ouv = val("dPr", "begChr").unwrap_or_else(|| "(".into());
+            let fer = val("dPr", "endChr").unwrap_or_else(|| ")".into());
+            let morceaux: Vec<String> = n
+                .children_named("e")
+                .map(|e| omml_latex(e, profondeur + 1))
+                .collect();
+            let echap = |c: &str| match c {
+                "{" => "\\{".to_string(),
+                "}" => "\\}".to_string(),
+                "" => ".".to_string(),
+                c => c.to_string(),
+            };
+            format!(
+                "\\left{} {} \\right{}",
+                echap(&ouv),
+                morceaux.join(", "),
+                echap(&fer)
+            )
+        }
+        "nary" => {
+            let op = match val("naryPr", "chr").as_deref() {
+                Some("∑") => "\\sum",
+                Some("∏") => "\\prod",
+                Some("∬") => "\\iint",
+                Some("∮") => "\\oint",
+                None | Some("∫") => "\\int",
+                Some(_) => "\\sum",
+            };
+            let (bas, haut) = (enfant("sub"), enfant("sup"));
+            let mut s = op.to_string();
+            if !bas.trim().is_empty() {
+                s.push_str(&format!("_{}", groupe(bas)));
+            }
+            if !haut.trim().is_empty() {
+                s.push_str(&format!("^{}", groupe(haut)));
+            }
+            format!("{s} {}", enfant("e"))
+        }
+        "func" => format!("{} {}", enfant("fName"), enfant("e")),
+        "acc" => {
+            let cmd = match val("accPr", "chr").as_deref() {
+                Some("\u{305}" | "¯") => "\\bar",
+                Some("\u{2192}" | "\u{20D7}") => "\\vec",
+                Some("~" | "\u{303}") => "\\tilde",
+                _ => "\\hat",
+            };
+            format!("{cmd}{{{}}}", enfant("e"))
+        }
+        "bar" => format!("\\overline{{{}}}", enfant("e")),
+        "m" => {
+            let lignes: Vec<String> = n
+                .children_named("mr")
+                .map(|r| {
+                    r.children_named("e")
+                        .map(|e| omml_latex(e, profondeur + 1))
+                        .collect::<Vec<_>>()
+                        .join(" & ")
+                })
+                .collect();
+            format!(
+                "\\begin{{matrix}} {} \\end{{matrix}}",
+                lignes.join(" \\\\ ")
+            )
+        }
+        _ => n
+            .elems()
+            .filter(|c| !c.name.ends_with("Pr"))
+            .map(|c| omml_latex(c, profondeur + 1))
+            .collect(),
+    }
+}
+
+/// Le texte d'une formule en LaTeX : lettres grecques et opérateurs nommés.
+fn tex_de_texte(t: &str) -> String {
+    let mut s = String::new();
+    for c in t.chars() {
+        let nom = match c {
+            '×' => "\\times ",
+            '÷' => "\\div ",
+            '·' | '⋅' => "\\cdot ",
+            '≤' => "\\leq ",
+            '≥' => "\\geq ",
+            '≠' => "\\neq ",
+            '±' => "\\pm ",
+            '∞' => "\\infty ",
+            '→' => "\\to ",
+            'α' => "\\alpha ",
+            'β' => "\\beta ",
+            'γ' => "\\gamma ",
+            'δ' => "\\delta ",
+            'ε' => "\\epsilon ",
+            'θ' => "\\theta ",
+            'λ' => "\\lambda ",
+            'μ' => "\\mu ",
+            'π' => "\\pi ",
+            'σ' => "\\sigma ",
+            'φ' => "\\phi ",
+            'ω' => "\\omega ",
+            'Δ' => "\\Delta ",
+            'Σ' => "\\Sigma ",
+            'Ω' => "\\Omega ",
+            '{' => "\\{",
+            '}' => "\\}",
+            '$' => "",
+            '\\' => "\\backslash ",
+            _ => {
+                s.push(c);
+                continue;
+            }
+        };
+        s.push_str(nom);
+    }
+    s
 }
 
 /// `{>>Auteur · date<<}` d'une modification suivie de Word.

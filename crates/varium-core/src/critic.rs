@@ -648,7 +648,8 @@ mod tests {
         assert_eq!(s, "Le {==chat==}{>>Max · 2026-11-04 : <<} dort");
         assert_eq!(&s[r.clone()], "");
         assert_eq!(r.start, s.find(" : ").unwrap() + 3);
-        let (s, _) = commenter("abc", 9..2, "", "", "note");
+        let (debut, fin) = (9, 2);
+        let (s, _) = commenter("abc", debut..fin, "", "", "note");
         assert_eq!(s, "abc{>>note<<}");
     }
 
