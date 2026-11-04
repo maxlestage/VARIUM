@@ -25,6 +25,8 @@ impl Alea {
 const FRAGMENTS: &[&str] = &[
     "{{",
     "}}",
+    "\\note{",
+    "\\note{a}",
     "{",
     "}",
     "{{nom}}",

@@ -186,4 +186,5 @@ Déploiement du serveur (Heroku, Docker) : voir
 | `---` | ligne horizontale |
 | `\newpage` | saut de page |
 | `\sommaire` | table des matières (liste des titres, générée) |
+| `\note{texte}` | note numérotée `[1]`, rassemblée en fin de document |
 | `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |
