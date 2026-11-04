@@ -31,7 +31,7 @@ pub const TEXTES: Textes = Textes {
             texte: "Lettere, preventivi e contratti che si compilano da soli.",
             points: [
                 "Titoli, elenchi, tabelle e vere pagine A4, A5 o Letter",
-                "Campi {{…}} globali, calcolati e condizionali, stampa unione",
+                "Campi {{…}} globali, calcolati e condizionali, stampa unione, rilevamento automatico dei campi",
                 "Barra degli strumenti come in Writer, pannello laterale come in Pages",
                 "Esportazione in PDF, DOCX, ODT, RTF, EPUB, HTML e LaTeX",
                 "Ortografia in sei lingue, con veri dizionari Hunspell",
