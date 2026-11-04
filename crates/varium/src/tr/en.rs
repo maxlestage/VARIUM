@@ -292,6 +292,10 @@ pub static T: &[(&str, &str)] = &[
         "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer :",
         "Before sending, here is what your recipient might notice:",
     ),
+    (
+        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer. Cliquez sur une ligne pour aller à la cellule.",
+        "Before sending, here is what your recipient might notice. Click a line to go to the cell.",
+    ),
     ("Avant une modification", "Before a change"),
     ("Avant une restauration", "Before a restore"),
     ("Avant « {op} »", "Before “{op}”"),
@@ -969,6 +973,10 @@ pub static T: &[(&str, &str)] = &[
         "The current line stays in the middle of the screen",
     ),
     (
+        "La liste est tronquée : corrigez, puis relisez.",
+        "The list is truncated: fix these, then review again.",
+    ),
+    (
         "La présentation est déjà harmonieuse",
         "The presentation is already consistent",
     ),
@@ -1531,6 +1539,9 @@ pub static T: &[(&str, &str)] = &[
         "Relevé bancaire (CSV, OFX, QIF)",
         "Bank statement (CSV, OFX, QIF)",
     ),
+    ("Relire le classeur", "Review the workbook"),
+    ("Relire le classeur…", "Review the workbook…"),
+    ("Relire à nouveau", "Review again"),
     ("Remplacement", "Replacement"),
     ("Remplacement du document", "Document replaced"),
     ("Remplacer", "Replace"),
@@ -2355,6 +2366,22 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{h} h {m}", "{h} h {m}"),
     ("{i} sur {n}", "{i} of {n}"),
+    (
+        "{lieu} : ce nombre est écrit comme du texte, les totaux l'ignoreraient.",
+        "{lieu}: this number is written as text, totals would ignore it.",
+    ),
+    (
+        "{lieu} : erreur {code} — {explication}",
+        "{lieu}: error {code} — {explication}",
+    ),
+    (
+        "{lieu} : la formule diffère de ses voisines (attendu : {formule}).",
+        "{lieu}: the formula differs from its neighbours (expected: {formule}).",
+    ),
+    (
+        "{lieu} : valeur tapée à la main au milieu de formules (attendu : {formule}).",
+        "{lieu}: value typed by hand among formulas (expected: {formule}).",
+    ),
     ("{list} et {last}", "{list} and {last}"),
     ("{mots} / {obj} mots", "{mots} / {obj} words"),
     ("{name} de {all}", "{name} of {all}"),
@@ -2362,6 +2389,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "{name} — Varium Présentation",
         "{name} — Varium Presentation",
+    ),
+    (
+        "{nom} : la ligne {ligne} est identique à la ligne {premiere}.",
+        "{nom}: row {ligne} is identical to row {premiere}.",
     ),
     ("{n} / {total} renseignés", "{n} / {total} filled in"),
     (
@@ -2644,6 +2675,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("✔ Accepter", "✔ Accept"),
     ("✔ Dictionnaire {locale}", "✔ Dictionary {locale}"),
+    (
+        "✔ Rien à signaler : le classeur est prêt.",
+        "✔ Nothing to report: the workbook is ready.",
+    ),
     (
         "✔ Rien à signaler : le document est prêt.",
         "✔ Nothing to report: the document is ready.",

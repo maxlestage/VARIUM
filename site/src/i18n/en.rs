@@ -149,6 +149,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Drag columns into rows, columns and values: totals, averages and counts per group in an instant.",
         },
         Item {
+            titre: "The workbook proofreads itself",
+            texte: "Before sending, Data → Review the workbook: cells in error, numbers written as text, forgotten formulas in a column, duplicate rows. One click goes to the cell.",
+        },
+        Item {
             titre: "Version history",
             texte: "Every save keeps a version of the document; compare them, differences highlighted, and go back in one click.",
         },

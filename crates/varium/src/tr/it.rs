@@ -331,6 +331,10 @@ pub static T: &[(&str, &str)] = &[
         "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer :",
         "Prima di inviare, ecco cosa potrebbe notare il destinatario:",
     ),
+    (
+        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer. Cliquez sur une ligne pour aller à la cellule.",
+        "Prima di inviare, ecco cosa potrebbe notare il destinatario. Fai clic su una riga per andare alla cella.",
+    ),
     ("Avant une modification", "Prima di una modifica"),
     ("Avant une restauration", "Prima di un ripristino"),
     ("Avant « {op} »", "Prima di «{op}»"),
@@ -1035,6 +1039,10 @@ pub static T: &[(&str, &str)] = &[
         "La riga corrente resta al centro dello schermo",
     ),
     (
+        "La liste est tronquée : corrigez, puis relisez.",
+        "L'elenco è troncato: correggi, poi rivedi di nuovo.",
+    ),
+    (
         "La présentation est déjà harmonieuse",
         "La presentazione è già uniforme",
     ),
@@ -1615,6 +1623,9 @@ pub static T: &[(&str, &str)] = &[
         "Relevé bancaire (CSV, OFX, QIF)",
         "Estratto conto (CSV, OFX, QIF)",
     ),
+    ("Relire le classeur", "Rivedi la cartella"),
+    ("Relire le classeur…", "Rivedi la cartella…"),
+    ("Relire à nouveau", "Rivedi di nuovo"),
     ("Remplacement", "Sostituzione"),
     ("Remplacement du document", "Sostituzione del documento"),
     ("Remplacer", "Sostituisci"),
@@ -2472,6 +2483,22 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{h} h {m}", "{h} h {m}"),
     ("{i} sur {n}", "{i} di {n}"),
+    (
+        "{lieu} : ce nombre est écrit comme du texte, les totaux l'ignoreraient.",
+        "{lieu}: questo numero è scritto come testo, i totali lo ignorerebbero.",
+    ),
+    (
+        "{lieu} : erreur {code} — {explication}",
+        "{lieu}: errore {code} — {explication}",
+    ),
+    (
+        "{lieu} : la formule diffère de ses voisines (attendu : {formule}).",
+        "{lieu}: la formula differisce dalle vicine (atteso: {formule}).",
+    ),
+    (
+        "{lieu} : valeur tapée à la main au milieu de formules (attendu : {formule}).",
+        "{lieu}: valore digitato a mano tra formule (atteso: {formule}).",
+    ),
     ("{list} et {last}", "{list} e {last}"),
     ("{mots} / {obj} mots", "{mots} / {obj} parole"),
     ("{name} de {all}", "{name} di {all}"),
@@ -2482,6 +2509,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "{name} — Varium Présentation",
         "{name} — Varium Presentazione",
+    ),
+    (
+        "{nom} : la ligne {ligne} est identique à la ligne {premiere}.",
+        "{nom}: la riga {ligne} è identica alla riga {premiere}.",
     ),
     ("{n} / {total} renseignés", "{n} / {total} compilati"),
     (
@@ -2764,6 +2795,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("✔ Accepter", "✔ Accetta"),
     ("✔ Dictionnaire {locale}", "✔ Dizionario {locale}"),
+    (
+        "✔ Rien à signaler : le classeur est prêt.",
+        "✔ Niente da segnalare: la cartella è pronta.",
+    ),
     (
         "✔ Rien à signaler : le document est prêt.",
         "✔ Niente da segnalare: il documento è pronto.",

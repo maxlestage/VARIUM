@@ -149,6 +149,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Arraste as colunas para linhas, colunas e valores: totais, médias e contagens por grupo num instante.",
         },
         Item {
+            titre: "A pasta revê-se sozinha",
+            texte: "Antes de enviar, Dados → Rever a pasta: células com erro, números escritos como texto, fórmulas esquecidas numa coluna, linhas duplicadas. Um clique leva à célula.",
+        },
+        Item {
             titre: "Histórico de versões",
             texte: "Cada gravação guarda uma versão do documento; compare-as, com as diferenças realçadas, e volte atrás com um clique.",
         },

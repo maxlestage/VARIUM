@@ -149,6 +149,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Glissez les colonnes en lignes, colonnes et valeurs\u{a0}: totaux, moyennes et comptes par groupe en un instant.",
         },
         Item {
+            titre: "Le classeur se relit",
+            texte: "Avant d'envoyer, Données → Relire le classeur\u{a0}: cellules en erreur, nombres écrits comme du texte, formules oubliées dans une colonne, lignes en double. Un clic mène à la cellule.",
+        },
+        Item {
             titre: "Historique des versions",
             texte: "Chaque enregistrement garde une version du document\u{a0}; comparez-les, différences surlignées, et revenez en arrière d'un clic.",
         },
