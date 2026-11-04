@@ -80,8 +80,32 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
 - **Inspecteur** à droite, comme dans Pages : onglets Format (styles de paragraphe,
   police, alignement, espacement, insertion), Document (mise en page, statistiques),
   Champs et Plan (titres cliquables).
-- **Galerie de modèles** au premier lancement, **plein écran** (F11, ⌃⌘F) et **mode
-  concentration** (⌘⇧F).
+- **Galerie de modèles** au premier lancement, **plein écran** (⌃⌘F) et **mode
+  concentration** (F11 ou Ctrl+Maj+F, ⌘⇧F) : menus et panneaux masqués, texte au centre,
+  paragraphe en cours mis en avant, défilement « machine à écrire » ; Échap pour sortir.
+- **Historique des versions**, comme Pages ou Time Machine (Fichier → Historique des
+  versions…, Ctrl+Maj+H) : une version à chaque enregistrement, toutes les cinq minutes
+  d'écriture et avant les grosses opérations (Tout corriger, Tout remplacer, renommage…),
+  sans doublon et dans une taille limitée ; heure, nombre de mots et résumé de ce qui a
+  changé ; comparaison mot à mot (dans le texte ou côte à côte, ajouts en vert, retraits
+  en rouge), « Restaurer cette version », « Copier le texte », versions nommées
+  (« Marquer cette version… », jamais effacées).
+- **Objectif de mots** avec un anneau de progression dans la barre d'état, mots de la
+  session, temps de lecture et de parole, et **lisibilité** selon la langue (Flesch–Kandel
+  en français, Flesch en anglais, Fernández-Huerta en espagnol, Amstad en allemand,
+  Gulpease en italien, Flesch adapté en portugais) expliquée en mots simples
+  (inspecteur → Document).
+- **Collage intelligent** : un texte copié depuis un navigateur, Word, LibreOffice ou
+  Google Docs garde ses titres, gras, italique, listes, liens et tableaux ; des cellules
+  de tableur ou un CSV deviennent un tableau ; une adresse collée sur une sélection en
+  fait un lien ; le Markdown est converti. Ctrl+Maj+V colle du texte brut.
+- **Correction automatique pendant la frappe** (Outils, selon la langue) : majuscule en
+  début de phrase, « BOnjour » → « Bonjour », fautes de frappe courantes, (c) → ©,
+  1/2 → ½, -> → →, ... → …, guillemets et apostrophe typographiques ; un Ctrl+Z juste
+  après rend le texte tapé.
+- **Remplir comme un formulaire** (Outils) : les champs du document deviennent des
+  questions (libellés lisibles, calendrier pour les dates, listes de choix tirées des
+  `{{si champ = valeur}}`, cases à cocher), avec validation et l'aperçu de la page à côté.
 - **Typographie française automatique** : « guillemets », apostrophe ’, …, espaces fines
   avant ; : ! ? (désactivable dans Document).
 - **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur) : polices Times/Helvetica, texte justifié, titres, listes, tableaux coupés entre pages, en-tête, pied de page et « Page X sur N », et un plan de signets (un par titre) dans le lecteur PDF. Les caractères hors latin-1/WinAnsi (formules exotiques, émojis) sont remplacés par `?` ; l'incorporation des polices est prévue.
@@ -96,6 +120,9 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
 
 - **Champs globaux** : une valeur saisie met à jour toutes ses occurrences.
   `{{prénom}}` et `{{nom}}` restent toujours distincts, même collés.
+- **Codes QR** : `{{qr:https://exemple.fr}}` ou `{{site | qr}}` (Insertion → Code QR…),
+  dessinés dans la page et dans tous les exports (PDF vectoriel, HTML en SVG, ODT et DOCX
+  en image) ; générés par Varium lui-même (niveau de correction M, versions 1 à 40).
 - **Champs typés** : texte, texte long, date (avec calendrier), nombre, montant et
   e-mail, avec validation et format français automatique (`12 500,00 €`,
   `1er mars 2026`).
@@ -177,6 +204,9 @@ Déploiement du serveur (Heroku, Docker) : voir
 | `{{= quantité * prix \| money}}` | champ calculé (`+ - * / ( )`, `20%`, `arrondi(x; 2)`, `min`, `max`, `somme`) |
 | `{{si champ}}…{{sinon}}…{{fin}}` | texte conditionnel (champ renseigné, `si non`, `=`, `!=`) |
 | `{{aujourdhui}}` | date du jour |
+| `{{qr:https://exemple.fr}}` | code QR du texte (sur sa propre ligne) |
+| `{{site \| qr}}` | code QR de la valeur d'un champ |
+| `[texte](https://exemple.fr)` | lien (aussi `mailto:`, `www.`) |
 | `# Titre`, `## Sous-titre`, `### Titre 3` | titres |
 | `**gras**`, `*italique*`, `__souligné__`, `~~barré~~` | caractères |
 | `- élément`, `1. élément` | listes (2 espaces de retrait par niveau) |

@@ -480,6 +480,8 @@ fn cond_rule(value: &str) -> Option<CondRule> {
     }
     match lower.as_str() {
         "is-error" => return Some(CondRule::Error),
+        "duplicate" => return Some(CondRule::Duplicate { unique: false }),
+        "unique" => return Some(CondRule::Duplicate { unique: true }),
         "above-average" | "above-equal-average" => {
             return Some(CondRule::Average { above: true });
         }
@@ -833,7 +835,10 @@ mod tests {
         );
         assert_eq!(cond_rule("is-error"), Some(CondRule::Error));
         assert_eq!(cond_rule(">[.A1]"), None);
-        assert_eq!(cond_rule("duplicate"), None);
+        assert_eq!(
+            cond_rule("duplicate"),
+            Some(CondRule::Duplicate { unique: false })
+        );
     }
 
     #[test]

@@ -22,6 +22,13 @@ pub enum MenuAct {
     Module(Module),
     UiLang(Option<Lang>),
     Website,
+    /// Palette de commandes (⌘K).
+    Palette,
+    /// Aide-mémoire des raccourcis.
+    Raccourcis,
+    /// Centre de démarrage.
+    Accueil,
+    Convert(crate::palette::Conversion),
 }
 
 /// Crée les éléments et retient l'action de chacun.
@@ -148,6 +155,22 @@ impl NativeBar {
             (Module::Presentation, tr("Présentation")),
         ]
         .map(|(m, name)| b.check(name, MenuAct::Module(m), m == module));
+        let accueil = b.item(tr("Accueil — centre de démarrage"), MenuAct::Accueil, None);
+        let palette = b.item(tr("Palette de commandes"), MenuAct::Palette, Some("Cmd+K"));
+        let raccourcis = b.item(
+            tr("Aide-mémoire des raccourcis"),
+            MenuAct::Raccourcis,
+            Some("Cmd+/"),
+        );
+        let conversions: Vec<MenuItem> = crate::palette::Conversion::ALL
+            .into_iter()
+            .map(|c| b.item(tr(c.label_fr()), MenuAct::Convert(c), None))
+            .collect();
+        let conversion_refs: Vec<&dyn muda::IsMenuItem> = conversions
+            .iter()
+            .map(|i| i as &dyn muda::IsMenuItem)
+            .collect();
+        let convert = Submenu::with_items(tr("Convertir"), true, &conversion_refs).ok()?;
         let window = Submenu::with_items(
             tr("Fenêtre"),
             true,
@@ -158,6 +181,11 @@ impl NativeBar {
                 &modules[0],
                 &modules[1],
                 &modules[2],
+                &sep(),
+                &accueil,
+                &palette,
+                &raccourcis,
+                &convert,
                 &sep(),
                 &PredefinedMenuItem::bring_all_to_front(Some(tr("Tout ramener au premier plan"))),
             ],

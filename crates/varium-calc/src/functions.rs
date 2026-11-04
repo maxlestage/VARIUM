@@ -227,6 +227,121 @@ pub fn functions() -> &'static [FunctionInfo] {
     FUNCTIONS
 }
 
+/// Catégorie d'une fonction (assistant de formule).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FunctionCategory {
+    Math,
+    Statistics,
+    Logic,
+    Text,
+    Date,
+    Lookup,
+    Finance,
+    Information,
+}
+
+impl FunctionCategory {
+    /// Toutes les catégories, dans l'ordre des menus.
+    pub const ALL: [FunctionCategory; 8] = [
+        FunctionCategory::Math,
+        FunctionCategory::Statistics,
+        FunctionCategory::Logic,
+        FunctionCategory::Text,
+        FunctionCategory::Date,
+        FunctionCategory::Lookup,
+        FunctionCategory::Finance,
+        FunctionCategory::Information,
+    ];
+
+    /// Libellé français.
+    pub fn label(self) -> &'static str {
+        match self {
+            FunctionCategory::Math => "Mathématiques",
+            FunctionCategory::Statistics => "Statistiques",
+            FunctionCategory::Logic => "Logique",
+            FunctionCategory::Text => "Texte",
+            FunctionCategory::Date => "Date et heure",
+            FunctionCategory::Lookup => "Recherche",
+            FunctionCategory::Finance => "Finances",
+            FunctionCategory::Information => "Information",
+        }
+    }
+}
+
+fn category_of(id: F) -> FunctionCategory {
+    use FunctionCategory as C;
+    match id {
+        F::Somme
+        | F::Arrondi
+        | F::ArrondiSup
+        | F::ArrondiInf
+        | F::Ent
+        | F::Abs
+        | F::Racine
+        | F::Puissance
+        | F::Mod
+        | F::Pi
+        | F::Produit
+        | F::Signe
+        | F::Exp
+        | F::Ln
+        | F::Log10
+        | F::SommeSi
+        | F::SommeSiEns
+        | F::SommeProd => C::Math,
+        F::Moyenne
+        | F::Min
+        | F::Max
+        | F::Nb
+        | F::NbVal
+        | F::NbVide
+        | F::Mediane
+        | F::Ecartype
+        | F::NbSi
+        | F::MoyenneSi
+        | F::NbSiEns => C::Statistics,
+        F::Si | F::SiErreur | F::Et | F::Ou | F::Non | F::Vrai | F::Faux => C::Logic,
+        F::Concat
+        | F::Concatener
+        | F::Gauche
+        | F::Droite
+        | F::Stxt
+        | F::NbCar
+        | F::Majuscule
+        | F::Minuscule
+        | F::SupprEspace
+        | F::Texte
+        | F::Trouve
+        | F::Cherche
+        | F::Substitue => C::Text,
+        F::Aujourdhui | F::Date | F::Annee | F::Mois | F::Jour => C::Date,
+        F::RechercheV | F::Index | F::Equiv => C::Lookup,
+        F::Vpm => C::Finance,
+        F::EstVide | F::EstNum | F::EstTexte | F::EstErreur | F::Na => C::Information,
+    }
+}
+
+impl FunctionInfo {
+    /// Catégorie de la fonction.
+    pub fn category(&self) -> FunctionCategory {
+        lookup(self.fr).map_or(FunctionCategory::Information, category_of)
+    }
+
+    /// Noms des arguments, d'après la syntaxe (`SOMME(nombre1; nombre2; …)` →
+    /// `["nombre1", "nombre2", "…"]`).
+    pub fn arguments(&self) -> Vec<&'static str> {
+        let Some(open) = self.syntax.find('(') else {
+            return Vec::new();
+        };
+        let inner = self.syntax[open + 1..].trim_end_matches(')');
+        inner
+            .split(';')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .collect()
+    }
+}
+
 /// Autres noms acceptés à la saisie (variantes de LibreOffice ou d'Excel).
 const ALIASES: &[(&str, F)] = &[
     ("SIERREUR", F::SiErreur),
@@ -327,5 +442,20 @@ mod tests {
         assert_eq!(lookup("vlookup"), Some(F::RechercheV));
         assert_eq!(lookup("INCONNUE"), None);
         assert_eq!(function_info("somme").map(|i| i.en), Some("SUM"));
+    }
+
+    #[test]
+    fn categories_et_arguments() {
+        let somme = function_info("SOMME").unwrap();
+        assert_eq!(somme.category(), FunctionCategory::Math);
+        assert_eq!(somme.arguments(), vec!["nombre1", "nombre2", "…"]);
+        assert!(function_info("PI").unwrap().arguments().is_empty());
+        assert_eq!(
+            function_info("RECHERCHEV").unwrap().category(),
+            FunctionCategory::Lookup
+        );
+        for f in FUNCTIONS {
+            let _ = f.category();
+        }
     }
 }

@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use varium_core::zip::ZipReader;
 
 use crate::cond::{CompareOp, CondFormat, CondRule, CondStyle};
+use crate::filter::{AutoFilter, ColumnFilter, FilterCondition};
 use crate::format::{CellFormat, HAlign, NumberFormat};
 use crate::import::{
     Filler, bool_input, builtin_number_format, error_input, expression_rule, finish, iso_date,
@@ -284,6 +285,8 @@ fn cond_rules(sheet_xml: &Node, styles: &Styles) -> Vec<CondFormat> {
                 "containsBlanks" => CondRule::Empty,
                 "notContainsBlanks" => CondRule::NotEmpty,
                 "containsErrors" => CondRule::Error,
+                "duplicateValues" => CondRule::Duplicate { unique: false },
+                "uniqueValues" => CondRule::Duplicate { unique: true },
                 "expression" => match formulas.first().and_then(|f| expression_rule(f)) {
                     Some(r) => r,
                     None => continue,
@@ -560,6 +563,7 @@ pub(crate) fn from_xlsx(title: &str, bytes: &[u8]) -> Result<Workbook, String> {
     let names = unique_sheet_names(&entries.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>());
     let mut sheets = Vec::new();
     let mut count = 0usize;
+    let mut pending: Vec<(usize, u32, Vec<String>)> = Vec::new();
     for (i, ((_, path), name)) in entries.iter().zip(names).enumerate() {
         let mut sheet = Sheet::new(name);
         // Les feuilles de graphique (chartsheet) restent vides.
@@ -572,11 +576,147 @@ pub(crate) fn from_xlsx(title: &str, bytes: &[u8]) -> Result<Workbook, String> {
             if root.is("worksheet") {
                 read_sheet(&root, &mut sheet, &strings, &styles, date1904, &mut count);
                 sheet.cond_formats = cond_rules(&root, &styles);
+                let (af, lists) = auto_filter(&root);
+                sheet.auto_filter = af;
+                for (col, shown) in lists {
+                    pending.push((i, col, shown));
+                }
             }
         }
         sheets.push(sheet);
     }
-    Ok(finish(title, sheets))
+    let mut wb = finish(title, sheets);
+    // Listes de valeurs cochées : Varium retient les valeurs décochées.
+    for (i, col, shown) in pending {
+        let hidden: Vec<String> = wb
+            .filter_values(i, col)
+            .into_iter()
+            .map(|(v, _)| v)
+            .filter(|v| !shown.contains(v))
+            .collect();
+        wb.set_column_filter(
+            i,
+            ColumnFilter {
+                col,
+                hidden,
+                condition: None,
+            },
+        );
+    }
+    Ok(wb)
+}
+
+/// `<autoFilter>` : la plage, les conditions, et les listes de valeurs
+/// affichées (colonne, valeurs ; `""` pour les cellules vides).
+fn auto_filter(root: &Node) -> (Option<AutoFilter>, Vec<(u32, Vec<String>)>) {
+    let Some(node) = root.child("autoFilter") else {
+        return (None, Vec::new());
+    };
+    let Some(range) = node.attr("ref").and_then(Range::parse) else {
+        return (None, Vec::new());
+    };
+    let mut columns = Vec::new();
+    let mut lists = Vec::new();
+    for fc in node.children_named("filterColumn") {
+        let Some(id) = fc.attr("colId").and_then(|v| v.trim().parse::<u32>().ok()) else {
+            continue;
+        };
+        let col = range.start.col.saturating_add(id);
+        if col > range.end.col {
+            continue;
+        }
+        if let Some(f) = fc.child("filters") {
+            let mut shown: Vec<String> = f
+                .children_named("filter")
+                .filter_map(|v| v.attr("val").map(str::to_string))
+                .collect();
+            if truthy(f.attr("blank")) {
+                shown.push(String::new());
+            }
+            lists.push((col, shown));
+            continue;
+        }
+        let condition = if let Some(t) = fc.child("top10") {
+            Some(FilterCondition::Top {
+                n: t.attr("val")
+                    .and_then(parse_f64)
+                    .map_or(10, |v| v.clamp(1.0, 1e6) as u32),
+                bottom: t.attr("top").is_some_and(|v| !truthy(Some(v))),
+            })
+        } else if let Some(d) = fc.child("dynamicFilter") {
+            match d.attr("type") {
+                Some("aboveAverage") => Some(FilterCondition::AboveAverage),
+                Some("belowAverage") => Some(FilterCondition::BelowAverage),
+                _ => None,
+            }
+        } else if let Some(c) = fc.child("customFilters") {
+            let items: Vec<(String, String)> = c
+                .children_named("customFilter")
+                .map(|f| {
+                    (
+                        f.attr("operator").unwrap_or("equal").to_string(),
+                        f.attr("val").unwrap_or("").to_string(),
+                    )
+                })
+                .collect();
+            let local = |v: &str| v.replace('.', ",");
+            match items.as_slice() {
+                [(op, v)] => {
+                    let star_start = v.starts_with('*');
+                    let star_end = v.ends_with('*') && v.len() > 1;
+                    let inner = v.trim_matches('*').to_string();
+                    match (op.as_str(), star_start, star_end) {
+                        ("equal", true, true) => Some(FilterCondition::Contains { text: inner }),
+                        ("notEqual", true, true) => {
+                            Some(FilterCondition::NotContains { text: inner })
+                        }
+                        ("equal", false, true) => Some(FilterCondition::BeginsWith { text: inner }),
+                        ("equal", true, false) => Some(FilterCondition::EndsWith { text: inner }),
+                        (op, _, _) => {
+                            let op = match op {
+                                "greaterThan" => CompareOp::Gt,
+                                "greaterThanOrEqual" => CompareOp::Ge,
+                                "lessThan" => CompareOp::Lt,
+                                "lessThanOrEqual" => CompareOp::Le,
+                                "notEqual" => CompareOp::Ne,
+                                _ => CompareOp::Eq,
+                            };
+                            Some(FilterCondition::Compare {
+                                op,
+                                value: local(v),
+                                value2: String::new(),
+                            })
+                        }
+                    }
+                }
+                [(a, va), (b, vb)] if a == "greaterThanOrEqual" && b == "lessThanOrEqual" => {
+                    Some(FilterCondition::Compare {
+                        op: CompareOp::Between,
+                        value: local(va),
+                        value2: local(vb),
+                    })
+                }
+                [(a, va), (b, vb)] if a == "lessThan" && b == "greaterThan" => {
+                    Some(FilterCondition::Compare {
+                        op: CompareOp::NotBetween,
+                        value: local(va),
+                        value2: local(vb),
+                    })
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if condition.is_some() {
+            columns.push(ColumnFilter {
+                col,
+                hidden: Vec::new(),
+                condition,
+            });
+        }
+    }
+    (Some(AutoFilter { range, columns }), lists)
 }
 
 #[cfg(test)]

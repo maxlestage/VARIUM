@@ -70,10 +70,35 @@ fn num(v: f32) -> String {
 
 const KATEX: &str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist";
 
+/// Code QR en SVG, de `mm` millimètres de côté (taille de l'élément).
+pub fn qr_svg(contenu: &str, mm: f32) -> String {
+    match crate::qr::QrCode::encode(contenu) {
+        Ok(q) => q.to_svg(2).replacen(
+            "<svg ",
+            &format!(
+                "<svg class=\"qr\" width=\"{m}mm\" height=\"{m}mm\" role=\"img\" aria-label=\"{}\" ",
+                xml_escape(contenu),
+                m = num(mm)
+            ),
+            1,
+        ),
+        Err(e) => format!("<mark>{}</mark>", xml_escape(&e.to_string())),
+    }
+}
+
 fn html_runs(runs: &[Run]) -> String {
     let mut out = String::new();
     for r in runs {
         let inner = match r {
+            _ if r.qr().is_some() => qr_svg(r.qr().unwrap_or_default(), 20.0),
+            _ if r.lien().is_some() => {
+                let (url, text) = r.lien().unwrap_or_default();
+                format!(
+                    "<a href=\"{}\">{}</a>",
+                    xml_escape(&doc::adresse_lien(url)),
+                    xml_escape(text)
+                )
+            }
             Run::Text { text, .. } => xml_escape(text),
             Run::Value { name, text, .. } => format!(
                 "<span class=\"v\" data-var=\"{}\">{}</span>",
@@ -145,6 +170,17 @@ fn html_paras(paras: &[Para], out: &mut String, header: &str, footer: &str) {
     open(out);
     for p in paras {
         let html = match p {
+            _ if p.qr().is_some() => {
+                let align = match p {
+                    Para::Text { align, .. } => *align,
+                    _ => Align::Left,
+                };
+                format!(
+                    "<p{}>{}</p>",
+                    align_class(align),
+                    qr_svg(p.qr().unwrap_or_default(), crate::qr::TAILLE_MM)
+                )
+            }
             Para::Text { align, runs } if runs.is_empty() => {
                 format!("<p{}><br></p>", align_class(*align))
             }
@@ -275,6 +311,7 @@ pub fn html(title: &str, docs: &[Rendered], page: &PageSetup) -> String {
   th.c, td.c {{ text-align: center; }} th.r, td.r {{ text-align: right; }}
   hr {{ border: 0; border-top: .5pt solid #444; margin: .5em 0; }}
   mark {{ background: #fde2e1; color: #a1201b; }}
+  svg.qr {{ vertical-align: middle; }} a {{ color: #1f5fbf; }}
   @media print {{
     body {{ background: #fff; padding: 0; }}
     .page {{ width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; break-after: page; }}

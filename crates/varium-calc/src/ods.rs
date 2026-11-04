@@ -359,7 +359,13 @@ fn value_attrs(v: &Value, f: NumberFormat, formula: bool) -> String {
     }
 }
 
-fn table_xml(sheet: &Sheet, name: &str, values: Option<&CellMap>, styles: &mut Styles) -> String {
+fn table_xml(
+    sheet: &Sheet,
+    name: &str,
+    values: Option<&CellMap>,
+    styles: &mut Styles,
+    hidden: &std::collections::BTreeSet<u32>,
+) -> String {
     let mut x = String::new();
     let _ = write!(x, "<table:table table:name=\"{}\">", esc(name));
     let widths = sheet.clean_col_widths();
@@ -405,11 +411,17 @@ fn table_xml(sheet: &Sheet, name: &str, values: Option<&CellMap>, styles: &mut S
             Some(h) => styles.row(cm(*h)),
             None => default_row.clone(),
         };
+        let visibility = if hidden.contains(&row) {
+            " table:visibility=\"filter\""
+        } else {
+            ""
+        };
         if cells.peek().is_none() {
             // Suite de lignes vides de même hauteur.
             let mut run = 1;
             while row + run < last_row
                 && heights.get(&(row + run)) == heights.get(&row)
+                && hidden.contains(&(row + run)) == hidden.contains(&row)
                 && sheet
                     .cells
                     .range(CellRef::new(row + run, 0)..=CellRef::new(row + run, u32::MAX))
@@ -418,7 +430,10 @@ fn table_xml(sheet: &Sheet, name: &str, values: Option<&CellMap>, styles: &mut S
             {
                 run += 1;
             }
-            let _ = write!(x, "<table:table-row table:style-name=\"{style}\"");
+            let _ = write!(
+                x,
+                "<table:table-row table:style-name=\"{style}\"{visibility}"
+            );
             if run > 1 {
                 let _ = write!(x, " table:number-rows-repeated=\"{run}\"");
             }
@@ -426,7 +441,10 @@ fn table_xml(sheet: &Sheet, name: &str, values: Option<&CellMap>, styles: &mut S
             row += run;
             continue;
         }
-        let _ = write!(x, "<table:table-row table:style-name=\"{style}\">");
+        let _ = write!(
+            x,
+            "<table:table-row table:style-name=\"{style}\"{visibility}>"
+        );
         let mut next_col = 0;
         for (&at, cell) in cells {
             if at.col > next_col {
@@ -573,6 +591,8 @@ fn cond_formats_xml(sheet: &Sheet, name: &str, styles: &mut Styles) -> String {
                 ),
                 CondRule::Average { above: true } => "above-average".into(),
                 CondRule::Average { above: false } => "below-average".into(),
+                CondRule::Duplicate { unique: false } => "duplicate".into(),
+                CondRule::Duplicate { unique: true } => "unique".into(),
             };
             let style = styles.cond(cf.style);
             let _ = write!(
@@ -586,6 +606,120 @@ fn cond_formats_xml(sheet: &Sheet, name: &str, styles: &mut Styles) -> String {
     }
     x.push_str("</calcext:conditional-formats>");
     x
+}
+
+/// Filtres automatiques : une plage de base de données anonyme par feuille,
+/// avec ses boutons et ses conditions (comme LibreOffice les écrit).
+fn database_ranges_xml(wb: &Workbook, names: &[String]) -> String {
+    use crate::filter::FilterCondition as C;
+    let mut x = String::new();
+    for (i, sheet) in wb.sheets.iter().enumerate() {
+        let Some(af) = &sheet.auto_filter else {
+            continue;
+        };
+        let name = &names[i];
+        let rows = af.data_rows(sheet);
+        let end = CellRef::new((*rows.end()).max(af.range.start.row), af.range.end.col);
+        let target = format!("{}:{}", odf_addr(name, af.range.start), odf_addr(name, end));
+        let _ = write!(
+            x,
+            "<table:database-range table:name=\"__Anonymous_Sheet_DB__{i}\" table:target-range-address=\"{}\" table:display-filter-buttons=\"true\">",
+            esc(&target)
+        );
+        let mut conds = String::new();
+        let cond = |field: u32, op: &str, v: &str| {
+            let numeric = matches!(parse_literal(v.trim()).0, Value::Number(_));
+            let value = match parse_literal(v.trim()).0 {
+                Value::Number(n) => num(n),
+                _ => v.trim().to_string(),
+            };
+            format!(
+                "<table:filter-condition table:field-number=\"{field}\" table:value=\"{}\" table:operator=\"{}\"{}/>",
+                esc(&value),
+                esc(op),
+                if numeric {
+                    " table:data-type=\"number\""
+                } else {
+                    ""
+                }
+            )
+        };
+        for cf in af.columns.iter().filter(|c| !c.is_empty()) {
+            if !(af.range.start.col..=af.range.end.col).contains(&cf.col) {
+                continue;
+            }
+            let field = cf.col - af.range.start.col;
+            if !cf.hidden.is_empty() {
+                let shown: Vec<String> = wb
+                    .filter_values(i, cf.col)
+                    .into_iter()
+                    .map(|(v, _)| v)
+                    .filter(|v| !cf.hidden.contains(v))
+                    .collect();
+                let first = shown.first().cloned().unwrap_or_default();
+                let _ = write!(
+                    conds,
+                    "<table:filter-condition table:field-number=\"{field}\" table:value=\"{}\" table:operator=\"=\">",
+                    esc(&first)
+                );
+                for v in &shown {
+                    let _ = write!(conds, "<table:filter-set-item table:value=\"{}\"/>", esc(v));
+                }
+                conds.push_str("</table:filter-condition>");
+                continue;
+            }
+            let Some(c) = &cf.condition else { continue };
+            match c {
+                C::Compare { op, value, value2 } => match op {
+                    CompareOp::Gt => conds.push_str(&cond(field, ">", value)),
+                    CompareOp::Ge => conds.push_str(&cond(field, ">=", value)),
+                    CompareOp::Lt => conds.push_str(&cond(field, "<", value)),
+                    CompareOp::Le => conds.push_str(&cond(field, "<=", value)),
+                    CompareOp::Eq => conds.push_str(&cond(field, "=", value)),
+                    CompareOp::Ne => conds.push_str(&cond(field, "!=", value)),
+                    CompareOp::Between => {
+                        conds.push_str(&cond(field, ">=", value));
+                        conds.push_str(&cond(field, "<=", value2));
+                    }
+                    CompareOp::NotBetween => {
+                        let _ = write!(
+                            conds,
+                            "<table:filter-or>{}{}</table:filter-or>",
+                            cond(field, "<", value),
+                            cond(field, ">", value2)
+                        );
+                    }
+                },
+                C::Contains { text } => conds.push_str(&cond(field, "contains", text)),
+                C::NotContains { text } => conds.push_str(&cond(field, "!contains", text)),
+                C::BeginsWith { text } => conds.push_str(&cond(field, "begins", text)),
+                C::EndsWith { text } => conds.push_str(&cond(field, "ends", text)),
+                C::Top { n, bottom } => conds.push_str(&cond(
+                    field,
+                    if *bottom {
+                        "bottom values"
+                    } else {
+                        "top values"
+                    },
+                    &n.max(&1).to_string(),
+                )),
+                // Pas d'équivalent ODF : les lignes masquées le montrent.
+                C::AboveAverage | C::BelowAverage => {}
+            }
+        }
+        if !conds.is_empty() {
+            let _ = write!(
+                x,
+                "<table:filter><table:filter-and>{conds}</table:filter-and></table:filter>"
+            );
+        }
+        x.push_str("</table:database-range>");
+    }
+    if x.is_empty() {
+        x
+    } else {
+        format!("<table:database-ranges>{x}</table:database-ranges>")
+    }
 }
 
 /// `settings.xml` : volets figés de chaque feuille (vue de LibreOffice).
@@ -661,7 +795,10 @@ pub(crate) fn to_ods(wb: &Workbook) -> Vec<u8> {
         .sheets
         .iter()
         .enumerate()
-        .map(|(i, s)| table_xml(s, &names[i], computed.values.get(i), &mut styles))
+        .map(|(i, s)| {
+            let hidden = wb.filtered_rows(i);
+            table_xml(s, &names[i], computed.values.get(i), &mut styles, &hidden)
+        })
         .collect();
 
     let mut content = String::from(HEADER);
@@ -674,6 +811,7 @@ pub(crate) fn to_ods(wb: &Workbook) -> Vec<u8> {
     for t in &tables {
         content.push_str(t);
     }
+    content.push_str(&database_ranges_xml(wb, &names));
     content.push_str("</office:spreadsheet></office:body></office:document-content>");
 
     let mut st = String::from(HEADER);

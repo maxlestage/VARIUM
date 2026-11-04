@@ -5,7 +5,7 @@ use crate::export::{Rendered, xml_escape};
 use crate::page::PageSetup;
 use crate::zip::Zip;
 
-const NS: &str = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" office:version="1.3""#;
+const NS: &str = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.3""#;
 
 fn mm(v: f32) -> String {
     format!("{v:.2}mm")
@@ -54,9 +54,44 @@ fn odf_text(s: &str) -> String {
     out
 }
 
+/// Images PNG des codes QR, à joindre au fichier (`Pictures/qrN.png`).
+type Images = Vec<Vec<u8>>;
+
+/// Un code QR en image PNG dans un cadre de `cote` millimètres.
+fn qr_frame(contenu: &str, cote: f32, images: &mut Images) -> String {
+    let Ok(q) = crate::qr::QrCode::encode(contenu) else {
+        return odf_text(contenu);
+    };
+    images.push(q.to_png(8, 2));
+    let n = images.len();
+    format!(
+        "<draw:frame draw:name=\"QR{n}\" text:anchor-type=\"as-char\" svg:width=\"{w}\" svg:height=\"{w}\" draw:z-index=\"0\"><draw:image xlink:href=\"Pictures/qr{n}.png\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\" draw:mime-type=\"image/png\"/><svg:title>{}</svg:title></draw:frame>",
+        xml_escape(contenu),
+        w = mm(cote)
+    )
+}
+
+/// Le texte des morceaux. `images` reçoit les codes QR (sans lui, en-tête et pied de
+/// page : leur contenu en texte).
 fn runs_xml(runs: &[Run]) -> String {
+    runs_xml_img(runs, None)
+}
+
+fn runs_xml_img(runs: &[Run], mut images: Option<&mut Images>) -> String {
     let mut out = String::new();
     for r in runs {
+        if let (Some(q), Some(img)) = (r.qr(), images.as_deref_mut()) {
+            out.push_str(&qr_frame(q, 20.0, img));
+            continue;
+        }
+        if let Some((url, label)) = r.lien() {
+            out.push_str(&format!(
+                "<text:a xlink:type=\"simple\" xlink:href=\"{}\">{}</text:a>",
+                xml_escape(&crate::doc::adresse_lien(url)),
+                odf_text(label)
+            ));
+            continue;
+        }
         let (text, missing) = match r {
             Run::Text { text, .. } | Run::Value { text, .. } => (text.clone(), false),
             Run::Missing { raw, .. } => (raw.clone(), true),
@@ -167,7 +202,7 @@ fn para_styles() -> String {
     s
 }
 
-fn table_xml(t: &Table, n: &mut usize) -> String {
+fn table_xml(t: &Table, n: &mut usize, images: &mut Images) -> String {
     *n += 1;
     let cols = t.columns().max(1);
     let mut s = format!(
@@ -188,7 +223,10 @@ fn table_xml(t: &Table, n: &mut usize) -> String {
                 (false, Align::Right) => "Cr",
                 (false, _) => "Cl",
             };
-            let cell = row.get(c).map(|r| runs_xml(r)).unwrap_or_default();
+            let cell = row
+                .get(c)
+                .map(|r| runs_xml_img(r, Some(images)))
+                .unwrap_or_default();
             s.push_str(&format!(
                 "<table:table-cell table:style-name=\"{}\" office:value-type=\"string\"><text:p text:style-name=\"{style}\">{cell}</text:p></table:table-cell>",
                 if head { "CellH" } else { "Cell" }
@@ -203,7 +241,7 @@ fn table_xml(t: &Table, n: &mut usize) -> String {
     s
 }
 
-fn body_xml(docs: &[Rendered], page: &PageSetup) -> String {
+fn body_xml(docs: &[Rendered], page: &PageSetup, images: &mut Images) -> String {
     let default_style = if page.justify { "Pj" } else { "Pl" };
     let mut s = String::new();
     let mut tables = 0;
@@ -220,7 +258,11 @@ fn body_xml(docs: &[Rendered], page: &PageSetup) -> String {
                         Align::Right => "Pr",
                         Align::Justify => "Pj",
                     };
-                    s.push_str(&format!("<text:p text:style-name=\"{style}\">{}</text:p>", runs_xml(runs)));
+                    let contenu = match p.qr() {
+                        Some(q) => qr_frame(q, crate::qr::TAILLE_MM, images),
+                        None => runs_xml_img(runs, Some(images)),
+                    };
+                    s.push_str(&format!("<text:p text:style-name=\"{style}\">{contenu}</text:p>"));
                 }
                 Para::Heading { level, runs } => s.push_str(&format!(
                     "<text:h text:style-name=\"Heading_20_{level}\" text:outline-level=\"{level}\">{}</text:h>",
@@ -250,7 +292,7 @@ fn body_xml(docs: &[Rendered], page: &PageSetup) -> String {
                     "<text:p text:style-name=\"Pc\"><text:span text:style-name=\"T2\">{}</text:span></text:p>",
                     odf_text(&p.plain())
                 )),
-                Para::Table(t) => s.push_str(&table_xml(t, &mut tables)),
+                Para::Table(t) => s.push_str(&table_xml(t, &mut tables, images)),
                 Para::Rule => s.push_str("<text:p text:style-name=\"Hr\"/>"),
                 Para::PageBreak => s.push_str("<text:p text:style-name=\"PB\"/>"),
             }
@@ -326,13 +368,14 @@ fn styles_xml(docs: &[Rendered], page: &PageSetup) -> String {
 
 /// Le fichier `.odt` (une archive ZIP), prêt à ouvrir dans LibreOffice Writer.
 pub fn odt(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
+    let mut images = Images::new();
+    let body = body_xml(docs, page, &mut images);
     let content = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content {NS}>{fonts}<office:automatic-styles>{ts}{ps}</office:automatic-styles><office:body><office:text>{body}</office:text></office:body></office:document-content>"#,
         fonts = font_decls(),
         ts = text_styles(),
         ps = para_styles(),
-        body = body_xml(docs, page),
     );
     let meta = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -340,8 +383,13 @@ pub fn odt(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
         xml_escape(title),
         page.langue.tag()
     );
-    let manifest = r#"<?xml version="1.0" encoding="UTF-8"?>
-<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/><manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/><manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/></manifest:manifest>"#;
+    let pictures: String = (1..=images.len())
+        .map(|n| format!("<manifest:file-entry manifest:full-path=\"Pictures/qr{n}.png\" manifest:media-type=\"image/png\"/>"))
+        .collect();
+    let manifest = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3"><manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/><manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/><manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>{pictures}</manifest:manifest>"#
+    );
 
     let mut zip = Zip::new();
     // `mimetype` doit être le premier fichier, non compressé.
@@ -349,6 +397,9 @@ pub fn odt(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
     zip.add("content.xml", content.as_bytes());
     zip.add("styles.xml", styles_xml(docs, page).as_bytes());
     zip.add("meta.xml", meta.as_bytes());
+    for (i, png) in images.iter().enumerate() {
+        zip.add(&format!("Pictures/qr{}.png", i + 1), png);
+    }
     zip.add("META-INF/manifest.xml", manifest.as_bytes());
     zip.finish()
 }

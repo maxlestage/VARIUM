@@ -219,3 +219,11 @@ pub(crate) fn medias<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String,
         .filter_map(|(k, v)| Some((k, crate::objets::media_de_valeur(&v)?)))
         .collect())
 }
+
+/// Durée en secondes : un nombre positif fini (ou un texte qui en contient un),
+/// bornée à 24 heures ; absente sinon.
+pub(crate) fn duree<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f32>, D::Error> {
+    Ok(valeur_nombre(&Value::deserialize(d)?)
+        .filter(|x| *x > 0.0)
+        .map(|x| x.min(86_400.0)))
+}

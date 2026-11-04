@@ -20,6 +20,14 @@ use crate::pageview::{self, View};
 use crate::secours;
 use crate::templates;
 
+// Outils d'écriture du module Documents (sous-modules de `app`, fichiers voisins).
+#[path = "doc_ecriture.rs"]
+mod ecriture;
+#[path = "doc_formulaire.rs"]
+mod formulaire;
+#[path = "doc_historique.rs"]
+mod historique;
+
 const STORAGE_KEY: &str = "varium.project";
 const PREFS_KEY: &str = "varium.prefs";
 /// En dessous de cette largeur, l'interface passe en mode téléphone.
@@ -76,6 +84,20 @@ pub enum Act {
     FullScreen,
     Focus,
     Layout(Layout),
+    /// Historique des versions.
+    History,
+    /// « Marquer cette version… »
+    MarkVersion,
+    /// Objectif de mots.
+    Goal,
+    /// Coller sans mise en forme (Ctrl+Maj+V).
+    PastePlain,
+    InsertQr,
+    /// « Remplir comme un formulaire ».
+    FillForm,
+    ToggleAutocorrect,
+    /// Défilement « machine à écrire » du mode concentration.
+    ToggleTypewriter,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -103,7 +125,8 @@ const SHORTCUTS: &[(KeyboardShortcut, Act)] = &[
     (sc(CMD_SHIFT, Key::F), Act::Focus),
     (sc(CMD_SHIFT, Key::N), Act::Templates),
     (sc(CMD_SHIFT, Key::S), Act::SaveAs),
-    (sc(CMD_SHIFT, Key::V), Act::InsertField),
+    (sc(CMD_SHIFT, Key::V), Act::PastePlain),
+    (sc(CMD_SHIFT, Key::H), Act::History),
     (
         sc(Modifiers::SHIFT, Key::F12),
         Act::Style(LineStyle::Bullet),
@@ -133,7 +156,8 @@ const SHORTCUTS: &[(KeyboardShortcut, Act)] = &[
         Act::Style(LineStyle::Numbered),
     ),
     (sc(Modifiers::NONE, Key::F1), Act::Syntax),
-    (sc(Modifiers::NONE, Key::F11), Act::FullScreen),
+    (sc(Modifiers::NONE, Key::F2), Act::InsertField),
+    (sc(Modifiers::NONE, Key::F11), Act::Focus),
 ];
 
 fn shortcut_for(act: Act) -> Option<KeyboardShortcut> {
@@ -188,6 +212,10 @@ struct Prefs {
     spell_live: bool,
     /// Fichier ouvert à la fermeture, rouvert au démarrage.
     dernier_fichier: Option<String>,
+    /// Correction automatique pendant la frappe (Outils).
+    correction_auto: bool,
+    /// Mode concentration : la ligne en cours reste au milieu de l'écran.
+    machine_a_ecrire: bool,
 }
 
 impl Default for Prefs {
@@ -203,6 +231,8 @@ impl Default for Prefs {
             recent: Vec::new(),
             spell_live: true,
             dernier_fichier: None,
+            correction_auto: true,
+            machine_a_ecrire: true,
         }
     }
 }
@@ -213,6 +243,7 @@ struct Snapshot {
     source: String,
     values: Values,
     page: PageSetup,
+    objectif: Option<u32>,
 }
 
 /// Annuler / rétablir : la frappe continue est regroupée en une seule étape.
@@ -244,6 +275,11 @@ enum Dialog {
     Syntax,
     Languages(varium_core::Lang),
     About,
+    /// Objectif de mots (saisie en cours).
+    Objectif(String),
+    /// « Marquer cette version… » (nom en cours).
+    Marquer(String),
+    Qr(formulaire::QrSaisie),
     /// Modifications non enregistrées : que faire avant de continuer ?
     Confirm(Pending),
     /// Une sauvegarde de secours existe (arrêt brutal ?) : la restaurer ?
@@ -341,6 +377,10 @@ pub struct VariumApp {
     /// Dictionnaires orthographiques, dictionnaire personnel et mots ignorés.
     dicos: dico::Dicos,
     spell_menu: Option<SpellMenu>,
+    /// Objectif de mots du document.
+    objectif: Option<u32>,
+    /// Outils d'écriture : concentration, formulaire, historique des versions…
+    outils: ecriture::Outils,
 }
 
 fn today() -> String {
@@ -364,6 +404,7 @@ impl VariumApp {
             source: project.source.clone(),
             values: project.values(),
             page: project.page.clone(),
+            objectif: project.objectif,
         };
         let mut app = Self {
             title: String::new(),
@@ -396,6 +437,7 @@ impl VariumApp {
                 source: String::new(),
                 values: Values::default(),
                 page: PageSetup::default(),
+                objectif: None,
             },
             saving: None,
             after_save: None,
@@ -407,6 +449,8 @@ impl VariumApp {
             last_backup: f64::NEG_INFINITY,
             dicos: dico::Dicos::new(),
             spell_menu: None,
+            objectif: None,
+            outils: ecriture::Outils::default(),
         };
         app.restore(app.history.current.clone());
         app.saved = app.snapshot();
@@ -427,6 +471,7 @@ impl VariumApp {
                 source: sur_disque.source,
                 values: valeurs,
                 page: sur_disque.page,
+                objectif: sur_disque.objectif,
             };
             app.path = Some(chemin);
         }
@@ -456,6 +501,7 @@ impl VariumApp {
             source: self.source.clone(),
             values: self.values.clone(),
             page: self.page.clone(),
+            objectif: self.objectif,
         }
     }
 
@@ -464,12 +510,20 @@ impl VariumApp {
         self.source = s.source;
         self.values = s.values;
         self.page = s.page;
+        self.objectif = s.objectif;
         let n = self.source.chars().count();
         self.sel = (self.sel.0.min(n), self.sel.1.min(n));
         self.rename = None;
     }
 
     fn load(&mut self, p: Project) {
+        // Le document remplacé garde une version dans son historique.
+        if self.is_dirty() {
+            self.prendre_version(
+                varium_core::versions::Motif::Avant,
+                "Remplacement du document",
+            );
+        }
         self.history.cut = true;
         let values = p.values();
         self.restore(Snapshot {
@@ -477,7 +531,10 @@ impl VariumApp {
             source: p.source,
             values,
             page: p.page,
+            objectif: p.objectif,
         });
+        self.outils.mots_depart = None;
+        self.outils.formulaire = false;
         self.sel = (0, 0);
         self.pending_sel = Some((0, 0));
         self.merge = None;
@@ -523,6 +580,7 @@ impl VariumApp {
                 source: String::new(),
                 values: Values::default(),
                 page: PageSetup::default(),
+                objectif: None,
             }
         };
         self.path = document;
@@ -570,6 +628,7 @@ impl VariumApp {
             || self.saved.title != self.title
             || self.saved.page != self.page
             || self.saved.values != self.values
+            || self.saved.objectif != self.objectif
     }
 
     /// Exécute `p` tout de suite, ou demande confirmation s'il y a des
@@ -623,6 +682,7 @@ impl VariumApp {
                 Ok(()) => {
                     let path = path.clone();
                     self.saved = snap;
+                    self.prendre_version(varium_core::versions::Motif::Enregistrement, "");
                     files::push_recent(&mut self.prefs.recent, &path);
                     self.notify(
                         ctx,
@@ -648,6 +708,7 @@ impl VariumApp {
     fn project(&self) -> Project {
         let mut p = Project::new(self.title.clone(), self.source.clone(), &self.values);
         p.page = self.page.clone();
+        p.objectif = self.objectif;
         p
     }
 
@@ -657,6 +718,7 @@ impl VariumApp {
             && self.history.current.values == self.values
             && self.history.current.page == self.page
             && self.history.current.title == self.title
+            && self.history.current.objectif == self.objectif
         {
             return;
         }
@@ -895,6 +957,10 @@ impl VariumApp {
             Act::PageSetup => self.dialog = Some(Dialog::PageSetup),
             Act::Stats => self.dialog = Some(Dialog::Stats),
             Act::ClearValues => {
+                self.prendre_version(
+                    varium_core::versions::Motif::Avant,
+                    "Effacer toutes les valeurs",
+                );
                 self.history.cut = true;
                 self.values.values.clear();
                 self.notify(
@@ -920,13 +986,40 @@ impl VariumApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!on));
             }
             Act::Focus => {
-                // Mode concentration : rien que la page et le texte.
-                let on = self.prefs.toolbar || self.prefs.fields_panel || self.prefs.status_bar;
-                self.prefs.toolbar = !on;
-                self.prefs.fields_panel = !on;
-                self.prefs.status_bar = !on;
+                // Mode concentration : rien que le texte, au centre (Échap pour sortir).
+                self.outils.concentration = !self.outils.concentration;
+                if self.outils.concentration {
+                    self.outils.formulaire = false;
+                    self.pending_sel = Some(self.sel);
+                    self.notify(ctx, tr("Mode concentration · Échap pour en sortir"), false);
+                }
             }
             Act::Layout(l) => self.prefs.layout = l,
+            Act::History => self.ouvrir_historique(),
+            Act::MarkVersion => self.dialog = Some(Dialog::Marquer(String::new())),
+            Act::Goal => self.ouvrir_objectif(),
+            Act::PastePlain => self.coller_brut(ctx),
+            Act::InsertQr => self.dialog = Some(Dialog::Qr(formulaire::QrSaisie::default())),
+            Act::FillForm => {
+                self.outils.formulaire = !self.outils.formulaire;
+                if self.outils.formulaire {
+                    self.outils.concentration = false;
+                    self.outils.formulaire_focus = true;
+                }
+            }
+            Act::ToggleAutocorrect => {
+                self.prefs.correction_auto = !self.prefs.correction_auto;
+                self.notify(
+                    ctx,
+                    if self.prefs.correction_auto {
+                        tr("Correction automatique activée")
+                    } else {
+                        tr("Correction automatique désactivée")
+                    },
+                    false,
+                );
+            }
+            Act::ToggleTypewriter => self.prefs.machine_a_ecrire = !self.prefs.machine_a_ecrire,
         }
     }
 
@@ -1104,6 +1197,7 @@ impl VariumApp {
                         self.saved = self.saving.take().unwrap_or_else(|| self.snapshot());
                         files::push_recent(&mut self.prefs.recent, &path);
                         self.path = Some(path);
+                        self.prendre_version(varium_core::versions::Motif::Enregistrement, "");
                         if let Some(p) = self.after_save.take() {
                             self.proceed(ctx, p);
                         }
@@ -1180,6 +1274,9 @@ impl VariumApp {
             });
             self.item(ui, tr("Imprimer (via le navigateur)…"), Act::Print);
             ui.separator();
+            self.item(ui, tr("Historique des versions…"), Act::History);
+            self.item(ui, tr("Marquer cette version…"), Act::MarkVersion);
+            ui.separator();
             self.item(ui, tr("Publipostage…"), Act::Merge);
             ui.separator();
             self.item(ui, tr("Quitter"), Act::Quit);
@@ -1188,6 +1285,8 @@ impl VariumApp {
             let (u, r) = (!self.history.undo.is_empty(), !self.history.redo.is_empty());
             ui.add_enabled_ui(u, |ui| self.item(ui, tr("Annuler"), Act::Undo));
             ui.add_enabled_ui(r, |ui| self.item(ui, tr("Rétablir"), Act::Redo));
+            ui.separator();
+            self.item(ui, tr("Coller sans mise en forme"), Act::PastePlain);
             ui.separator();
             self.item(ui, tr("Rechercher…"), Act::Find);
             self.item(ui, tr("Rechercher et remplacer…"), Act::Replace);
@@ -1234,7 +1333,19 @@ impl VariumApp {
                 Act::ToggleStatus,
             );
             ui.separator();
-            self.item(ui, tr("Mode concentration"), Act::Focus);
+            self.check(
+                ui,
+                tr("Mode concentration"),
+                self.outils.concentration,
+                Act::Focus,
+            );
+            self.check(
+                ui,
+                tr("Défilement machine à écrire"),
+                self.prefs.machine_a_ecrire,
+                Act::ToggleTypewriter,
+            );
+            self.item(ui, tr("Objectif de mots…"), Act::Goal);
             self.item(ui, tr("Plein écran"), Act::FullScreen);
             self.check(
                 ui,
@@ -1256,6 +1367,7 @@ impl VariumApp {
             self.item(ui, tr("Champ {{…}}…"), Act::InsertField);
             self.item(ui, tr("Champ calculé {{= …}}…"), Act::InsertFormula);
             self.item(ui, tr("Date du jour"), Act::InsertToday);
+            self.item(ui, tr("Code QR…"), Act::InsertQr);
             ui.separator();
             self.item(ui, tr("Tableau…"), Act::InsertTable);
             self.item(ui, tr("Saut de page"), Act::InsertPageBreak);
@@ -1298,8 +1410,24 @@ impl VariumApp {
             );
         });
         ui.menu_button(tr("Outils"), |ui| {
+            self.check(
+                ui,
+                tr("Remplir comme un formulaire"),
+                self.outils.formulaire,
+                Act::FillForm,
+            );
             self.item(ui, tr("Publipostage…"), Act::Merge);
+            ui.separator();
+            self.check(
+                ui,
+                tr("Correction automatique pendant la frappe"),
+                self.prefs.correction_auto,
+                Act::ToggleAutocorrect,
+            );
             self.item(ui, tr("Nombre de mots"), Act::Stats);
+            self.item(ui, tr("Objectif de mots…"), Act::Goal);
+            ui.separator();
+            self.item(ui, tr("Historique des versions…"), Act::History);
         });
         ui.menu_button(tr("Aide"), |ui| {
             self.item(ui, tr("Guide de la syntaxe"), Act::Syntax);
@@ -1580,6 +1708,7 @@ impl VariumApp {
         if replace_all {
             let count = n;
             let with = self.find.with.clone();
+            self.prendre_version(varium_core::versions::Motif::Avant, "Tout remplacer");
             self.history.cut = true;
             for &(a, b) in found.iter().rev() {
                 self.source.replace_range(a..b, &with);
@@ -1609,7 +1738,40 @@ impl VariumApp {
     // ---------------- Texte ----------------
 
     fn text_pane(&mut self, ui: &mut egui::Ui, mobile: bool) {
+        self.text_pane_ex(ui, mobile, false);
+    }
+
+    /// L'éditeur. `focus` : mode concentration (texte plus grand, paragraphes autres
+    /// que celui du curseur estompés, défilement « machine à écrire »).
+    fn text_pane_ex(&mut self, ui: &mut egui::Ui, mobile: bool, focus: bool) {
         let id = egui::Id::unique("varium-source");
+        let ctx = ui.ctx().clone();
+        // Collage intelligent : le texte collé (Ctrl+V) est converti avant que
+        // l'éditeur l'insère, à sa place parmi les autres frappes.
+        if ui.memory(|m| m.has_focus(id)) {
+            let mut colles: Vec<String> = Vec::new();
+            ui.input_mut(|i| {
+                for e in &mut i.events {
+                    if let egui::Event::Paste(t) = e {
+                        colles.push(std::mem::take(t));
+                    }
+                }
+            });
+            if !colles.is_empty() {
+                let convertis: Vec<String> =
+                    colles.into_iter().map(|t| self.coller(&ctx, t)).collect();
+                let mut it = convertis.into_iter();
+                ui.input_mut(|i| {
+                    for e in &mut i.events {
+                        if let egui::Event::Paste(t) = e {
+                            *t = it.next().unwrap_or_default();
+                        }
+                    }
+                });
+                // Le collage est une étape d'annulation à lui seul.
+                self.history.cut = true;
+            }
+        }
         if let Some((a, b)) = self.pending_sel.take() {
             let mut st = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
             st.cursor.set_char_range(Some(CCursorRange::two(
@@ -1626,9 +1788,15 @@ impl VariumApp {
             Vec::new()
         };
         let font = self.page.font;
-        let size = if mobile { 17.0 } else { 16.0 };
+        let size = if focus {
+            19.0
+        } else if mobile {
+            17.0
+        } else {
+            16.0
+        };
         // Remarques de la révision, soulignées dans le texte quand l'onglet est ouvert.
-        let issues: Vec<(usize, usize)> = if self.prefs.inspector == Inspector::Review {
+        let issues: Vec<(usize, usize)> = if self.prefs.inspector == Inspector::Review && !focus {
             varium_core::check::check(&self.source, self.page.langue)
                 .into_iter()
                 .map(|i| (i.start, i.end))
@@ -1636,28 +1804,57 @@ impl VariumApp {
         } else {
             Vec::new()
         };
+        // Paragraphe du curseur (octets), mis en avant en mode concentration.
+        let courant = focus.then(|| {
+            let b = editor::byte_of(&self.source, self.sel.1);
+            let debut = self.source[..b].rfind('\n').map_or(0, |i| i + 1);
+            let fin = self.source[b..]
+                .find('\n')
+                .map_or(self.source.len(), |i| b + i);
+            debut..fin
+        });
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
             let mut job = editor::highlight(buf.as_str(), &pal, font, size, &found, &issues);
+            if let Some(c) = courant.clone()
+                && c.end <= buf.as_str().len()
+            {
+                Self::estomper(&mut job, c);
+            }
             job.wrap.max_width = wrap;
             ui.ctx().fonts_mut(|f| f.layout_job(job))
         };
-        let bg = if ui.visuals().dark_mode {
+        let bg = if focus {
+            Color32::TRANSPARENT
+        } else if ui.visuals().dark_mode {
             Color32::from_rgb(0x22, 0x22, 0x24)
         } else {
             Color32::from_rgb(0xFF, 0xFF, 0xFE)
         };
+        let avant = self.source.clone();
+        let hauteur = ui.available_height();
         egui::ScrollArea::vertical()
             .id_salt("source-scroll")
             .auto_shrink(false)
             .show(ui, |ui| {
+                // Machine à écrire : de la marge en haut et en bas pour que la première et
+                // la dernière ligne puissent venir au milieu.
+                if focus && self.prefs.machine_a_ecrire {
+                    ui.add_space(hauteur * 0.45);
+                }
                 egui::Frame::new()
                     .fill(bg)
                     .inner_margin(if mobile {
                         egui::Margin::symmetric(12, 12)
+                    } else if focus {
+                        egui::Margin::symmetric(8, 40)
                     } else {
                         egui::Margin::symmetric(28, 22)
                     })
-                    .stroke(Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color))
+                    .stroke(if focus {
+                        Stroke::NONE
+                    } else {
+                        Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
+                    })
                     .show(ui, |ui| {
                         let rows = ((ui.available_height() - 40.0) / 22.0).max(8.0) as usize;
                         let out = egui::TextEdit::multiline(&mut self.source)
@@ -1672,9 +1869,26 @@ impl VariumApp {
                         if let Some(r) = out.cursor_range {
                             let rr = r.as_sorted_char_range();
                             self.sel = (rr.start.0, rr.end.0);
+                            // Machine à écrire : la ligne du curseur reste au milieu.
+                            let bouge = self.outils.dernier_curseur != Some(rr.end.0);
+                            if focus && self.prefs.machine_a_ecrire && (bouge || out.response.changed()) {
+                                let pos = out.galley.pos_from_cursor(r.primary);
+                                let rect = pos.translate(out.galley_pos.to_vec2());
+                                ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                            }
+                            self.outils.dernier_curseur = Some(rr.end.0);
                         }
-                        self.spell_overlay(ui, &out);
+                        if out.response.changed() {
+                            let now = ui.input(|i| i.time);
+                            self.corriger_frappe(&avant, now);
+                        }
+                        if !focus {
+                            self.spell_overlay(ui, &out);
+                        }
                     });
+                if focus && self.prefs.machine_a_ecrire {
+                    ui.add_space(hauteur * 0.45);
+                }
             });
     }
 
@@ -1863,6 +2077,7 @@ impl VariumApp {
                                 ui.end_row();
                             }
                         });
+                        self.statistiques_ecriture(ui);
                     });
             }
             Inspector::Outline => self.outline_tab(ui),
@@ -2027,6 +2242,7 @@ impl VariumApp {
                     .button(trf!("Tout corriger ({fixable})", fixable))
                     .clicked()
             {
+                self.prendre_version(varium_core::versions::Motif::Avant, "Tout corriger");
                 self.history.cut = true;
                 let n = varium_core::check::apply_all(&mut self.source, self.page.langue);
                 let ctx = ui.ctx().clone();
@@ -2541,6 +2757,10 @@ impl VariumApp {
             Some(VarAction::Rename { from, to }) => {
                 match varium_core::rename_variable(&self.source, &from, &to) {
                     Ok(s) => {
+                        self.prendre_version(
+                            varium_core::versions::Motif::Avant,
+                            "Renommer partout",
+                        );
                         self.history.cut = true;
                         self.source = s;
                         if let Some(v) = self.values.values.remove(&from) {
@@ -2560,6 +2780,7 @@ impl VariumApp {
                 }
             }
             Some(VarAction::Inline(name)) => {
+                self.prendre_version(varium_core::versions::Motif::Avant, "Figer un champ");
                 self.history.cut = true;
                 self.source = varium_core::inline_variable(&self.source, &name, &self.effective());
                 self.notify(&ctx, trf!("« {name} » figé dans le texte", name), false);
@@ -2795,6 +3016,7 @@ impl VariumApp {
                 chars = st.chars
             ))
             .on_hover_text(tr("Outils → Nombre de mots"));
+            self.objectif_statut(ui, st.words);
             ui.separator();
             ui.label(trf!("{filled}/{vars} champs", filled, vars = vars.len()));
             if let Some(m) = &self.merge {
@@ -3088,6 +3310,9 @@ impl VariumApp {
                         }
                     });
                 }
+                Dialog::Objectif(saisie) => keep = self.objectif_dialogue(ui, saisie),
+                Dialog::Marquer(nom) => keep = self.marquer_dialogue(ui, nom),
+                Dialog::Qr(saisie) => keep = self.qr_dialogue(ui, saisie),
                 Dialog::About => {
                     ui.heading("Varium");
                     ui.label(RichText::new(tr("Un document. Toutes ses possibilités.")).italics());
@@ -3340,6 +3565,11 @@ impl VariumApp {
     // ---------------- Dispositions ----------------
 
     fn desktop(&mut self, ui: &mut egui::Ui) {
+        // Mode concentration : ni menus, ni barres, ni panneaux.
+        if self.outils.concentration {
+            self.concentration_ui(ui);
+            return;
+        }
         // Sur macOS, les menus sont dans la barre de l'écran : pas de barre dans la fenêtre.
         if !self.has_native_menu() {
             egui::Panel::top("menu").show(ui, |ui| {
@@ -3356,6 +3586,10 @@ impl VariumApp {
                     .show(ui, |ui| self.toolbar(ui, false));
                 ui.add_space(3.0);
             });
+        }
+        if self.outils.formulaire {
+            self.formulaire_ui(ui);
+            return;
         }
         if self.find.open {
             egui::Panel::top("find").show(ui, |ui| {
@@ -3564,6 +3798,7 @@ impl eframe::App for VariumApp {
             self.desktop(ui);
         }
         self.dialogs(&ctx);
+        self.historique_panneau(&ctx);
 
         for act in std::mem::take(&mut self.queue) {
             self.run(&ctx, act);
@@ -3587,6 +3822,7 @@ impl eframe::App for VariumApp {
         let now = ctx.input(|i| i.time);
         self.track(now);
         self.tick_secours(&ctx, now);
+        self.versions_tick(&ctx, now);
         self.toast(&ctx, if mobile { 70.0 } else { 34.0 });
     }
 
@@ -4052,6 +4288,14 @@ const SYNTAX: &[(&str, &str)] = &[
     ),
     ("{{aujourdhui}}", n_("la date du jour, automatiquement")),
     (
+        n_("{{qr:https://exemple.fr}}"),
+        n_("un code QR (sur sa ligne) ; {{site | qr}} pour la valeur d'un champ"),
+    ),
+    (
+        n_("[texte](https://exemple.fr)"),
+        n_("un lien (Ctrl+V d'une adresse sur une sélection)"),
+    ),
+    (
         n_("# Titre  ## Sous-titre"),
         n_("titres (Ctrl+1, Ctrl+2, Ctrl+3)"),
     ),
@@ -4109,6 +4353,8 @@ fn act_label(a: Act) -> &'static str {
         Act::Languages => tr("Écrire en plusieurs langues"),
         Act::FullScreen => tr("Plein écran"),
         Act::Focus => tr("Mode concentration"),
+        Act::PastePlain => tr("Coller sans mise en forme"),
+        Act::History => tr("Historique des versions"),
         _ => "",
     }
 }
@@ -4155,6 +4401,13 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &export,
             &b.item(tr("Publipostage…"), Act::Merge, None),
             &sep(),
+            &b.item(
+                tr("Historique des versions…"),
+                Act::History,
+                Some("Cmd+Shift+H"),
+            ),
+            &b.item(tr("Marquer cette version…"), Act::MarkVersion, None),
+            &sep(),
             &b.item(tr("Imprimer…"), Act::Print, Some("Cmd+P")),
         ],
     )?;
@@ -4168,6 +4421,11 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &cut,
             &copy,
             &paste,
+            &b.item(
+                tr("Coller sans mise en forme"),
+                Act::PastePlain,
+                Some("Cmd+Shift+V"),
+            ),
             &select_all,
             &sep(),
             &b.item(tr("Rechercher…"), Act::Find, Some("Cmd+F")),
@@ -4184,7 +4442,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         tr("Insertion"),
         true,
         &[
-            &b.item(tr("Champ…"), Act::InsertField, Some("Cmd+Shift+V")),
+            &b.item(tr("Champ…"), Act::InsertField, Some("F2")),
             &b.item(tr("Champ calculé…"), Act::InsertFormula, None),
             &b.item(tr("Date du jour"), Act::InsertToday, None),
             &sep(),
@@ -4192,6 +4450,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &b.item(tr("Saut de page"), Act::InsertPageBreak, Some("Cmd+Enter")),
             &b.item(tr("Ligne horizontale"), Act::InsertRule, None),
             &b.item(tr("Formule"), Act::InsertMath(false), None),
+            &b.item(tr("Code QR…"), Act::InsertQr, None),
         ],
     )?;
     let format = Submenu::with_items(
@@ -4264,6 +4523,18 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             ),
             &b.item(tr("Trame de fond des champs"), Act::ToggleHighlight, None),
             &b.item(tr("Mode concentration"), Act::Focus, Some("Cmd+Shift+F")),
+            &b.item(
+                tr("Défilement machine à écrire"),
+                Act::ToggleTypewriter,
+                None,
+            ),
+            &b.item(tr("Objectif de mots…"), Act::Goal, None),
+            &b.item(tr("Remplir comme un formulaire"), Act::FillForm, None),
+            &b.item(
+                tr("Correction automatique pendant la frappe"),
+                Act::ToggleAutocorrect,
+                None,
+            ),
             &sep(),
             &b.item(tr("Zoom avant"), Act::ZoomIn, Some("Cmd+=")),
             &b.item(tr("Zoom arrière"), Act::ZoomOut, Some("Cmd+-")),
@@ -4287,4 +4558,216 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
     )?;
 
     Ok(vec![file, edit, insert, format, view, help])
+}
+
+// ---------------------------------------------------------------------------------
+// Pour la suite : palette de commandes, aide-mémoire, accueil et conversions
+// ---------------------------------------------------------------------------------
+
+impl VariumApp {
+    /// Les commandes du module : (action, libellé en français, groupe en français,
+    /// raccourci). Les libellés passent par `tr` à l'affichage.
+    pub fn palette_entries() -> Vec<(Act, &'static str, &'static str, Option<KeyboardShortcut>)> {
+        let fichier = n_("Fichier");
+        let edition = n_("Édition");
+        let insertion = n_("Insertion");
+        let format = n_("Format");
+        let affichage = n_("Affichage");
+        let aide = n_("Aide");
+        let list: [(Act, &'static str, &'static str); 67] = [
+            (Act::New, n_("Nouveau document"), fichier),
+            (Act::Templates, n_("Nouveau à partir d'un modèle…"), fichier),
+            (Act::Open, n_("Ouvrir…"), fichier),
+            (Act::Save, n_("Enregistrer"), fichier),
+            (Act::SaveAs, n_("Enregistrer sous…"), fichier),
+            (Act::Export(Format::Pdf), n_("Exporter en PDF"), fichier),
+            (Act::Export(Format::Docx), n_("Word (.docx)…"), fichier),
+            (Act::Export(Format::Odt), n_("LibreOffice (.odt)…"), fichier),
+            (
+                Act::Export(Format::Rtf),
+                n_("Texte enrichi (.rtf)…"),
+                fichier,
+            ),
+            (Act::Export(Format::Epub), n_("Exporter en EPUB"), fichier),
+            (Act::Export(Format::Html), n_("Page web (.html)…"), fichier),
+            (Act::Export(Format::Latex), n_("LaTeX (.tex)…"), fichier),
+            (Act::Export(Format::Text), n_("Texte brut (.txt)…"), fichier),
+            (Act::Merge, n_("Publipostage…"), fichier),
+            (Act::Print, n_("Imprimer…"), fichier),
+            (Act::Quit, n_("Quitter Varium"), fichier),
+            (Act::Undo, n_("Annuler"), edition),
+            (Act::Redo, n_("Rétablir"), edition),
+            (Act::Find, n_("Rechercher…"), edition),
+            (Act::Replace, n_("Rechercher et remplacer…"), edition),
+            (Act::ClearValues, n_("Effacer toutes les valeurs"), edition),
+            (Act::InsertField, n_("Champ…"), insertion),
+            (Act::InsertFormula, n_("Champ calculé…"), insertion),
+            (Act::InsertToday, n_("Date du jour"), insertion),
+            (Act::InsertTable, n_("Tableau…"), insertion),
+            (Act::InsertPageBreak, n_("Saut de page"), insertion),
+            (Act::InsertRule, n_("Ligne horizontale"), insertion),
+            (Act::InsertMath(false), n_("Formule"), insertion),
+            (Act::InsertMath(true), n_("Formule centrée"), insertion),
+            (Act::Wrap("**"), n_("Gras"), format),
+            (Act::Wrap("*"), n_("Italique"), format),
+            (Act::Wrap("__"), n_("Souligné"), format),
+            (Act::Wrap("~~"), n_("Barré"), format),
+            (Act::Style(LineStyle::Heading(1)), n_("Titre 1"), format),
+            (Act::Style(LineStyle::Heading(2)), n_("Titre 2"), format),
+            (Act::Style(LineStyle::Heading(3)), n_("Titre 3"), format),
+            (Act::Style(LineStyle::Body), n_("Corps de texte"), format),
+            (Act::Style(LineStyle::Quote), n_("Citation"), format),
+            (Act::Style(LineStyle::Bullet), n_("Liste à puces"), format),
+            (
+                Act::Style(LineStyle::Numbered),
+                n_("Liste numérotée"),
+                format,
+            ),
+            (Act::Style(LineStyle::Center), n_("Centrer"), format),
+            (Act::Style(LineStyle::Right), n_("Aligner à droite"), format),
+            (Act::PageSetup, n_("Mise en page…"), format),
+            (Act::Layout(Layout::Split), n_("Texte et page"), affichage),
+            (Act::Layout(Layout::Page), n_("Page seule"), affichage),
+            (Act::Layout(Layout::Text), n_("Texte seul"), affichage),
+            (
+                Act::ToggleFields,
+                n_("Afficher / masquer l'inspecteur"),
+                affichage,
+            ),
+            (
+                Act::ToggleToolbar,
+                n_("Afficher / masquer la barre d'outils"),
+                affichage,
+            ),
+            (
+                Act::ToggleStatus,
+                n_("Afficher / masquer la barre d'état"),
+                affichage,
+            ),
+            (
+                Act::ToggleHighlight,
+                n_("Trame de fond des champs"),
+                affichage,
+            ),
+            (Act::Focus, n_("Mode concentration"), affichage),
+            (Act::ZoomIn, n_("Zoom avant"), affichage),
+            (Act::ZoomOut, n_("Zoom arrière"), affichage),
+            (Act::ZoomFit, n_("Largeur de la page"), affichage),
+            (Act::FullScreen, n_("Plein écran"), affichage),
+            (Act::Syntax, n_("Guide de la syntaxe"), aide),
+            (Act::Languages, n_("Écrire en plusieurs langues"), aide),
+            (Act::Stats, n_("Nombre de mots"), aide),
+            (Act::About, n_("À propos de Varium"), aide),
+            (Act::PastePlain, n_("Coller sans mise en forme"), edition),
+            (Act::History, n_("Historique des versions…"), fichier),
+            (Act::MarkVersion, n_("Marquer cette version…"), fichier),
+            (Act::InsertQr, n_("Code QR…"), insertion),
+            (
+                Act::ToggleTypewriter,
+                n_("Défilement machine à écrire"),
+                affichage,
+            ),
+            (Act::Goal, n_("Objectif de mots…"), affichage),
+            (
+                Act::FillForm,
+                n_("Remplir comme un formulaire"),
+                n_("Outils"),
+            ),
+            (
+                Act::ToggleAutocorrect,
+                n_("Correction automatique pendant la frappe"),
+                n_("Outils"),
+            ),
+        ];
+        list.into_iter()
+            .map(|(a, l, g)| (a, l, g, shortcut_for(a)))
+            .collect()
+    }
+
+    /// Lance une action à la prochaine image du module (palette de commandes).
+    pub fn run_act(&mut self, act: Act) {
+        self.queue.push(act);
+    }
+
+    /// Les documents récents, du plus récent au plus ancien.
+    pub fn recent_files(&self) -> Vec<String> {
+        self.prefs.recent.clone()
+    }
+
+    /// Le fichier du document ouvert.
+    pub fn file_path(&self) -> Option<std::path::PathBuf> {
+        self.path.clone()
+    }
+
+    /// Ouvre un fichier (récent, glissé-déposé), après confirmation s'il reste des
+    /// modifications non enregistrées.
+    pub fn open_file(&mut self, ctx: &egui::Context, path: &std::path::Path) {
+        self.guard(ctx, Pending::Recent(path.display().to_string()));
+    }
+
+    /// Titre, source et valeurs des champs du document (conversions).
+    pub fn document_parts(&self) -> (String, String, std::collections::BTreeMap<String, String>) {
+        (
+            self.title.clone(),
+            self.source.clone(),
+            self.values.values.clone(),
+        )
+    }
+
+    /// Insère un bloc (tableau…) sur sa propre ligne, au curseur.
+    pub fn insert_markup(&mut self, block: &str) {
+        self.history.cut = true;
+        self.insert_block(block);
+        self.history.cut = true;
+    }
+
+    /// Remplace le document par un nouveau (Ctrl+Z ramène le précédent).
+    pub fn new_document_with(&mut self, title: &str, source: &str) {
+        let mut p = Project::new(title, source, &self.values);
+        p.page = self.page.clone();
+        self.load(p);
+    }
+
+    /// Donne leurs valeurs à des champs ; renvoie le nombre de champs remplis.
+    pub fn set_field_values(&mut self, pairs: &[(String, String)]) -> usize {
+        self.history.cut = true;
+        for (k, v) in pairs {
+            self.values.set(k.clone(), v.clone());
+        }
+        pairs.len()
+    }
+
+    /// Annule tout de suite la dernière modification (bouton « Annuler » d'une
+    /// conversion).
+    pub fn undo_now(&mut self) {
+        let now = self.snapshot();
+        if now.source != self.history.current.source
+            || now.values != self.history.current.values
+            || now.title != self.history.current.title
+        {
+            // La modification n'est pas encore dans l'historique.
+            let prev = std::mem::replace(&mut self.history.current, now);
+            self.history.undo.push(prev);
+        }
+        self.undo();
+    }
+
+    /// Ferme le choix de modèle du premier lancement (l'accueil le remplace).
+    pub fn dismiss_start_dialog(&mut self) {
+        if matches!(self.dialog, Some(Dialog::Templates)) {
+            self.dialog = None;
+        }
+    }
+
+    /// Charge un modèle de document (accueil).
+    pub fn load_template(&mut self, ctx: &egui::Context, i: usize) {
+        if let Some(t) = templates::ALL.get(i) {
+            self.load(t.project());
+            self.notify(
+                ctx,
+                trf!("Modèle « {name} » ouvert", name = tr(t.name)),
+                false,
+            );
+        }
+    }
 }
