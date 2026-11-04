@@ -385,6 +385,8 @@ impl Ctx<'_> {
 /// Taille de police par atome : on la mémorise dans la ligne à l'écriture.
 struct PageBuf {
     ops: String,
+    /// Liens cliquables : (x, y du bas, largeur, hauteur, adresse).
+    links: Vec<(f32, f32, f32, f32, String)>,
     used: f32,
     empty: bool,
     /// Zones cliquables des liens : (x0, y0, x1, y1, adresse).
@@ -434,6 +436,7 @@ impl Layout<'_> {
     fn new_page(&mut self) {
         self.pages.push(PageBuf {
             ops: String::new(),
+            links: Vec::new(),
             used: 0.0,
             empty: true,
             liens: Vec::new(),
@@ -570,6 +573,30 @@ impl Layout<'_> {
             }
             x += pw;
             i = j;
+        }
+        // Liens cliquables : les mots qui sont des adresses (http, https, mailto).
+        let mut lx = x0
+            + match align {
+                Align::Center => ((width - total) / 2.0).max(0.0),
+                Align::Right => (width - total).max(0.0),
+                _ => 0.0,
+            };
+        for a in &l.atoms {
+            let w = a.width
+                + if justify && a.space && a.bytes == [0x20] {
+                    extra
+                } else {
+                    0.0
+                };
+            // Un lien [texte](url) a déjà sa zone cliquable.
+            if a.lien.is_none()
+                && let Some(url) = adresse_de(&a.bytes)
+            {
+                self.pages[pi]
+                    .links
+                    .push((lx, baseline - size * 0.2, w, size * 1.1, url));
+            }
+            lx += w;
         }
         self.pages[pi].ops.push_str(&ops);
         self.pages[pi].empty = false;
@@ -886,6 +913,40 @@ impl Layout<'_> {
     }
 }
 
+/// Si le mot est une adresse (`http://`, `https://`, `mailto:`), renvoie la cible du lien,
+/// sans la ponctuation finale (`.,;:!?)`).
+fn adresse_de(bytes: &[u8]) -> Option<String> {
+    let t = String::from_utf8_lossy(bytes);
+    let bas = t.to_ascii_lowercase();
+    let reste = ["http://", "https://", "mailto:"]
+        .iter()
+        .find_map(|p| bas.strip_prefix(p).map(|r| (p.len(), r.len())))?;
+    if reste.1 == 0 {
+        return None;
+    }
+    let t = t.trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']', '»', '"']);
+    if t.len() <= reste.0 || !t.is_ascii() {
+        return None;
+    }
+    Some(t.to_string())
+}
+
+/// Échappe une chaîne ASCII pour une chaîne littérale PDF.
+fn pdf_texte(s: &str) -> String {
+    let mut o = String::new();
+    for c in s.chars() {
+        match c {
+            '(' | ')' | '\\' => {
+                o.push('\\');
+                o.push(c);
+            }
+            c if c.is_ascii_graphic() => o.push(c),
+            _ => {}
+        }
+    }
+    o
+}
+
 fn plain_run(s: &str) -> Run {
     Run::Text {
         text: s.to_string(),
@@ -1047,31 +1108,56 @@ pub fn pdf(title: &str, docs: &[Rendered], page: &PageSetup, fonts: &PdfFonts) -
                 .into_bytes(),
         );
     }
+    // Les annotations de lien viennent après les signets.
+    let mut prochain = if nm > 0 { racine + nm + 1 } else { racine };
+    let mut annots: Vec<String> = Vec::new();
+    let mut objets_liens: Vec<Vec<u8>> = Vec::new();
+    for page_buf in &lay.pages {
+        let mut ids = String::new();
+        for (x, y, w, h, url) in &page_buf.links {
+            ids.push_str(&format!("{prochain} 0 R "));
+            prochain += 1;
+            objets_liens.push(
+                format!(
+                    "<< /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /A << /S /URI /URI ({}) >> >>",
+                    n(*x),
+                    n(*y),
+                    n(x + w),
+                    n(y + h),
+                    pdf_texte(url)
+                )
+                .into_bytes(),
+            );
+        }
+        annots.push(ids);
+    }
     for (i, (page_buf, extra)) in lay.pages.iter().zip(&ops_extra).enumerate() {
         let content = format!("{}{}", page_buf.ops, extra);
-        // Liens : annotations cliquables vers leur adresse.
-        let annots = if page_buf.liens.is_empty() {
+        // Liens : annotations cliquables vers leur adresse ([texte](url) en ligne, et
+        // adresses nues en objets séparés).
+        let mut a: String = page_buf
+            .liens
+            .iter()
+            .map(|(x0, y0, x1, y1, url)| {
+                format!(
+                    "<< /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /A << /S /URI /URI <{}> >> >> ",
+                    n(*x0),
+                    n(*y0),
+                    n(*x1),
+                    n(*y1),
+                    hex(url.as_bytes())
+                )
+            })
+            .collect();
+        a.push_str(&annots[i]);
+        let annots_page = if a.is_empty() {
             String::new()
         } else {
-            let a: String = page_buf
-                .liens
-                .iter()
-                .map(|(x0, y0, x1, y1, url)| {
-                    format!(
-                        "<< /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /A << /S /URI /URI <{}> >> >> ",
-                        n(*x0),
-                        n(*y0),
-                        n(*x1),
-                        n(*y1),
-                        hex(url.as_bytes())
-                    )
-                })
-                .collect();
-            format!(" /Annots [{a}]")
+            format!(" /Annots [{}]", a.trim_end())
         };
         objs.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R /F4 7 0 R >> >> /Contents {} 0 R{annots} >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R /F4 7 0 R >> >> /Contents {} 0 R{annots_page} >>",
                 n(lay.pw),
                 n(lay.ph),
                 9 + i * 2
@@ -1125,6 +1211,7 @@ pub fn pdf(title: &str, docs: &[Rendered], page: &PageSetup, fonts: &PdfFonts) -
             objs.push(d.into_bytes());
         }
     }
+    objs.extend(objets_liens);
     let mut out = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = Vec::with_capacity(objs.len());
     for (i, o) in objs.iter().enumerate() {
