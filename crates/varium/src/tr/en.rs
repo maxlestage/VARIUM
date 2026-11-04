@@ -402,6 +402,7 @@ pub static T: &[(&str, &str)] = &[
         "Créer les {n} documents dans un seul fichier, une page par destinataire :",
         "Create the {n} documents in a single file, one page per recipient:",
     ),
+    ("Créer {n} champ(s)", "Create {n} field(s)"),
     ("Ctrl+D", "Ctrl+D"),
     (
         "Ctrl+K ouvre la palette de commandes : tapez quelques lettres pour retrouver n'importe quelle action.",
@@ -515,6 +516,8 @@ pub static T: &[(&str, &str)] = &[
         "Déposez une image (PNG, JPEG) ou une présentation (ODP, PPTX)",
         "Drop an image (PNG, JPEG) or a presentation (ODP, PPTX)",
     ),
+    ("Détecter les champs", "Detect fields"),
+    ("Détecter les champs…", "Detect fields…"),
     ("E-mail", "Email"),
     ("Effacer", "Clear"),
     ("Effacer l'encre", "Erase ink"),
@@ -950,6 +953,7 @@ pub static T: &[(&str, &str)] = &[
         "Ne plus signaler ce mot dans ce document",
         "Don't flag this word again in this document",
     ),
+    ("Nom", "Name"),
     (
         "Nom invalide (lettres, chiffres, _ . -)",
         "Invalid name (letters, digits, _ . -)",
@@ -1205,6 +1209,10 @@ pub static T: &[(&str, &str)] = &[
     ("Revenir au texte (Échap)", "Back to the text (Esc)"),
     ("Revenir à l'affichage habituel", "Back to the usual view"),
     ("Rien", "Nothing"),
+    (
+        "Rien à proposer : ni date, ni montant, ni e-mail, ni téléphone, ni nom répété.",
+        "Nothing to suggest: no date, amount, e-mail, phone number or repeated name.",
+    ),
     ("Rose", "Pink"),
     ("Règles…", "Rules…"),
     ("Récemment utilisées", "Recently used"),
@@ -1408,6 +1416,7 @@ pub static T: &[(&str, &str)] = &[
         "Downloading {step}/{steps}: {file} ({v})",
     ),
     ("Téléchargement…", "Downloading…"),
+    ("Téléphone", "Phone"),
     (
         "Un code QR qu'on lit avec l'appareil photo d'un téléphone : adresse d'un site, texte, numéro… Il s'imprime dans tous les exports (PDF, Word, LibreOffice, page web).",
         "A QR code people read with a phone camera: website address, text, number… It is printed in every export (PDF, Word, LibreOffice, web page).",
@@ -1452,6 +1461,10 @@ pub static T: &[(&str, &str)] = &[
     ("Valider et aller à droite", "Confirm and move right"),
     ("Valider et descendre", "Confirm and move down"),
     ("Varium / texte", "Varium / text"),
+    (
+        "Varium a repéré des valeurs qui peuvent devenir des champs {{…}} : on les remplit ensuite une seule fois, ou depuis un tableur, pour tous les documents du même type.",
+        "Varium found values that can become {{…}} fields: you then fill them in once, or from a spreadsheet, for every document of the same kind.",
+    ),
     (
         "Varium s'est arrêté sans que « {title} » soit enregistré. Une sauvegarde automatique plus récente existe.",
         "Varium stopped before “{title}” was saved. A more recent automatic backup exists.",
@@ -1864,6 +1877,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} / {total} renseignés", "{n} / {total} filled in"),
     (
+        "{n} champ(s) créé(s) · Ctrl+Z pour annuler",
+        "{n} field(s) created · Ctrl+Z to undo",
+    ),
+    (
         "{n} champ(s) du document rempli(s) depuis le classeur",
         "{n} document field(s) filled from the spreadsheet",
     ),
@@ -2052,6 +2069,7 @@ pub static T: &[(&str, &str)] = &[
     ("Édition", "Edit"),
     ("Élégant", "Elegant"),
     ("Étendre la sélection", "Extend selection"),
+    ("× {n}", "× {n}"),
     ("écriture impossible sur le disque", "cannot write to disk"),
     ("égal à", "equal to"),
     ("égale à (=)", "equal to (=)"),
