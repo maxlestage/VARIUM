@@ -36,7 +36,8 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Texte conditionnel `{{si champ}}…{{sinon}}…{{fin}}` (conditions.rs) — « Texte conditionnel »
 - [x] Table des matières `\sommaire` (liste des titres, sans numéros de page) — « Table des matières »
 - [ ] Numéros de page dans la table des matières (nécessite la pagination)
-- [ ] Notes de bas de page
+- [x] Notes `\note{texte}` numérotées `[n]`, rassemblées en fin de document (champs et gras acceptés ; non fermée = texte) — « Notes numérotées »
+- [ ] Vraies notes de bas de page placées en bas de la page (nécessite la pagination)
 - [ ] Retraits, couleurs/surlignage, interligne par paragraphe
 - [ ] Import .odt / .docx simples
 - [x] Détection des doubles espaces / correcteur orthographique
