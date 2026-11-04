@@ -241,6 +241,18 @@ Déploiement du serveur (Heroku, Docker) : voir
 
 [![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/varium)
 
+
+### Site installable (PWA)
+
+Le site de présentation s'installe comme une application (Chrome, Edge, Safari « Sur l'écran d'accueil », Android) et reste lisible hors ligne :
+
+- un manifeste par langue (`/{langue}/manifest.webmanifest`) : nom, description, raccourcis (Télécharger, Syntaxe, Essayer) et captures dans la langue ;
+- un service worker (`/sw.js`) qui garde les 24 pages, la feuille de style et les icônes ;
+- les icônes : favicon SVG et ICO, PNG de 16 à 512 px, icônes adaptatives Android, icône Apple, masque Safari ;
+- le partage : image 1200 × 630 par langue (Open Graph, Twitter), bouton de partage natif, « Copier le lien », liens e-mail, WhatsApp, Telegram, X, Bluesky, LinkedIn, Facebook et Reddit, et « Installer le site » quand le navigateur le propose.
+
+Le tout suit le chemin de base (`/VARIUM` sur GitHub Pages) et n'utilise aucun script en ligne (`public/pwa.js`). Ce n'est pas une version web de l'application : Varium reste une application de bureau.
+
 ## Syntaxe
 
 | Écriture | Effet |
