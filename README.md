@@ -69,7 +69,17 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   (restaurée après un plantage ou une coupure).
 - **Vue page** : de vraies feuilles A4, A5, Lettre ou Légal, en portrait ou en paysage,
   avec marges, en-tête, pied de page, numéros « Page 1 sur 3 », pagination
-  automatique et zoom. Police Liberation Serif ou Sans, celles de LibreOffice.
+  automatique (veuves et orphelines, notes de bas de page en bas de leur page) et zoom ;
+  la même mise en page que le PDF. Police Liberation Serif ou Sans, celles de LibreOffice.
+  **Vignettes des pages** dans une barre latérale (Affichage → Vignettes des pages),
+  comme Pages : un clic mène à la page.
+- **Mise en forme du paragraphe** (inspecteur Format → Paragraphe) : retraits, alinéa,
+  interligne (simple, 1,15, 1,5, double, exact), espaces avant et après, couleur du
+  texte et surlignage ; dans tous les exports.
+- **Signature manuscrite** (Insertion → Signature…) : dessinée à la souris ou au pavé
+  tactile (trait lissé), gardée sur l'ordinateur pour la réutiliser ou intégrée au
+  document ; en traits vectoriels dans la page et le PDF, en SVG en HTML, en image en
+  ODT, DOCX et RTF.
 - **Éditeur mis en forme** : le gras s'affiche en gras, les titres en grand, les marques
   restent discrètes.
 - **Rechercher et remplacer**, **annuler et rétablir**, **barre d'état** (pages, mots,
@@ -118,7 +128,7 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   pour les gros caractères. Le choix est mémorisé.
 - **Typographie française automatique** : « guillemets », apostrophe ’, …, espaces fines
   avant ; : ! ? (désactivable dans Document).
-- **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur) : polices Times/Helvetica, texte justifié, titres, listes, tableaux coupés entre pages, en-tête, pied de page et « Page X sur N », et un plan de signets (un par titre) dans le lecteur PDF, et des liens cliquables (adresses `http`, `https`, `mailto`). Les caractères hors latin-1/WinAnsi (formules exotiques, émojis) sont remplacés par `?` ; l'incorporation des polices est prévue.
+- **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur), avec la même mise en page que la vue page : polices Liberation **incorporées** (sous-ensemble TrueType, plus une police de secours pour les symboles et les émojis : tout le texte Unicode s'affiche et se copie), flux compressés, texte justifié, titres, listes, tableaux coupés entre pages, **notes de bas de page** en bas de leur page, **formules composées** (fractions, indices, racines, sommes et intégrales avec bornes, matrices), signatures en traits vectoriels, en-tête, pied de page et « Page X sur N », table des matières avec numéros de page et liens vers les titres, plan de signets, liens cliquables (adresses `http`, `https`, `mailto`), métadonnées (titre, auteur, langue, XMP).
 - **Exports Pages** : RTF (Pages, TextEdit) et EPUB (livre numérique), en plus de PDF,
   DOCX, ODT, HTML, LaTeX et texte.
 - **Sur macOS** : menus dans la barre de l'écran (Varium, Fichier, Édition, Insertion,
@@ -209,7 +219,7 @@ Déploiement du serveur (Heroku, Docker) : voir
 | `{{x \| number:2}}` | `3,14` |
 | `{{t \| default:"texte"}}` | valeur par défaut si le champ est vide |
 | `\{{nom}}` | accolades littérales |
-| `$E = mc^2$`, `$$ \sum_i x_i $$` | formules LaTeX |
+| `$E = mc^2$`, `$$ \sum_i x_i $$` | formules LaTeX, composées dans la page et le PDF (MathML en HTML/EPUB/ODT, formules Word en DOCX) |
 | `\$` | dollar littéral |
 | `{{= quantité * prix \| money}}` | champ calculé (`+ - * / ( )`, `20%`, `arrondi(x; 2)`, `min`, `max`, `somme`) |
 | `{{si champ}}…{{sinon}}…{{fin}}` | texte conditionnel (champ renseigné, `si non`, `=`, `!=`) |
@@ -225,6 +235,10 @@ Déploiement du serveur (Heroku, Docker) : voir
 | `\| a \| b \|` puis `\|---\|---:\|` | tableau, en-tête et alignement des colonnes |
 | `---` | ligne horizontale |
 | `\newpage` | saut de page |
-| `\sommaire` | table des matières (liste des titres, générée) |
-| `\note{texte}` | note numérotée `[1]`, rassemblée en fin de document |
-| `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |
+| `{: retrait=1cm alinéa=5mm interligne=1,5 avant=6pt après=6pt} texte` | mise en forme du paragraphe : retraits (`retrait=`, `droite=`, `alinéa=` négatif pour un retrait suspendu ; cm par défaut, aussi `mm`, `pt`, `in`), interligne (`simple`, `1,15`, `1,5`, `double`, `exact:14pt`), espaces avant et après (pt), `couleur=`, `surlignage=` ; se combine avec `#`, `-`, `->` |
+| `{: interligne=double}` seul sur sa ligne, puis `{:}` | la même mise en forme pour tous les paragraphes suivants, puis retour à la normale |
+| `{couleur:rouge}texte{/}`, `{surlignage:vert}texte{/}`, `==surligné==` | couleur du texte et surlignage (noir, gris, rouge, orange, jaune, vert, turquoise, cyan, bleu, violet, magenta, rose, marron ou `#rrggbb`) |
+| `\sommaire` | table des matières : titres, points de conduite, numéros de page, liens |
+| `texte[^1]` puis `[^1]: la note`, `^[note en ligne]`, `\note{texte}` | notes de bas de page numérotées, en bas de la page de leur appel (vraies notes en ODT et DOCX, notes de fin en HTML et EPUB) |
+| `{{signature}}`, `{{signature:nom}}` | signature manuscrite (Insertion → Signature…) |
+| `\*`, `\_`, `\~`, `\|`, `\#`, `\>`, `\=`, `\{` | caractère littéral |

@@ -137,7 +137,7 @@ pub struct SlidesApp {
     /// Dernière adresse codée (proposée la fois suivante).
     qr_url: String,
     /// Images lues dans le dossier choisi pour un album : (nom du dossier, images).
-    album_inbox: Arc<Mutex<Option<(String, Vec<AlbumImage>)>>>,
+    album_inbox: AlbumInbox,
     /// Fenêtre de réglages de l'album photo.
     album: Option<AlbumDialog>,
     /// Réglages du mode kiosque (mémorisés).
@@ -233,6 +233,9 @@ struct ShowTools {
     /// Grille de toutes les diapositives (G).
     grid: bool,
 }
+
+/// Images lues dans le dossier d'un album : (nom du dossier, images).
+type AlbumInbox = Arc<Mutex<Option<(String, Vec<AlbumImage>)>>>;
 
 /// Fichiers choisis dans un dialogue : (nom, octets).
 type Picked = Arc<Mutex<Vec<(String, Vec<u8>)>>>;

@@ -132,6 +132,62 @@ pub const TEXTES: Textes = Textes {
             titre: "Uma verdadeira app para Mac",
             texte: "Menus na barra de menus, atalhos ⌘, ícone próprio, ecrã inteiro e modo de concentração; também para Windows e Linux.",
         },
+        Item {
+            titre: "Paleta de comandos ⌘K",
+            texte: "Ctrl+K ou ⌘K: escreva algumas letras e lance qualquer comando dos três módulos; F1 mostra a cábula dos atalhos.",
+        },
+        Item {
+            titre: "Centro de início",
+            texte: "Modelos, ficheiros recentes e dicas logo ao abrir; um ficheiro arrastado, ou aberto com duplo clique no Finder ou no Explorador, vai para o módulo certo.",
+        },
+        Item {
+            titre: "Preenchimento rápido",
+            texte: "Ctrl+E no Classeur: o Varium adivinha o resto da coluna a partir de um exemplo, com preenchimento automático, colagem inteligente e análise rápida.",
+        },
+        Item {
+            titre: "Tabela dinâmica",
+            texte: "Arraste as colunas para linhas, colunas e valores: totais, médias e contagens por grupo num instante.",
+        },
+        Item {
+            titre: "Histórico de versões",
+            texte: "Cada gravação guarda uma versão do documento; compare-as, com as diferenças realçadas, e volte atrás com um clique.",
+        },
+        Item {
+            titre: "Códigos QR",
+            texte: "Um código QR num documento ou num diapositivo, e um diapositivo «Partilhar» com o endereço da apresentação.",
+        },
+        Item {
+            titre: "Embelezar e Harmonizar",
+            texte: "Paginações propostas a partir do conteúdo do diapositivo e depois toda a apresentação coerente, com dez temas.",
+        },
+        Item {
+            titre: "Modo apresentador",
+            texte: "O público no projetor e, para si, as notas, o diapositivo seguinte, o cronómetro, o ponteiro laser, a caneta e o zoom.",
+        },
+        Item {
+            titre: "Modo quiosque e álbum de fotografias",
+            texte: "Uma apresentação em ciclo, sem comandos, que volta ao início após inatividade; um álbum criado a partir de uma pasta de imagens, ordenado por data.",
+        },
+        Item {
+            titre: "Importação do Word, LibreOffice e PowerPoint",
+            texte: "Abra ficheiros .docx e .odt no Documents, e apresentações .pptx com as cores do tema, gradientes, rotações e tabelas.",
+        },
+        Item {
+            titre: "Comentários e controlo de alterações",
+            texte: "Comente uma seleção, proponha inserções e eliminações e aceite ou recuse cada alteração.",
+        },
+        Item {
+            titre: "Notas de rodapé",
+            texte: "Verdadeiras notas no fundo da página, numeradas automaticamente, na pré-visualização e no PDF.",
+        },
+        Item {
+            titre: "Assinatura manuscrita",
+            texte: "Assine com o rato ou o trackpad e a assinatura é colocada no documento.",
+        },
+        Item {
+            titre: "Leitura em voz alta",
+            texte: "O documento lido pela síntese de voz do sistema, na sua língua, para rever de ouvido.",
+        },
     ],
     etapes_titre: "Como funciona",
     etapes: [

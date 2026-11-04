@@ -238,6 +238,7 @@ mod mac {
 }
 
 /// Le chemin d'une URL `file://` (encodage `%xx` décodé) ; `None` sinon.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn chemin_d_url(url: &str) -> Option<PathBuf> {
     let reste = url.strip_prefix("file://")?;
     // `file://localhost/…` ou `file:///…`.
@@ -309,7 +310,7 @@ mod tests {
             ]
             .into_iter(),
         );
-        assert_eq!(v, [f.clone()]);
+        assert_eq!(v, std::slice::from_ref(&f));
         let _ = std::fs::remove_file(f);
     }
 }

@@ -132,6 +132,62 @@ pub const TEXTES: Textes = Textes {
             titre: "Una vera app per Mac",
             texte: "Menu nella barra dei menu, scorciatoie con ⌘, icona, schermo intero e modalità concentrazione; anche per Windows e Linux.",
         },
+        Item {
+            titre: "Tavolozza dei comandi ⌘K",
+            texte: "Ctrl+K o ⌘K: digitate qualche lettera e lanciate qualsiasi comando dei tre moduli; F1 mostra il promemoria delle scorciatoie.",
+        },
+        Item {
+            titre: "Centro di avvio",
+            texte: "Modelli, file recenti e suggerimenti fin dall'apertura; un file trascinato, o aperto con doppio clic nel Finder o in Esplora risorse, va nel modulo giusto.",
+        },
+        Item {
+            titre: "Riempimento rapido",
+            texte: "Ctrl+E nel Classeur: Varium indovina il resto della colonna da un esempio, con completamento automatico, incolla intelligente e analisi rapida.",
+        },
+        Item {
+            titre: "Tabella pivot",
+            texte: "Trascinate le colonne in righe, colonne e valori: totali, medie e conteggi per gruppo in un attimo.",
+        },
+        Item {
+            titre: "Cronologia delle versioni",
+            texte: "Ogni salvataggio conserva una versione del documento; confrontatele, con le differenze evidenziate, e tornate indietro con un clic.",
+        },
+        Item {
+            titre: "Codici QR",
+            texte: "Un codice QR in un documento o su una diapositiva, e una diapositiva «Condividi» con l'indirizzo della presentazione.",
+        },
+        Item {
+            titre: "Abbellisci e Armonizza",
+            texte: "Impaginazioni proposte in base al contenuto della diapositiva, poi tutta la presentazione resa coerente, con dieci temi.",
+        },
+        Item {
+            titre: "Modalità relatore",
+            texte: "Il pubblico sul proiettore e per voi le note, la diapositiva successiva, il cronometro, il puntatore laser, la penna e lo zoom.",
+        },
+        Item {
+            titre: "Modalità chiosco e album fotografico",
+            texte: "Una presentazione in loop, senza comandi, che torna all'inizio dopo un periodo di inattività; un album creato da una cartella di immagini, ordinato per data.",
+        },
+        Item {
+            titre: "Importazione da Word, LibreOffice e PowerPoint",
+            texte: "Aprite file .docx e .odt in Documents, e presentazioni .pptx con colori del tema, sfumature, rotazioni e tabelle.",
+        },
+        Item {
+            titre: "Commenti e revisioni",
+            texte: "Commentate una selezione, proponete inserimenti ed eliminazioni, poi accettate o rifiutate ogni modifica.",
+        },
+        Item {
+            titre: "Note a piè di pagina",
+            texte: "Vere note in fondo alla pagina, numerate automaticamente, nell'anteprima come nel PDF.",
+        },
+        Item {
+            titre: "Firma autografa",
+            texte: "Firmate con il mouse o il trackpad e la firma viene posta nel documento.",
+        },
+        Item {
+            titre: "Lettura ad alta voce",
+            texte: "Il documento letto dalla sintesi vocale del sistema, nella sua lingua, per rileggere con le orecchie.",
+        },
     ],
     etapes_titre: "Come funziona",
     etapes: [

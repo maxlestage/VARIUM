@@ -334,7 +334,7 @@ impl Face {
         }
         tables.push((*b"glyf", glyf));
         tables.push((*b"loca", loca));
-        tables.sort_by(|a, b| a.0.cmp(&b.0));
+        tables.sort_by_key(|t| t.0);
         assembler(&mut tables)
     }
 }
@@ -354,7 +354,8 @@ fn nom_postscript(d: &[u8]) -> Option<String> {
         let b = d.get(chaines + off..chaines + off + l)?;
         let s: String = if pf == 3 || pf == 0 {
             b.chunks(2)
-                .filter_map(|c| (c.len() == 2).then(|| u16::from_be_bytes([c[0], c[1]])))
+                .filter(|c| c.len() == 2)
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
                 .filter_map(|u| char::from_u32(u as u32))
                 .collect()
         } else {
