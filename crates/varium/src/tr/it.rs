@@ -327,6 +327,10 @@ pub static T: &[(&str, &str)] = &[
         "Avancer automatiquement selon le minutage",
         "Avanza automaticamente secondo i tempi",
     ),
+    (
+        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer :",
+        "Prima di inviare, ecco cosa potrebbe notare il destinatario:",
+    ),
     ("Avant une modification", "Prima di una modifica"),
     ("Avant une restauration", "Prima di un ripristino"),
     ("Avant « {op} »", "Prima di «{op}»"),
@@ -781,6 +785,7 @@ pub static T: &[(&str, &str)] = &[
     ("Exporter en EPUB", "Esporta in EPUB"),
     ("Exporter en HTML…", "Esporta in HTML…"),
     ("Exporter en PDF", "Esporta in PDF"),
+    ("Exporter en PDF quand même", "Esporta comunque in PDF"),
     ("Exporter le PDF…", "Esporta il PDF…"),
     (
         "Exporter pour LibreOffice (.odt)",
@@ -811,6 +816,7 @@ pub static T: &[(&str, &str)] = &[
         "Foglio {v} di {sheet_count}",
     ),
     ("Fichier", "File"),
+    ("Fichier : {nom}", "File: {nom}"),
     (
         "Fichiers Varium, Office et OpenDocument",
         "File Varium, Office e OpenDocument",
@@ -1065,6 +1071,10 @@ pub static T: &[(&str, &str)] = &[
         "Il campo assume lo stesso valore ovunque compaia.",
     ),
     (
+        "Le champ {champ} n'est pas rempli.",
+        "Il campo {champ} non è compilato.",
+    ),
+    (
         "Le diaporama s'arrêtera et Varium réapparaîtra.",
         "La presentazione si fermerà e Varium riapparirà.",
     ),
@@ -1076,6 +1086,7 @@ pub static T: &[(&str, &str)] = &[
         "Le document actuel reste récupérable avec Annuler (Ctrl+Z).",
         "Il documento attuale si può ancora recuperare con Annulla (Ctrl+Z).",
     ),
+    ("Le document est vide.", "Il documento è vuoto."),
     (
         "Le document reprend ce texte (l'état actuel est gardé dans l'historique, Ctrl+Z pour revenir)",
         "Il documento riprende questo testo (lo stato attuale resta nella cronologia; Ctrl+Z per tornare indietro)",
@@ -1556,6 +1567,8 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Présentation d'exemple", "Presentazione di esempio"),
     ("Présenter à partir d'ici", "Proietta da qui"),
+    ("Prêt à envoyer ?", "Pronto per l'invio?"),
+    ("Prêt à envoyer…", "Pronto per l'invio…"),
     ("Publipostage", "Stampa in serie"),
     ("Publipostage…", "Stampa in serie…"),
     ("Question {i} sur {n}", "Domanda {i} di {n}"),
@@ -2480,6 +2493,10 @@ pub static T: &[(&str, &str)] = &[
         "{n} campo/i del documento compilato/i dal foglio di calcolo",
     ),
     (
+        "{n} commentaire(s) de relecture restent dans le texte.",
+        "{n} commento/i di revisione restano nel testo.",
+    ),
+    (
         "{n} correction(s) appliquée(s)",
         "{n} correzione/i applicata/e",
     ),
@@ -2511,6 +2528,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} masqué(s)", "{n} nascosto/i"),
     ("{n} min", "{n} min"),
+    (
+        "{n} modification(s) proposée(s) attendent d'être acceptées ou refusées.",
+        "{n} modifica/che proposta/e attendono di essere accettate o rifiutate.",
+    ),
     ("{n} mots", "{n} parole"),
     ("{n} mots inconnus", "{n} parole sconosciute"),
     (
@@ -2523,6 +2544,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} photo(s)", "{n} foto"),
     ("{n} questions", "{n} domande"),
+    (
+        "{n} remarque(s) de révision (orthographe, espaces, majuscules…).",
+        "{n} segnalazione/i di revisione (ortografia, spazi, maiuscole…).",
+    ),
     ("{n} remarques", "{n} osservazioni"),
     ("{n} réponse(s) à vérifier", "{n} risposta/e da verificare"),
     ("{n} s", "{n} s"),
@@ -2739,6 +2764,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("✔ Accepter", "✔ Accetta"),
     ("✔ Dictionnaire {locale}", "✔ Dizionario {locale}"),
+    (
+        "✔ Rien à signaler : le document est prêt.",
+        "✔ Niente da segnalare: il documento è pronto.",
+    ),
     ("✔ Tout accepter", "✔ Accetta tutto"),
     (
         "✔ Tout est rempli. Exportez le document (Fichier → Exporter) ou terminez.",

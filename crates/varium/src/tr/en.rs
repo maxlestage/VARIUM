@@ -288,6 +288,10 @@ pub static T: &[(&str, &str)] = &[
         "Avancer automatiquement selon le minutage",
         "Advance automatically using timings",
     ),
+    (
+        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer :",
+        "Before sending, here is what your recipient might notice:",
+    ),
     ("Avant une modification", "Before a change"),
     ("Avant une restauration", "Before a restore"),
     ("Avant « {op} »", "Before “{op}”"),
@@ -727,6 +731,7 @@ pub static T: &[(&str, &str)] = &[
     ("Exporter en EPUB", "Export as EPUB"),
     ("Exporter en HTML…", "Export as HTML…"),
     ("Exporter en PDF", "Export as PDF"),
+    ("Exporter en PDF quand même", "Export as PDF anyway"),
     ("Exporter le PDF…", "Export PDF…"),
     (
         "Exporter pour LibreOffice (.odt)",
@@ -757,6 +762,7 @@ pub static T: &[(&str, &str)] = &[
         "Sheet {v} of {sheet_count}",
     ),
     ("Fichier", "File"),
+    ("Fichier : {nom}", "File: {nom}"),
     (
         "Fichiers Varium, Office et OpenDocument",
         "Varium, Office and OpenDocument files",
@@ -999,6 +1005,10 @@ pub static T: &[(&str, &str)] = &[
         "The field takes the same value everywhere it appears.",
     ),
     (
+        "Le champ {champ} n'est pas rempli.",
+        "The field {champ} is not filled in.",
+    ),
+    (
         "Le diaporama s'arrêtera et Varium réapparaîtra.",
         "The slideshow will stop and Varium will reappear.",
     ),
@@ -1010,6 +1020,7 @@ pub static T: &[(&str, &str)] = &[
         "Le document actuel reste récupérable avec Annuler (Ctrl+Z).",
         "The current document can still be recovered with Undo (Ctrl+Z).",
     ),
+    ("Le document est vide.", "The document is empty."),
     (
         "Le document reprend ce texte (l'état actuel est gardé dans l'historique, Ctrl+Z pour revenir)",
         "The document takes this text back (the current state is kept in the history; Ctrl+Z to go back)",
@@ -1475,6 +1486,8 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Présentation d'exemple", "Sample Presentation"),
     ("Présenter à partir d'ici", "Start Slide Show from Here"),
+    ("Prêt à envoyer ?", "Ready to send?"),
+    ("Prêt à envoyer…", "Ready to send…"),
     ("Publipostage", "Mail Merge"),
     ("Publipostage…", "Mail Merge…"),
     ("Question {i} sur {n}", "Question {i} of {n}"),
@@ -2360,6 +2373,10 @@ pub static T: &[(&str, &str)] = &[
         "{n} document field(s) filled from the spreadsheet",
     ),
     (
+        "{n} commentaire(s) de relecture restent dans le texte.",
+        "{n} review comment(s) remain in the text.",
+    ),
+    (
         "{n} correction(s) appliquée(s)",
         "{n} correction(s) applied",
     ),
@@ -2391,6 +2408,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} masqué(s)", "{n} hidden"),
     ("{n} min", "{n} min"),
+    (
+        "{n} modification(s) proposée(s) attendent d'être acceptées ou refusées.",
+        "{n} proposed change(s) are waiting to be accepted or rejected.",
+    ),
     ("{n} mots", "{n} words"),
     ("{n} mots inconnus", "{n} unknown words"),
     (
@@ -2403,6 +2424,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} photo(s)", "{n} photo(s)"),
     ("{n} questions", "{n} questions"),
+    (
+        "{n} remarque(s) de révision (orthographe, espaces, majuscules…).",
+        "{n} proofreading note(s) (spelling, spaces, capitals…).",
+    ),
     ("{n} remarques", "{n} issues"),
     ("{n} réponse(s) à vérifier", "{n} answer(s) to check"),
     ("{n} s", "{n} s"),
@@ -2619,6 +2644,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("✔ Accepter", "✔ Accept"),
     ("✔ Dictionnaire {locale}", "✔ Dictionary {locale}"),
+    (
+        "✔ Rien à signaler : le document est prêt.",
+        "✔ Nothing to report: the document is ready.",
+    ),
     ("✔ Tout accepter", "✔ Accept all"),
     (
         "✔ Tout est rempli. Exportez le document (Fichier → Exporter) ou terminez.",

@@ -25,6 +25,8 @@ use crate::templates;
 mod detection;
 #[path = "doc_ecriture.rs"]
 mod ecriture;
+#[path = "doc_envoi.rs"]
+mod envoi;
 #[path = "doc_formulaire.rs"]
 mod formulaire;
 #[path = "doc_historique.rs"]
@@ -109,6 +111,10 @@ pub enum Act {
     FillForm,
     /// « Détecter les champs… » dans un document déjà écrit.
     DetectFields,
+    /// « Prêt à envoyer… » : contrôle puis PDF au nom propre.
+    PretAEnvoyer,
+    /// Export sous un nom de fichier propre (sans accents ni espaces).
+    ExportPropre(Format),
     ToggleAutocorrect,
     /// Défilement « machine à écrire » du mode concentration.
     ToggleTypewriter,
@@ -315,6 +321,8 @@ enum Dialog {
     Qr(formulaire::QrSaisie),
     /// « Détecter les champs… » (propositions cochées).
     Detection(detection::DetectionSaisie),
+    /// « Prêt à envoyer ? » (points relevés).
+    Envoi(Vec<varium_core::envoi::Point>),
     /// « Commenter la sélection » (texte du commentaire).
     Commentaire(String),
     /// « Créer un modèle à partir de ce document ».
@@ -958,7 +966,9 @@ impl VariumApp {
                 self.save_project(ctx, true);
             }
             Act::Quit => self.guard(ctx, Pending::Quit),
-            Act::Export(f) => self.export(ctx, f),
+            Act::Export(f) => self.export(ctx, f, false),
+            Act::ExportPropre(f) => self.export(ctx, f, true),
+            Act::PretAEnvoyer => self.ouvrir_envoi(),
             Act::Print => {
                 let html = export::html(&self.title, &self.rendered(), &self.page);
                 self.io
@@ -1095,8 +1105,12 @@ impl VariumApp {
         self.prefs.zoom.unwrap_or(1.0)
     }
 
-    fn export(&mut self, ctx: &egui::Context, f: Format) {
-        let stem = self.file_stem();
+    fn export(&mut self, ctx: &egui::Context, f: Format, propre: bool) {
+        let stem = if propre {
+            self.nom_envoi("")
+        } else {
+            self.file_stem()
+        };
         let docs = self.rendered();
         let (name, mime, bytes): (String, &'static str, Vec<u8>) = match f {
             Format::Pdf => (
@@ -1328,6 +1342,7 @@ impl VariumApp {
             ui.separator();
             self.item(ui, tr("Enregistrer"), Act::Save);
             self.item(ui, tr("Enregistrer sous…"), Act::SaveAs);
+            self.item(ui, tr("Prêt à envoyer…"), Act::PretAEnvoyer);
             ui.menu_button(tr("Exporter"), |ui| {
                 self.item(ui, tr("PDF (.pdf)"), Act::Export(Format::Pdf));
                 self.item(
@@ -3480,6 +3495,7 @@ impl VariumApp {
                 Dialog::Marquer(nom) => keep = self.marquer_dialogue(ui, nom),
                 Dialog::Qr(saisie) => keep = self.qr_dialogue(ui, saisie),
                 Dialog::Detection(saisie) => keep = self.detection_dialogue(ui, saisie),
+                Dialog::Envoi(points) => keep = self.envoi_dialogue(ui, points),
                 Dialog::Commentaire(texte) => keep = self.commentaire_dialogue(ui, texte),
                 Dialog::Decouper(d) => keep = self.decoupe_dialogue(ui, d),
                 Dialog::Assistant(a) => keep = self.assistant_dialogue(ui, a),
@@ -4527,7 +4543,8 @@ fn act_label(a: Act) -> &'static str {
         Act::SaveAs => tr("Enregistrer sous"),
         Act::Export(Format::Odt) => tr("Exporter pour LibreOffice (.odt)"),
         Act::Export(Format::Pdf) => tr("Exporter en PDF"),
-        Act::Export(_) => tr("Exporter"),
+        Act::PretAEnvoyer => tr("Prêt à envoyer…"),
+        Act::Export(_) | Act::ExportPropre(_) => tr("Exporter"),
         Act::Print => tr("Imprimer"),
         Act::Undo => tr("Annuler"),
         Act::Redo => tr("Rétablir"),
@@ -4573,6 +4590,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         true,
         &[
             &b.item("PDF…", Act::Export(Format::Pdf), None),
+            &b.item(tr("Prêt à envoyer…"), Act::PretAEnvoyer, None),
             &b.item(tr("Word (.docx)…"), Act::Export(Format::Docx), None),
             &b.item(tr("LibreOffice (.odt)…"), Act::Export(Format::Odt), None),
             &b.item(tr("Texte enrichi (.rtf)…"), Act::Export(Format::Rtf), None),
@@ -4784,7 +4802,7 @@ impl VariumApp {
         let format = n_("Format");
         let affichage = n_("Affichage");
         let aide = n_("Aide");
-        let list: [(Act, &'static str, &'static str); 68] = [
+        let list: [(Act, &'static str, &'static str); 69] = [
             (Act::New, n_("Nouveau document"), fichier),
             (Act::Templates, n_("Nouveau à partir d'un modèle…"), fichier),
             (Act::Open, n_("Ouvrir…"), fichier),
@@ -4879,6 +4897,7 @@ impl VariumApp {
             ),
             (Act::Goal, n_("Objectif de mots…"), affichage),
             (Act::DetectFields, n_("Détecter les champs…"), n_("Outils")),
+            (Act::PretAEnvoyer, n_("Prêt à envoyer…"), fichier),
             (
                 Act::FillForm,
                 n_("Remplir comme un formulaire"),
