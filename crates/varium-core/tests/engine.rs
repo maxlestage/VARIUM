@@ -200,7 +200,9 @@ fn exports() {
     let src = "Société {{nom}} — 50 % — $x_1 = {{m}}$\n{{inconnu}}";
     let html = export::to_html("Essai", src, &v);
     assert!(html.contains("Dupont &amp; fils"));
-    assert!(html.contains("\\(x_1 = 5\\)"));
+    // Formule en MathML (LaTeX d'origine en annotation).
+    assert!(html.contains("<msub><mi>x</mi><mn>1</mn></msub>"));
+    assert!(html.contains("x_1 = 5</annotation>"));
     assert!(html.contains("<mark>{{inconnu}}</mark>"));
     let tex = export::to_latex("Essai", src, &v);
     assert!(tex.contains("Dupont \\& fils"));
@@ -297,7 +299,7 @@ fn exports_bureautique() {
     assert!(text.contains("<w:tbl>"));
 
     let html = export::html("Essai", &docs, &page);
-    assert!(html.contains("<h1>Titre</h1>"));
+    assert!(html.contains("<h1 id=\"d0-t0\">Titre</h1>"));
     assert!(html.contains("<strong>Gras</strong>"));
     assert!(html.contains("counter(pages)"));
     assert!(html.contains("<th>a</th>"));

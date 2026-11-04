@@ -1,10 +1,19 @@
 [Desktop Entry]
 Type=Application
 Name=Varium
-GenericName=Éditeur de documents
+GenericName=Suite bureautique
+GenericName[en]=Office suite
+GenericName[es]=Suite ofimática
+GenericName[de]=Office-Paket
+GenericName[it]=Suite per l'ufficio
+GenericName[pt]=Suite de escritório
 Comment=Un document. Toutes ses possibilités.
-Exec=varium
+Comment[en]=One document. All its possibilities.
+Exec=varium %F
 Icon=varium
 Terminal=false
-Categories=Office;WordProcessor;
-Keywords=document;modèle;publipostage;facture;
+Categories=Office;WordProcessor;Spreadsheet;Presentation;
+Keywords=document;modèle;publipostage;facture;classeur;présentation;
+# Documents, classeurs et présentations Varium, puis les formats ouverts « avec » Varium.
+MimeType=application/x-varium;application/x-varium-calc;application/x-varium-slides;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.oasis.opendocument.text;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.oasis.opendocument.spreadsheet;text/csv;application/vnd.oasis.opendocument.presentation;application/vnd.openxmlformats-officedocument.presentationml.presentation;text/markdown;
+StartupWMClass=varium

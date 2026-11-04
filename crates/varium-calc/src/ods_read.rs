@@ -37,6 +37,7 @@ struct RawStyle {
     bold: Option<bool>,
     italic: Option<bool>,
     align: Option<Option<HAlign>>,
+    wrap: Option<bool>,
     col_width: Option<f32>,
     row_height: Option<f32>,
     optimal_height: bool,
@@ -102,10 +103,13 @@ fn read_styles_into(container: &Node, out: &mut Styles) {
             data_style: n.attr("style:data-style-name").map(str::to_string),
             ..RawStyle::default()
         };
-        if let Some(p) = n.child("style:table-cell-properties")
-            && let Some(bg) = p.attr("fo:background-color")
-        {
-            s.fill = Some(parse_rgb(bg));
+        if let Some(p) = n.child("style:table-cell-properties") {
+            if let Some(bg) = p.attr("fo:background-color") {
+                s.fill = Some(parse_rgb(bg));
+            }
+            if let Some(w) = p.attr("fo:wrap-option") {
+                s.wrap = Some(w == "wrap");
+            }
         }
         if let Some(p) = n.child("style:paragraph-properties")
             && let Some(a) = p.attr("fo:text-align")
@@ -176,6 +180,9 @@ impl Styles {
             }
             if let Some(a) = s.align {
                 f.align = a;
+            }
+            if let Some(w) = s.wrap {
+                f.wrap = w;
             }
         }
         f

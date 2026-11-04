@@ -12,5 +12,6 @@ serde = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 miniz_oxide = "0.8"
+quick-xml = "0.42"
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }

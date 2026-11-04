@@ -40,7 +40,7 @@ pub struct Io {
     inbox: Arc<Mutex<Vec<Event>>>,
 }
 
-pub const OPEN_EXTENSIONS: &[&str] = &["json", "varium", "txt", "md", "tex"];
+pub const OPEN_EXTENSIONS: &[&str] = &["json", "varium", "txt", "md", "tex", "docx", "odt"];
 pub const DATA_EXTENSIONS: &[&str] = &["csv", "tsv", "txt"];
 
 impl Io {
@@ -58,8 +58,13 @@ impl Io {
         let ctx = ctx.clone();
         let dialog = match kind {
             OpenKind::Document => rfd::AsyncFileDialog::new()
-                .set_title(tr("Ouvrir un document Varium"))
-                .add_filter(tr("Varium / texte"), OPEN_EXTENSIONS),
+                .set_title(tr("Ouvrir un document"))
+                .add_filter(
+                    tr("Documents (Varium, Word, OpenDocument, texte)"),
+                    OPEN_EXTENSIONS,
+                )
+                .add_filter(tr("Word (.docx)"), &["docx"])
+                .add_filter(tr("OpenDocument texte (.odt)"), &["odt"]),
             OpenKind::Data => rfd::AsyncFileDialog::new()
                 .set_title(tr("Choisir les données du publipostage"))
                 .add_filter(tr("Tableau CSV"), DATA_EXTENSIONS),
@@ -173,7 +178,11 @@ impl Io {
 fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -> Event {
     // Présentations ODP et PPTX (archives ZIP) : transmises octet pour caractère
     // (U+0000 à U+00FF), que le module Présentation reconvertit en octets.
-    if kind == OpenKind::Deck && (bytes.starts_with(b"PK\x03\x04") || is_zip_deck(&name)) {
+    // Documents Word et OpenDocument (archives ZIP) : de même, importés par le module.
+    let zip = bytes.starts_with(b"PK\x03\x04");
+    if (kind == OpenKind::Deck && (zip || is_zip_deck(&name)))
+        || (kind == OpenKind::Document && (zip || is_office_text(&name)))
+    {
         return Event::Opened {
             kind,
             name,
@@ -197,6 +206,17 @@ fn decode(kind: OpenKind, name: String, path: Option<PathBuf>, bytes: Vec<u8>) -
         },
         Err(_) => Event::Error(trf!("« {name} » n'est pas un fichier texte UTF-8", name)),
     }
+}
+
+/// Document de traitement de texte (`.docx`, `.odt`, `.doc`).
+pub fn is_office_text(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.ends_with(".docx") || n.ends_with(".odt") || n.ends_with(".doc")
+}
+
+/// Les octets d'un fichier binaire transmis caractère pour octet.
+pub fn octets(content: &str) -> Vec<u8> {
+    content.chars().map(|c| c as u32 as u8).collect()
 }
 
 /// Présentation enregistrée dans une archive (`.odp`, `.pptx`).
@@ -303,6 +323,22 @@ mod tests {
             }
             _ => panic!("présentation binaire attendue"),
         }
+    }
+
+    #[test]
+    fn decode_transmet_les_documents_word_et_opendocument() {
+        let octets_zip = vec![b'P', b'K', 3, 4, 0xC3, 0x80];
+        match decode(
+            OpenKind::Document,
+            "a.docx".into(),
+            None,
+            octets_zip.clone(),
+        ) {
+            Event::Opened { content, .. } => assert_eq!(octets(&content), octets_zip),
+            _ => panic!("document binaire attendu"),
+        }
+        assert!(is_office_text("Lettre.ODT"));
+        assert!(!is_office_text("a.txt"));
     }
 
     #[test]

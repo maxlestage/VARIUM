@@ -20,6 +20,14 @@ pub enum Theme {
     Craie,
     /// Crème rosée, accent corail.
     Corail,
+    /// Papier ancien, encre brune, accent rouille, titres à empattements.
+    Papier,
+    /// Nuit violette, accent rose, sans empattements.
+    Minuit,
+    /// Vert sauge, accent forêt, titres à empattements.
+    Foret,
+    /// Crème ensoleillée, accent orange, sans empattements.
+    Agrume,
 }
 
 identifiants!(Theme {
@@ -29,6 +37,10 @@ identifiants!(Theme {
     Elegant => "elegant",
     Craie => "craie",
     Corail => "corail",
+    Papier => "papier",
+    Minuit => "minuit",
+    Foret => "foret",
+    Agrume => "agrume",
 });
 
 /// Couleurs d'une diapositive (RVB).
@@ -49,13 +61,17 @@ pub struct Palette {
 }
 
 impl Theme {
-    pub const ALL: [Theme; 6] = [
+    pub const ALL: [Theme; 10] = [
         Theme::Clair,
         Theme::Sombre,
         Theme::Ocean,
         Theme::Elegant,
         Theme::Craie,
         Theme::Corail,
+        Theme::Papier,
+        Theme::Minuit,
+        Theme::Foret,
+        Theme::Agrume,
     ];
 
     pub fn label(self) -> &'static str {
@@ -66,6 +82,10 @@ impl Theme {
             Theme::Elegant => "Élégant",
             Theme::Craie => "Craie",
             Theme::Corail => "Corail",
+            Theme::Papier => "Papier",
+            Theme::Minuit => "Minuit",
+            Theme::Foret => "Forêt",
+            Theme::Agrume => "Agrume",
         }
     }
 
@@ -125,6 +145,38 @@ impl Theme {
                 [120, 42, 30],
                 [234, 98, 76],
                 [158, 124, 116],
+                false,
+            ),
+            Theme::Papier => p(
+                [247, 241, 227],
+                [62, 52, 42],
+                [40, 32, 24],
+                [168, 72, 40],
+                [124, 110, 94],
+                true,
+            ),
+            Theme::Minuit => p(
+                [26, 20, 52],
+                [220, 214, 242],
+                [255, 255, 255],
+                [244, 114, 182],
+                [152, 142, 196],
+                false,
+            ),
+            Theme::Foret => p(
+                [236, 243, 234],
+                [44, 62, 48],
+                [20, 58, 36],
+                [40, 120, 74],
+                [96, 120, 102],
+                true,
+            ),
+            Theme::Agrume => p(
+                [255, 250, 236],
+                [72, 56, 30],
+                [42, 30, 10],
+                [214, 104, 14],
+                [132, 112, 76],
                 false,
             ),
         }

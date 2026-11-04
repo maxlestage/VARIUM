@@ -111,6 +111,8 @@ pub struct PageSetup {
     pub typographie: bool,
     /// Langue du document : dates, nombres, typographie, vérification.
     pub langue: crate::lang::Lang,
+    /// Auteur (métadonnées des exports PDF, ODT, DOCX, EPUB).
+    pub auteur: String,
 }
 
 impl Default for PageSetup {
@@ -131,6 +133,7 @@ impl Default for PageSetup {
             page_numbers: false,
             typographie: true,
             langue: crate::lang::Lang::Fr,
+            auteur: String::new(),
         }
     }
 }

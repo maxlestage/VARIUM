@@ -15,7 +15,7 @@
 
 use std::ops::Range;
 
-use crate::check::{Issue, Kind};
+use crate::check::{Code, Issue, Kind};
 use crate::lang::Lang;
 
 /// Un correcteur orthographique (un dictionnaire Hunspell, par exemple).
@@ -90,16 +90,18 @@ pub fn check_spelling(
 /// La remarque pour un mot inconnu, avec ses suggestions.
 pub fn spelling_issue(src: &str, r: Range<usize>, suggestions: &[String]) -> Issue {
     let word = &src[r.clone()];
-    Issue {
-        start: r.start,
-        end: r.end,
-        kind: Kind::Orthographe,
-        message: match suggestions.first() {
-            Some(s) => format!("« {word} » est inconnu du dictionnaire : « {s} » ?"),
-            None => format!("« {word} » est inconnu du dictionnaire"),
-        },
-        replacement: suggestions.first().cloned(),
-    }
+    let (code, args) = match suggestions.first() {
+        Some(s) => (Code::InconnuSuggestion, vec![word.to_string(), s.clone()]),
+        None => (Code::Inconnu, vec![word.to_string()]),
+    };
+    Issue::new(
+        r.start,
+        r.end,
+        Kind::Orthographe,
+        code,
+        args,
+        suggestions.first().cloned(),
+    )
 }
 
 fn is_apostrophe(c: char) -> bool {

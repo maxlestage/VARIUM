@@ -18,6 +18,7 @@
 //! | `GET /syntaxe/`, `/essayer/`, `/installer/` | les anciennes adresses : redirigent vers `/fr/…` |
 //! | `POST /api/rendu` | le moteur en JSON : `{source, valeurs}` → texte, HTML, variables |
 //! | `GET /sitemap.xml`, `GET /robots.txt` | pour les moteurs de recherche |
+//! | `GET /{langue}/manifest.webmanifest`, `GET /sw.js` | le site installable (voir [`pwa`]) |
 //!
 //! Les routes répondent avec ou sans `/` final. Avec un chemin de base (`BASE_PATH`,
 //! voir [`Options`]), elles répondent aussi derrière lui : `/VARIUM/fr/syntaxe/`.
@@ -33,6 +34,7 @@ mod layout;
 mod options;
 pub use options::Options;
 mod pages;
+pub mod pwa;
 pub mod routes;
 pub use routes::Rubrique;
 
@@ -86,6 +88,17 @@ pub fn app_with(options: Options) -> App {
             pages::ancienne(req, rubrique)
         });
     }
+    // Le site installable : un manifeste par langue et le service worker.
+    for langue in Langue::ALL {
+        app.get(
+            &format!("/{}/manifest.webmanifest", langue.code()),
+            move |req| pwa::reponse_manifeste(req, langue),
+        );
+    }
+    app.get("/manifest.webmanifest", |req| {
+        pwa::reponse_manifeste(req, Langue::Fr)
+    });
+    app.get("/sw.js", pwa::reponse_worker);
     app.post("/essayer", |req| demo::soumettre(req, Langue::Fr));
     app.post("/api/rendu", demo::api);
     app.get("/robots.txt", pages::robots);

@@ -16,5 +16,103 @@
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key><string>Varium — un document, toutes ses possibilités.</string>
   <key>NSRequiresAquaSystemAppearance</key><false/>
+  <!-- Fichiers que le Finder propose d'ouvrir avec Varium (double-clic, « Ouvrir avec »).
+       Les fichiers Varium s'appellent *.varium.json, *.varium-calc.json et
+       *.varium-slides.json : pour macOS ce sont des .json, Varium y est proposé
+       sans s'imposer. L'événement « open documents » est reçu par ouverture.rs. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Document Varium</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>io.github.maxlestage.varium.document</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>varium</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Fichier JSON (document, classeur ou présentation Varium)</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>public.json</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>json</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Document Word</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>org.openxmlformats.wordprocessingml.document</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>docx</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Texte OpenDocument</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>org.oasis-open.opendocument.text</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>odt</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Texte</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>net.daringfireball.markdown</string><string>public.plain-text</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>md</string><string>txt</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Classeur Excel</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>org.openxmlformats.spreadsheetml.sheet</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>xlsx</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Classeur OpenDocument</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>org.oasis-open.opendocument.spreadsheet</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>ods</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Valeurs séparées par des virgules</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>public.comma-separated-values-text</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>csv</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Présentation PowerPoint</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>org.openxmlformats.presentationml.presentation</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>pptx</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Présentation OpenDocument</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>Varium</string>
+      <key>LSItemContentTypes</key><array><string>org.oasis-open.opendocument.presentation</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>odp</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>io.github.maxlestage.varium.document</string>
+      <key>UTTypeDescription</key><string>Document Varium</string>
+      <key>UTTypeConformsTo</key><array><string>public.json</string><string>public.data</string></array>
+      <key>UTTypeIconFile</key><string>Varium</string>
+      <key>UTTypeTagSpecification</key>
+      <dict><key>public.filename-extension</key><array><string>varium</string></array></dict>
+    </dict>
+  </array>
 </dict>
 </plist>

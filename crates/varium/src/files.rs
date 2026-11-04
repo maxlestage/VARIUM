@@ -1,7 +1,101 @@
-//! Logique pure des fichiers façon Writer : titre de fenêtre, documents récents.
+//! Logique pure des fichiers façon Writer : titre de fenêtre, documents récents,
+//! état « modifié » et confirmation avant de remplacer le document (sans egui, donc
+//! testable).
 
 use crate::tr::tr;
 use std::path::{Path, PathBuf};
+use varium_core::{PageSetup, Values};
+
+/// L'état d'un document à un instant (dernier enregistrement, annuler/rétablir).
+#[derive(Clone, PartialEq, Default, Debug)]
+pub struct Snapshot {
+    pub title: String,
+    pub source: String,
+    pub values: Values,
+    pub page: PageSetup,
+    pub objectif: Option<u32>,
+}
+
+impl Snapshot {
+    /// Le document affiché diffère-t-il de cet état ? (sans rien copier)
+    pub fn differe(
+        &self,
+        title: &str,
+        source: &str,
+        values: &Values,
+        page: &PageSetup,
+        objectif: Option<u32>,
+    ) -> bool {
+        self.source != source
+            || self.title != title
+            || self.page != *page
+            || self.values != *values
+            || self.objectif != objectif
+    }
+}
+
+/// Avant une action qui remplace le document (nouveau, ouvrir, quitter).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Garde<P> {
+    /// Rien à perdre : l'action se fait tout de suite.
+    Continuer(P),
+    /// Des modifications ne sont pas enregistrées : « Enregistrer les modifications ? ».
+    Confirmer(P),
+}
+
+pub fn garder<P>(modifie: bool, action: P) -> Garde<P> {
+    if modifie {
+        Garde::Confirmer(action)
+    } else {
+        Garde::Continuer(action)
+    }
+}
+
+/// La réponse à « Enregistrer les modifications ? ».
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reponse {
+    Enregistrer,
+    NePasEnregistrer,
+    Annuler,
+}
+
+/// L'issue d'un enregistrement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Issue {
+    Fait,
+    /// Le dialogue « Enregistrer sous » est ouvert : l'action attendra sa fin.
+    Demande,
+    Echec,
+}
+
+/// Ce que devient l'action différée après la réponse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Suite<P> {
+    /// La faire maintenant.
+    Faire(P),
+    /// La faire quand « Enregistrer sous » aura abouti.
+    ApresEnregistrement(P),
+    /// L'abandonner (Annuler, ou enregistrement impossible).
+    Abandonner,
+}
+
+/// Après la réponse à la confirmation ; `enregistrer` n'est appelé que si l'on a
+/// choisi « Enregistrer ».
+pub fn apres_confirmation<P>(
+    reponse: Reponse,
+    action: P,
+    enregistrer: impl FnOnce() -> Issue,
+) -> Suite<P> {
+    match reponse {
+        Reponse::Annuler => Suite::Abandonner,
+        Reponse::NePasEnregistrer => Suite::Faire(action),
+        Reponse::Enregistrer => match enregistrer() {
+            Issue::Fait => Suite::Faire(action),
+            Issue::Demande => Suite::ApresEnregistrement(action),
+            Issue::Echec => Suite::Abandonner,
+        },
+    }
+}
 
 /// Nombre de documents récents conservés.
 pub const MAX_RECENT: usize = 10;
@@ -67,6 +161,141 @@ pub fn lire_projet(path: &Path) -> Option<varium_core::project::Project> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Un document comme celui de l'application : le texte affiché, l'état enregistré,
+    /// l'enregistrement en cours (« Enregistrer sous ») et l'action différée.
+    struct Doc {
+        courant: Snapshot,
+        enregistre: Snapshot,
+        en_cours: Option<Snapshot>,
+        chemin: Option<PathBuf>,
+        apres: Option<&'static str>,
+        fait: Vec<&'static str>,
+    }
+
+    impl Doc {
+        fn ouvrir(texte: &str, chemin: Option<&str>) -> Doc {
+            let s = Snapshot {
+                title: "Lettre".into(),
+                source: texte.into(),
+                ..Snapshot::default()
+            };
+            Doc {
+                courant: s.clone(),
+                enregistre: s,
+                en_cours: None,
+                chemin: chemin.map(PathBuf::from),
+                apres: None,
+                fait: Vec::new(),
+            }
+        }
+        fn modifie(&self) -> bool {
+            let c = &self.courant;
+            self.enregistre
+                .differe(&c.title, &c.source, &c.values, &c.page, c.objectif)
+        }
+        /// Ctrl+S : réécrit le fichier connu, sinon « Enregistrer sous ».
+        fn enregistrer(&mut self) -> Issue {
+            if self.chemin.is_some() {
+                self.enregistre = self.courant.clone();
+                Issue::Fait
+            } else {
+                self.en_cours = Some(self.courant.clone());
+                Issue::Demande
+            }
+        }
+        /// Fin du dialogue « Enregistrer sous ».
+        fn enregistre_sous(&mut self, chemin: &str) {
+            self.enregistre = self.en_cours.take().unwrap_or_else(|| self.courant.clone());
+            self.chemin = Some(chemin.into());
+            if let Some(a) = self.apres.take() {
+                self.fait.push(a);
+            }
+        }
+        fn demander(&mut self, action: &'static str) -> bool {
+            match garder(self.modifie(), action) {
+                Garde::Continuer(a) => {
+                    self.fait.push(a);
+                    false
+                }
+                Garde::Confirmer(_) => true,
+            }
+        }
+        fn repondre(&mut self, r: Reponse, action: &'static str) {
+            let mut issue = Issue::Echec;
+            let suite = apres_confirmation(r, action, || {
+                issue = self.enregistrer();
+                issue
+            });
+            match suite {
+                Suite::Faire(a) => self.fait.push(a),
+                Suite::ApresEnregistrement(a) => self.apres = Some(a),
+                Suite::Abandonner => {}
+            }
+        }
+    }
+
+    #[test]
+    fn ouvrir_modifier_enregistrer() {
+        let mut d = Doc::ouvrir("Bonjour", Some("/d/lettre.varium.json"));
+        assert!(!d.modifie());
+        d.courant.source.push_str(" Marc");
+        assert!(d.modifie());
+        // Revenir au texte d'origine : plus rien à enregistrer.
+        d.courant.source = "Bonjour".into();
+        assert!(!d.modifie());
+        d.courant.values.set("nom", "Marc");
+        assert!(d.modifie());
+        assert_eq!(d.enregistrer(), Issue::Fait);
+        assert!(!d.modifie());
+        d.courant.page.landscape = true;
+        assert!(d.modifie(), "la mise en page compte");
+        d.enregistrer();
+        d.courant.objectif = Some(300);
+        assert!(d.modifie(), "l'objectif de mots compte");
+    }
+
+    #[test]
+    fn fermer_ou_ouvrir_demande_confirmation_si_modifie() {
+        let mut d = Doc::ouvrir("Texte", Some("/d/a.json"));
+        assert!(!d.demander("quitter"), "propre : pas de question");
+        assert_eq!(d.fait, ["quitter"]);
+        d.courant.source = "Autre".into();
+        assert!(d.demander("ouvrir"));
+        // Annuler : rien ne se passe, le document reste modifié.
+        d.repondre(Reponse::Annuler, "ouvrir");
+        assert_eq!(d.fait, ["quitter"]);
+        assert!(d.modifie());
+        // Ne pas enregistrer : l'action se fait, les modifications sont perdues.
+        d.repondre(Reponse::NePasEnregistrer, "ouvrir");
+        assert_eq!(d.fait, ["quitter", "ouvrir"]);
+        // Enregistrer un fichier connu : enregistré, puis l'action.
+        d.repondre(Reponse::Enregistrer, "nouveau");
+        assert!(!d.modifie());
+        assert_eq!(d.fait.last(), Some(&"nouveau"));
+    }
+
+    #[test]
+    fn enregistrer_sous_differe_l_action() {
+        let mut d = Doc::ouvrir("", None);
+        d.courant.source = "Nouveau texte".into();
+        assert!(d.demander("quitter"));
+        d.repondre(Reponse::Enregistrer, "quitter");
+        assert!(d.fait.is_empty(), "attend la fin de « Enregistrer sous »");
+        // On tape encore pendant que le dialogue est ouvert : c'est l'état envoyé qui
+        // est enregistré, le document reste donc modifié.
+        d.courant.source.push('!');
+        d.enregistre_sous("/d/nouveau.varium.json");
+        assert_eq!(d.fait, ["quitter"]);
+        assert!(d.modifie());
+        assert_eq!(
+            d.chemin.as_deref(),
+            Some(Path::new("/d/nouveau.varium.json"))
+        );
+        // Un enregistrement impossible abandonne l'action.
+        let s = apres_confirmation(Reponse::Enregistrer, "x", || Issue::Echec);
+        assert_eq!(s, Suite::Abandonner);
+    }
 
     #[test]
     fn lire_projet_relit_recupere_ou_abandonne() {

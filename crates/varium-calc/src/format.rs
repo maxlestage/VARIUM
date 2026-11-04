@@ -57,6 +57,10 @@ pub struct CellFormat {
     /// Couleur du texte (RVB).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<[u8; 3]>,
+    /// Renvoyer à la ligne : le texte s'écrit sur plusieurs lignes dans la
+    /// largeur de la colonne.
+    #[serde(skip_serializing_if = "is_false")]
+    pub wrap: bool,
 }
 
 fn is_general(n: &NumberFormat) -> bool {

@@ -425,3 +425,22 @@ table { display: block; overflow-x: auto; }
 .telechargements .button { width: 100%; text-align: center; margin: .5rem 0 .25rem; }
 .telechargements ol { padding-left: 1.2rem; margin: .75rem 0 0; font-size: .92rem; }
 .telechargements li { margin: .3rem 0; }
+
+/* Partager et installer (pwa.js montre les boutons quand le navigateur les permet). */
+.partage {
+  max-width: 72rem; margin: 3rem auto 0; padding: 1.25rem 1.5rem;
+  border-top: 1px solid var(--border, rgba(127,127,127,.25));
+  display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; align-items: center; justify-content: center;
+  text-align: center;
+}
+.partage-titre { margin: 0; font-weight: 600; }
+.partage-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: center; }
+.partage-actions [hidden] { display: none; }
+.partage-etat { color: var(--accent); font-size: .9rem; min-width: 1px; }
+.partage-liens { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; }
+.partage-liens a {
+  display: inline-block; padding: .3rem .75rem; border-radius: 999px; font-size: .88rem;
+  border: 1px solid var(--border, rgba(127,127,127,.3)); color: var(--fg); text-decoration: none;
+}
+.partage-liens a:hover { border-color: var(--accent); color: var(--accent); }
+@media (display-mode: standalone) { .pwa-installer { display: none !important; } }

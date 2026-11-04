@@ -102,6 +102,10 @@ pub fn theme(t: Theme) -> &'static str {
         Theme::Elegant => tr("Élégant"),
         Theme::Craie => tr("Craie"),
         Theme::Corail => tr("Corail"),
+        Theme::Papier => tr("Papier"),
+        Theme::Minuit => tr("Minuit"),
+        Theme::Foret => tr("Forêt"),
+        Theme::Agrume => tr("Agrume"),
     }
 }
 
@@ -113,5 +117,6 @@ pub fn object(k: ObjectKind) -> &'static str {
         ObjectKind::Ellipse => tr("Ellipse"),
         ObjectKind::Line => tr("Ligne"),
         ObjectKind::Arrow => tr("Flèche"),
+        ObjectKind::Qr => tr("Code QR"),
     }
 }
