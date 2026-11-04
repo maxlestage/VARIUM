@@ -41,7 +41,7 @@ pub const TEXTES: Textes = Textes {
             genre: "Hoja de cálculo",
             texte: "Hojas con celdas, fórmulas y gráficos.",
             points: [
-                "Celdas, fórmulas y varias hojas por libro",
+                "Celdas, fórmulas y varias hojas por libro, y preguntas en lenguaje sencillo",
                 "Funciones en francés o en inglés: SOMME o SUM, SI o IF, RECHERCHEV o VLOOKUP",
                 "Formato condicional, escalas de color, barras de datos e inmovilizar paneles",
                 "Ocho gráficos: barras, barras apiladas, líneas, áreas, sectores, anillo, dispersión",
