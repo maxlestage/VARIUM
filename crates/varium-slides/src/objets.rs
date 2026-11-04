@@ -37,6 +37,9 @@ pub enum ObjectKind {
     Line,
     /// Segment terminé par une pointe.
     Arrow,
+    /// Code QR de l'adresse écrite dans [`Object::text`] (champs acceptés), sur
+    /// fond blanc ; ses modules ont la couleur [`Object::fill`] (noir sinon).
+    Qr,
 }
 
 identifiants!(ObjectKind {
@@ -46,6 +49,7 @@ identifiants!(ObjectKind {
     Ellipse => "ellipse",
     Line => "ligne",
     Arrow => "fleche",
+    Qr => "qr",
 });
 
 impl ObjectKind {
@@ -66,6 +70,7 @@ impl ObjectKind {
             ObjectKind::Ellipse => "Ellipse",
             ObjectKind::Line => "Ligne",
             ObjectKind::Arrow => "Flèche",
+            ObjectKind::Qr => "Code QR",
         }
     }
 
@@ -134,6 +139,178 @@ pub struct Object {
     /// Taille du texte, en fraction de la hauteur de la diapositive.
     #[serde(deserialize_with = "crate::fichier::nombre")]
     pub text_size: f32,
+    /// Rotation autour du centre du cadre, en degrés dans le sens des aiguilles
+    /// d'une montre (0 à 360).
+    #[serde(
+        deserialize_with = "crate::fichier::nombre",
+        skip_serializing_if = "crate::fichier::nul"
+    )]
+    pub rotation: f32,
+    /// Dégradé d'une forme fermée, à la place du fond uni [`Object::fill`] (qui
+    /// reste la couleur moyenne, pour les versions qui ne lisent pas les dégradés).
+    #[serde(
+        deserialize_with = "crate::fichier::degrade",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub gradient: Option<Gradient>,
+}
+
+/// Un dégradé de couleurs : linéaire (selon un angle) ou radial (du centre vers
+/// les bords), de deux à huit arrêts.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Gradient {
+    /// Radial : du centre (position 0) vers les bords du cadre (position 1).
+    pub radial: bool,
+    /// Linéaire : direction en degrés dans le sens des aiguilles d'une montre,
+    /// 0 de gauche à droite, 90 de haut en bas.
+    pub angle: f32,
+    /// Arrêts triés : (position de 0 à 1, couleur).
+    pub stops: Vec<GradientStop>,
+}
+
+/// Un arrêt de dégradé.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct GradientStop {
+    pub pos: f32,
+    #[serde(serialize_with = "crate::fichier::couleur_seule")]
+    pub color: [u8; 3],
+}
+
+impl Gradient {
+    /// Nombre maximal d'arrêts conservés.
+    pub const MAX_STOPS: usize = 8;
+
+    /// Un dégradé linéaire de `a` vers `b`.
+    pub fn linear(angle: f32, a: [u8; 3], b: [u8; 3]) -> Gradient {
+        Gradient {
+            radial: false,
+            angle,
+            stops: vec![
+                GradientStop { pos: 0.0, color: a },
+                GradientStop { pos: 1.0, color: b },
+            ],
+        }
+        .normalized()
+        .unwrap_or_else(|| Gradient {
+            radial: false,
+            angle: 0.0,
+            stops: Vec::new(),
+        })
+    }
+
+    /// Le dégradé aux valeurs sûres (arrêts triés et bornés, angle dans
+    /// 0..360) ; `None` s'il a moins de deux arrêts.
+    pub fn normalized(mut self) -> Option<Gradient> {
+        self.stops.retain(|s| s.pos.is_finite());
+        for s in &mut self.stops {
+            s.pos = s.pos.clamp(0.0, 1.0);
+        }
+        self.stops.sort_by(|a, b| {
+            a.pos
+                .partial_cmp(&b.pos)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if self.stops.len() > Self::MAX_STOPS {
+            let n = self.stops.len();
+            let garde: Vec<GradientStop> = (0..Self::MAX_STOPS)
+                .map(|k| self.stops[k * (n - 1) / (Self::MAX_STOPS - 1)])
+                .collect();
+            self.stops = garde;
+        }
+        self.angle = if self.angle.is_finite() {
+            self.angle.rem_euclid(360.0)
+        } else {
+            0.0
+        };
+        (self.stops.len() >= 2).then_some(self)
+    }
+
+    /// La couleur à la position `t` (0 à 1).
+    pub fn color_at(&self, t: f32) -> [u8; 3] {
+        let t = if t.is_finite() {
+            t.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let (Some(premier), Some(dernier)) = (self.stops.first(), self.stops.last()) else {
+            return [0, 0, 0];
+        };
+        if t <= premier.pos {
+            return premier.color;
+        }
+        for w in self.stops.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            if t <= b.pos {
+                let k = if b.pos - a.pos > 1e-6 {
+                    (t - a.pos) / (b.pos - a.pos)
+                } else {
+                    1.0
+                };
+                return crate::texte::melange(a.color, b.color, k);
+            }
+        }
+        dernier.color
+    }
+
+    /// Couleur moyenne (fond uni de repli).
+    pub fn average(&self) -> [u8; 3] {
+        let n = 16;
+        let mut acc = [0u32; 3];
+        for k in 0..n {
+            let c = self.color_at(k as f32 / (n - 1) as f32);
+            for i in 0..3 {
+                acc[i] += c[i] as u32;
+            }
+        }
+        acc.map(|v| (v / n as u32) as u8)
+    }
+
+    /// Direction unitaire d'un dégradé linéaire (y vers le bas).
+    pub fn direction(&self) -> (f32, f32) {
+        let a = self.angle.to_radians();
+        (a.cos(), a.sin())
+    }
+
+    /// Demi-étendue d'un dégradé linéaire dans un cadre `w` × `h` : distance du
+    /// centre à la ligne où le dégradé atteint ses extrémités.
+    pub fn half_extent(&self, w: f32, h: f32) -> f32 {
+        let (c, s) = self.direction();
+        ((w * c.abs() + h * s.abs()) / 2.0).max(1e-6)
+    }
+
+    /// Position (0 à 1) dans le dégradé du point `(x, y)` d'un cadre `w` × `h`
+    /// (coordonnées depuis le coin en haut à gauche, y vers le bas).
+    pub fn t_at(&self, x: f32, y: f32, w: f32, h: f32) -> f32 {
+        let (dx, dy) = (x - w / 2.0, y - h / 2.0);
+        let t = if self.radial {
+            let (rx, ry) = ((w / 2.0).max(1e-6), (h / 2.0).max(1e-6));
+            ((dx / rx).powi(2) + (dy / ry).powi(2)).sqrt()
+        } else {
+            let (c, s) = self.direction();
+            (dx * c + dy * s) / (2.0 * self.half_extent(w, h)) + 0.5
+        };
+        if t.is_finite() {
+            t.clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// La couleur au point `(x, y)` d'un cadre `w` × `h`.
+    pub fn color_in(&self, x: f32, y: f32, w: f32, h: f32) -> [u8; 3] {
+        self.color_at(self.t_at(x, y, w, h))
+    }
+}
+
+/// Rotation d'un point autour d'un centre, `angle` en degrés dans le sens des
+/// aiguilles d'une montre (y vers le bas).
+pub fn rotate_point(p: (f32, f32), centre: (f32, f32), angle: f32) -> (f32, f32) {
+    if angle == 0.0 || !angle.is_finite() {
+        return p;
+    }
+    let (s, c) = angle.to_radians().sin_cos();
+    let (dx, dy) = (p.0 - centre.0, p.1 - centre.1);
+    (centre.0 + dx * c - dy * s, centre.1 + dx * s + dy * c)
 }
 
 impl Default for Object {
@@ -150,6 +327,8 @@ impl Default for Object {
             text: String::new(),
             text_color: None,
             text_size: 0.04,
+            rotation: 0.0,
+            gradient: None,
         }
     }
 }
@@ -204,10 +383,84 @@ impl Object {
         );
         self.stroke_width = borne(self.stroke_width, 0.0, 72.0, 2.0);
         self.text_size = borne(self.text_size, 0.005, 0.4, 0.04);
+        self.rotation = if self.rotation.is_finite() {
+            let r = self.rotation.rem_euclid(360.0);
+            if r.abs() < 1e-4 || (360.0 - r).abs() < 1e-4 {
+                0.0
+            } else {
+                r
+            }
+        } else {
+            0.0
+        };
+        self.gradient = self
+            .gradient
+            .take()
+            .filter(|_| self.kind.is_closed())
+            .and_then(Gradient::normalized);
         if self.kind != ObjectKind::Image {
             self.media.clear();
         }
+        if self.kind == ObjectKind::Qr {
+            if self.text.chars().count() > 2400 {
+                self.text = self.text.chars().take(2400).collect();
+            }
+        }
         self
+    }
+
+    /// Un code QR de l'adresse `url`, carré, sur une diapositive de proportions
+    /// `slide` (largeur / hauteur), occupant `part` de la hauteur.
+    pub fn qr(url: &str, slide: f32, part: f32) -> Object {
+        let slide = if slide.is_finite() && slide > 0.0 {
+            slide
+        } else {
+            16.0 / 9.0
+        };
+        let h = part.clamp(0.05, 1.0);
+        let w = h / slide;
+        Object {
+            kind: ObjectKind::Qr,
+            frame: Frame::new((1.0 - w) / 2.0, (1.0 - h) / 2.0, w, h),
+            text: url.trim().to_string(),
+            fill: None,
+            stroke: None,
+            ..Object::default()
+        }
+    }
+
+    /// Le code QR d'un objet QR, champs remplis ; `None` si l'adresse est vide
+    /// ou trop longue.
+    pub fn qr_code(&self, values: &varium_core::Values) -> Option<varium_core::qr::QrCode> {
+        if self.kind != ObjectKind::Qr {
+            return None;
+        }
+        let texte = varium_core::doc::plain(&varium_core::doc::inline(&self.text, values));
+        let texte = texte.trim();
+        if texte.is_empty() {
+            return None;
+        }
+        varium_core::qr::QrCode::encode(texte).ok()
+    }
+
+    /// Couleur des modules d'un code QR.
+    pub fn qr_ink(&self) -> [u8; 3] {
+        self.fill.unwrap_or([0, 0, 0])
+    }
+
+    /// Marge blanche autour d'un code QR, en modules.
+    pub const QR_MARGIN: usize = 2;
+
+    /// Le point `p` (fractions de la diapositive) ramené dans le repère non tourné
+    /// de l'objet, pour savoir s'il est dedans. `ratio` : largeur / hauteur de la
+    /// diapositive (la rotation se fait en vraies proportions).
+    pub fn unrotate(&self, p: (f32, f32), ratio: f32) -> (f32, f32) {
+        if self.rotation == 0.0 {
+            return p;
+        }
+        let (cx, cy) = self.frame.center();
+        let q = rotate_point((p.0 * ratio, p.1), (cx * ratio, cy), -self.rotation);
+        (q.0 / ratio, q.1)
     }
 
     /// Extrémités d'une ligne ou d'une flèche, en fractions de la diapositive :
@@ -587,6 +840,26 @@ impl Deck {
         let s = &mut self.slides[i];
         s.objects.push(Object::shape(kind, &pal));
         s.objects.len() - 1
+    }
+
+    /// Insère un code QR de l'adresse `url` au centre de la diapositive `slide`
+    /// (bornée) ; renvoie sa position dans `objects`. Erreur en français si
+    /// l'adresse est vide ou trop longue pour un code QR.
+    pub fn insert_qr(&mut self, slide: usize, url: &str) -> Result<usize, String> {
+        let url = url.trim();
+        if url.is_empty() {
+            return Err("Adresse vide : écrivez l'adresse à coder.".into());
+        }
+        if let Err(e) = varium_core::qr::QrCode::encode(url) {
+            return Err(e.to_string());
+        }
+        let Some(last) = self.slides.len().checked_sub(1) else {
+            return Err("La présentation n'a aucune diapositive.".into());
+        };
+        let o = Object::qr(url, self.aspect.ratio(), 0.45);
+        let s = &mut self.slides[slide.min(last)];
+        s.objects.push(o);
+        Ok(s.objects.len() - 1)
     }
 
     /// Les médias employés par au moins une diapositive.

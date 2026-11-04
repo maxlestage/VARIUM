@@ -17,6 +17,7 @@ pub mod calc;
 pub mod check;
 pub mod collage;
 pub mod conditions;
+pub mod critic;
 pub mod detection;
 pub mod diff;
 pub mod doc;
@@ -25,23 +26,35 @@ pub mod epub;
 pub mod export;
 pub mod filters;
 pub mod formulaire;
+pub mod formule;
+pub mod import;
+mod import_docx;
+mod import_odt;
 pub mod lang;
+#[cfg(feature = "serde")]
+pub mod lettres;
 pub mod lisibilite;
 pub mod merge;
+pub mod mise_en_page;
+#[cfg(feature = "serde")]
+pub mod modele;
 pub mod odt;
 pub mod page;
 pub mod parse;
 pub mod pdf;
+pub mod police;
 #[cfg(feature = "serde")]
 pub mod project;
 pub mod qr;
 pub mod render;
 pub mod rtf;
+pub mod signature;
 pub mod spell;
 pub mod tex;
 pub mod typo;
 #[cfg(feature = "serde")]
 pub mod versions;
+mod xmlarbre;
 pub mod zip;
 
 pub use parse::{

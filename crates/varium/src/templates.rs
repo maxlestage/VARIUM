@@ -400,3 +400,179 @@ pub const ALL: &[Template] = &[
 pub fn first() -> Project {
     ALL[0].project()
 }
+
+// ---------------------------------------------------------------------------------
+// Modèles intelligents : lettres types et modèles de l'utilisateur
+// ---------------------------------------------------------------------------------
+
+/// Un modèle intelligent de la galerie : une lettre type (sans fichier) ou un modèle
+/// enregistré par l'utilisateur.
+#[derive(Clone, Debug)]
+pub struct Intelligent {
+    pub modele: varium_core::modele::Modele,
+    pub chemin: Option<std::path::PathBuf>,
+}
+
+/// Le dossier des modèles de l'utilisateur (`…/varium/modeles`).
+pub fn dossier_modeles() -> std::path::PathBuf {
+    crate::secours::dossier_donnees().join("modeles")
+}
+
+/// Les modèles enregistrés dans `dossier`, triés par nom. Un fichier illisible est
+/// ignoré (jamais d'erreur).
+pub fn galerie(dossier: &std::path::Path) -> Vec<Intelligent> {
+    let Ok(entrees) = std::fs::read_dir(dossier) else {
+        return Vec::new();
+    };
+    let mut out: Vec<Intelligent> = entrees
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(varium_core::modele::EXTENSION))
+        })
+        .filter_map(|p| {
+            let t = std::fs::read_to_string(&p).ok()?;
+            let modele = varium_core::modele::Modele::from_json(&t).ok()?;
+            Some(Intelligent {
+                modele,
+                chemin: Some(p),
+            })
+        })
+        .collect();
+    out.sort_by_key(|i| i.modele.nom.to_lowercase());
+    out
+}
+
+/// Enregistre un modèle dans `dossier`, sous un nom de fichier libre.
+pub fn enregistrer_modele(
+    dossier: &std::path::Path,
+    m: &varium_core::modele::Modele,
+) -> std::io::Result<std::path::PathBuf> {
+    std::fs::create_dir_all(dossier)?;
+    let base = m.nom_de_fichier();
+    let racine = base
+        .strip_suffix(&format!(".{}", varium_core::modele::EXTENSION))
+        .unwrap_or(&base)
+        .to_string();
+    let mut chemin = dossier.join(&base);
+    let mut k = 2;
+    while chemin.exists() {
+        chemin = dossier.join(format!("{racine}-{k}.{}", varium_core::modele::EXTENSION));
+        k += 1;
+    }
+    crate::io::write_atomic(&chemin, m.to_json().as_bytes())?;
+    oublier_cache();
+    Ok(chemin)
+}
+
+/// Supprime un modèle de l'utilisateur.
+pub fn supprimer_modele(chemin: &std::path::Path) -> std::io::Result<()> {
+    let r = std::fs::remove_file(chemin);
+    oublier_cache();
+    r
+}
+
+type Cache = Option<(std::time::Instant, varium_core::Lang, Vec<Intelligent>)>;
+static CACHE: std::sync::Mutex<Cache> = std::sync::Mutex::new(None);
+
+fn oublier_cache() {
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Les modèles intelligents proposés : les lettres types dans la langue de
+/// l'interface, puis ceux de l'utilisateur (relus au plus toutes les 3 secondes).
+pub fn intelligents() -> Vec<Intelligent> {
+    let lang = crate::tr::lang();
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((t, l, v)) = cache.as_ref()
+        && *l == lang
+        && t.elapsed() < std::time::Duration::from_secs(3)
+    {
+        return v.clone();
+    }
+    let mut v: Vec<Intelligent> = varium_core::lettres::lettres(lang)
+        .into_iter()
+        .map(|modele| Intelligent {
+            modele,
+            chemin: None,
+        })
+        .collect();
+    v.extend(galerie(&dossier_modeles()));
+    *cache = Some((std::time::Instant::now(), lang, v.clone()));
+    v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn galerie_enregistrer_relire_supprimer() {
+        let dir = std::env::temp_dir().join(format!("varium-modeles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(galerie(&dir).is_empty());
+        let p = ALL[0].project();
+        let m =
+            varium_core::modele::Modele::depuis_projet("Ma lettre", "", &p, varium_core::Lang::Fr);
+        let a = enregistrer_modele(&dir, &m).unwrap();
+        let b = enregistrer_modele(&dir, &m).unwrap();
+        assert_ne!(a, b, "deux fichiers distincts");
+        std::fs::write(dir.join("abime.varium-modele.json"), "{pas du json").unwrap();
+        std::fs::write(dir.join("autre.txt"), "x").unwrap();
+        let g = galerie(&dir);
+        assert_eq!(g.len(), 2);
+        assert_eq!(g[0].modele.nom, "Ma lettre");
+        assert!(g[0].modele.projet.values.is_empty());
+        supprimer_modele(&a).unwrap();
+        assert_eq!(galerie(&dir).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn modeles_d_exemple_ouvrent_et_reviennent_par_odt_et_docx() {
+        // Chaque modèle exporté en ODT et en DOCX puis rouvert garde ses titres, ses
+        // listes, ses tableaux et son texte.
+        use varium_core::{Values, document, docx, export, import, odt};
+        fn resume(paras: &[varium_core::Para]) -> Vec<String> {
+            paras
+                .iter()
+                .map(|p| {
+                    let genre = match p {
+                        varium_core::Para::Heading { level, .. } => format!("H{level}"),
+                        varium_core::Para::Item { depth, number, .. } => {
+                            format!("L{depth}{}", number.is_some())
+                        }
+                        varium_core::Para::Table(t) => format!("T{}", t.rows.len()),
+                        varium_core::Para::Text { align, .. } => format!("{align:?}"),
+                        // Une formule centrée s'exporte en texte centré.
+                        varium_core::Para::Math { .. } => "Center".to_string(),
+                        other => format!("{other:?}").chars().take(4).collect(),
+                    };
+                    let t: String = p.plain().chars().filter(|c| c.is_alphanumeric()).collect();
+                    format!("{genre}:{t}")
+                })
+                .filter(|s| !s.ends_with(':') || s.starts_with('T'))
+                .collect()
+        }
+        for t in ALL {
+            let p = t.project();
+            let mut page = p.page.clone();
+            page.typographie = false;
+            let r = export::prepare(&p.source, &p.values(), &page);
+            let attendu = resume(&r.paras);
+            for (nom, octets) in [
+                ("m.odt", odt::odt(t.title, std::slice::from_ref(&r), &page)),
+                (
+                    "m.docx",
+                    docx::docx(t.title, std::slice::from_ref(&r), &page),
+                ),
+            ] {
+                let i = import::importer(nom, &octets).unwrap();
+                let relu = resume(&document(&i.source, &Values::default()));
+                assert_eq!(relu, attendu, "{} ({nom}) :\n{}", t.title, i.source);
+            }
+        }
+    }
+}

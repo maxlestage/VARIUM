@@ -434,7 +434,14 @@ impl Workbook {
             return Value::Error(CalcError::Name);
         };
         let computed = self.computed();
-        Probe::new(&self.sheets, &computed.values, at, self.today()).result(&e)
+        Probe::new(
+            &self.sheets,
+            &computed.values,
+            at,
+            self.today(),
+            &self.rates,
+        )
+        .result(&e)
     }
 
     /// Origine de l'erreur d'une formule placée en `at` (`None` si elle ne
@@ -458,7 +465,13 @@ impl Workbook {
         let resolve = |n: &str| names.get(&n.to_lowercase()).copied();
         let e = parse(formula, sheet, &resolve).ok()?;
         let computed = self.computed();
-        let probe = Probe::new(&self.sheets, &computed.values, at, self.today());
+        let probe = Probe::new(
+            &self.sheets,
+            &computed.values,
+            at,
+            self.today(),
+            &self.rates,
+        );
         let Value::Error(err) = probe.result(&e) else {
             return None;
         };

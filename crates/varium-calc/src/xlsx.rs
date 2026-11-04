@@ -159,19 +159,22 @@ impl Styles {
             if fill != 0 {
                 x.push_str(" applyFill=\"1\"");
             }
-            match f.align {
-                Some(a) => {
+            if f.align.is_some() || f.wrap {
+                x.push_str(" applyAlignment=\"1\"><alignment");
+                if let Some(a) = f.align {
                     let h = match a {
                         HAlign::Left => "left",
                         HAlign::Center => "center",
                         HAlign::Right => "right",
                     };
-                    let _ = write!(
-                        x,
-                        " applyAlignment=\"1\"><alignment horizontal=\"{h}\"/></xf>"
-                    );
+                    let _ = write!(x, " horizontal=\"{h}\"");
                 }
-                None => x.push_str("/>"),
+                if f.wrap {
+                    x.push_str(" wrapText=\"1\"");
+                }
+                x.push_str("/></xf>");
+            } else {
+                x.push_str("/>");
             }
         }
         x.push_str("</cellXfs>");

@@ -1,7 +1,7 @@
 //! Aperçu Unicode d'une formule LaTeX (pour l'affichage dans l'éditeur).
 //! La composition exacte reste celle de LaTeX à l'export `.tex` / KaTeX en HTML.
 
-const SYMBOLS: &[(&str, &str)] = &[
+pub(crate) const SYMBOLS: &[(&str, &str)] = &[
     ("alpha", "α"),
     ("beta", "β"),
     ("gamma", "γ"),

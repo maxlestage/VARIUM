@@ -15,9 +15,9 @@ use egui::text::LayoutJob;
 use egui::{Align2, Color32, CursorIcon, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use varium_core::{DocFont, Para, Run, Values};
 use varium_slides::{
-    Aspect, Closing, Deck, Design, Frame, HandoutNotes, HandoutOptions, HandoutPaper, Layout,
-    Object, ObjectKind, RasterFonts, Slide, Suggestion, Theme, Transition, arrow_head,
-    format_duration,
+    AlbumImage, AlbumOptions, Aspect, Closing, Deck, Design, Frame, HandoutNotes, HandoutOptions,
+    HandoutPaper, Layout, Object, ObjectKind, RasterFonts, Slide, Suggestion, Theme, Transition,
+    arrow_head, format_duration,
 };
 
 use crate::io::{Event, Io, OpenKind};
@@ -69,6 +69,14 @@ pub enum SlideAction {
     ExportHandout,
     /// Une image PNG par diapositive.
     ExportImages,
+    /// « Code QR… » : un code QR d'une adresse sur la diapositive.
+    InsertQr,
+    /// « Diapositive Partager… » : l'adresse de la présentation et son code QR.
+    ShareSlide,
+    /// « Nouvelle présentation depuis un dossier d'images… » (album photo).
+    PhotoAlbum,
+    /// « Mode kiosque… » : diaporama en boucle, sans commandes.
+    Kiosk,
 }
 
 pub struct SlidesApp {
@@ -123,6 +131,66 @@ pub struct SlidesApp {
     handout: Option<HandoutOptions>,
     /// Messages des tâches de fond (export en images) : (texte, erreur).
     notices: Arc<Mutex<Vec<(String, bool)>>>,
+    /// Fenêtre « Code QR » : adresse saisie, et `true` pour une diapositive
+    /// « Partager » (sinon un code sur la diapositive).
+    qr_dialog: Option<(String, bool)>,
+    /// Dernière adresse codée (proposée la fois suivante).
+    qr_url: String,
+    /// Images lues dans le dossier choisi pour un album : (nom du dossier, images).
+    album_inbox: Arc<Mutex<Option<(String, Vec<AlbumImage>)>>>,
+    /// Fenêtre de réglages de l'album photo.
+    album: Option<AlbumDialog>,
+    /// Réglages du mode kiosque (mémorisés).
+    kiosk_settings: KioskSettings,
+    /// Fenêtre de lancement du mode kiosque.
+    kiosk_dialog: bool,
+    /// Mode kiosque en cours.
+    kiosk: Option<Kiosk>,
+}
+
+/// Clé d'enregistrement des réglages du mode kiosque.
+const KIOSK_KEY: &str = "varium.slides.kiosque";
+
+/// Réglages du mode kiosque.
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct KioskSettings {
+    /// Durée d'une diapositive sans minutage, en secondes.
+    pub seconds: f32,
+    /// Revenir à la première diapositive après une inactivité.
+    pub restart: bool,
+    /// Délai d'inactivité, en secondes.
+    pub idle: f32,
+}
+
+impl Default for KioskSettings {
+    fn default() -> Self {
+        KioskSettings {
+            seconds: 8.0,
+            restart: true,
+            idle: 60.0,
+        }
+    }
+}
+
+/// Mode kiosque en cours.
+struct Kiosk {
+    /// Heure de la dernière action d'un visiteur.
+    last_input: f64,
+    /// Un visiteur a navigué depuis le dernier retour au début.
+    touched: bool,
+    /// La confirmation de sortie est affichée.
+    confirm: bool,
+    last_pointer: Option<Pos2>,
+}
+
+/// Réglages de l'album photo en cours de création.
+struct AlbumDialog {
+    folder: String,
+    images: Vec<AlbumImage>,
+    options: AlbumOptions,
+    auto: bool,
+    seconds: f32,
 }
 
 /// Répétition du minutage : temps passé sur chaque diapositive.
@@ -313,6 +381,15 @@ impl SlidesApp {
             tools: ShowTools::default(),
             handout: None,
             notices: Arc::default(),
+            qr_dialog: None,
+            qr_url: String::new(),
+            album_inbox: Arc::default(),
+            album: None,
+            kiosk_settings: storage
+                .and_then(|s| eframe::get_value::<KioskSettings>(s, KIOSK_KEY))
+                .unwrap_or_default(),
+            kiosk_dialog: false,
+            kiosk: None,
         }
     }
 
@@ -320,6 +397,7 @@ impl SlidesApp {
         let mut deck = self.deck.clone();
         deck.prune_media();
         eframe::set_value(storage, STORAGE_KEY, &deck);
+        eframe::set_value(storage, KIOSK_KEY, &self.kiosk_settings);
     }
 
     pub fn is_presenting(&self) -> bool {
@@ -626,6 +704,7 @@ impl SlidesApp {
             self.rehearsed = Some(r.times);
         }
         self.tools = ShowTools::default();
+        self.kiosk = None;
         if let Some((i, _)) = self.presenting.take() {
             self.current = i;
         }
@@ -810,6 +889,13 @@ impl SlidesApp {
                 "",
                 A::FromText,
             );
+            self.entry(
+                ui,
+                true,
+                tr("Nouvelle présentation depuis un dossier d'images…"),
+                "",
+                A::PhotoAlbum,
+            );
             self.entry(ui, true, tr("Présentation d'exemple"), "", A::Sample);
             if ui
                 .button(tr("Ouvrir…"))
@@ -886,6 +972,7 @@ impl SlidesApp {
         });
         ui.menu_button(tr("Insertion"), |ui| {
             self.entry(ui, true, tr("🖼 Image…"), "", A::InsertImage);
+            self.entry(ui, true, tr("Code QR…"), "", A::InsertQr);
             ui.separator();
             for kind in ObjectKind::SHAPES {
                 self.entry(ui, true, &shape_label(kind), "", A::InsertShape(kind));
@@ -900,6 +987,7 @@ impl SlidesApp {
                 A::NewSlide,
             );
             self.entry(ui, true, tr("Dupliquer"), "", A::DuplicateSlide);
+            self.entry(ui, true, tr("Diapositive « Partager »…"), "", A::ShareSlide);
             let several = self.deck.slides.len() > 1;
             self.entry(ui, several, tr("Supprimer"), "", A::DeleteSlide);
             ui.separator();
@@ -932,6 +1020,7 @@ impl SlidesApp {
                 let ctx = ui.ctx().clone();
                 self.perform(&ctx, A::Presenter);
             }
+            self.entry(ui, true, tr("Mode kiosque…"), "", A::Kiosk);
             ui.separator();
             self.entry(ui, true, tr("Répéter le minutage"), "", A::Rehearse);
             let mut auto = self.deck.auto_advance;
@@ -1072,6 +1161,10 @@ impl SlidesApp {
                 self.handout = Some(self.handout.unwrap_or_default());
             }
             A::ExportImages => self.export_images(ctx),
+            A::InsertQr => self.qr_dialog = Some((self.qr_url.clone(), false)),
+            A::ShareSlide => self.qr_dialog = Some((self.qr_url.clone(), true)),
+            A::PhotoAlbum => self.pick_album_folder(ctx),
+            A::Kiosk => self.kiosk_dialog = true,
         }
     }
 
@@ -1146,14 +1239,13 @@ impl SlidesApp {
                     "Thème : {theme}",
                     theme = labels::theme(self.deck.theme)
                 ))
+                .height(520.0)
                 .show_ui(ui, |ui| {
                     for t in Theme::ALL {
-                        if ui
-                            .selectable_label(self.deck.theme == t, labels::theme(t))
-                            .clicked()
-                        {
+                        if theme_swatch(ui, t, self.deck.theme == t).clicked() {
                             self.snapshot(now, false);
                             self.deck.theme = t;
+                            ui.close();
                         }
                     }
                 });
@@ -1662,6 +1754,45 @@ impl SlidesApp {
             });
         o.frame.w = o.frame.w.max(0.0);
         o.frame.h = o.frame.h.max(0.0);
+        ui.horizontal(|ui| {
+            ui.label(tr("Rotation"));
+            ui.add(
+                egui::DragValue::new(&mut o.rotation)
+                    .range(0.0..=359.9)
+                    .speed(0.5)
+                    .max_decimals(1)
+                    .suffix(" °"),
+            );
+            for (lib, a) in [("↺", -90.0f32), ("↻", 90.0)] {
+                if ui.small_button(lib).clicked() {
+                    o.rotation = (o.rotation + a).rem_euclid(360.0);
+                }
+            }
+            if o.rotation != 0.0 && ui.small_button("0°").clicked() {
+                o.rotation = 0.0;
+            }
+        });
+        if o.kind == ObjectKind::Qr {
+            ui.label(tr("Adresse du code QR"));
+            ui.add(
+                egui::TextEdit::singleline(&mut o.text)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("https://…"),
+            );
+            ui.horizontal(|ui| {
+                let mut c = o.qr_ink();
+                ui.label(tr("Couleur"));
+                egui::color_picker::color_edit_button_srgb(ui, &mut c);
+                o.fill = (c != [0, 0, 0]).then_some(c);
+            });
+            if o.qr_code(&self.deck.values()).is_none() {
+                ui.label(
+                    RichText::new(tr("Adresse vide ou trop longue pour un code QR"))
+                        .small()
+                        .color(Color32::RED),
+                );
+            }
+        }
         if let Some(r) = ratio
             && ui
                 .button(tr("Proportions d'origine"))
@@ -1672,17 +1803,50 @@ impl SlidesApp {
         {
             o.frame.h = o.frame.w * slide_ratio / r;
         }
-        if o.kind != ObjectKind::Image {
+        if o.kind != ObjectKind::Image && o.kind != ObjectKind::Qr {
             if o.kind.is_closed() {
                 ui.horizontal(|ui| {
-                    let mut on = o.fill.is_some();
+                    let mut on = o.fill.is_some() || o.gradient.is_some();
                     ui.checkbox(&mut on, tr("Fond"));
                     let mut c = o.fill.unwrap_or([0x2F, 0x74, 0xD6]);
-                    if on {
+                    if on && o.gradient.is_none() {
                         egui::color_picker::color_edit_button_srgb(ui, &mut c);
                     }
                     o.fill = on.then_some(c);
+                    if !on {
+                        o.gradient = None;
+                    }
+                    let mut deg = o.gradient.is_some();
+                    if on && ui.checkbox(&mut deg, tr("Dégradé")).changed() {
+                        o.gradient = deg.then(|| {
+                            let fin = varium_slides::readable_on(c);
+                            let fin = [
+                                ((c[0] as u16 + fin[0] as u16) / 2) as u8,
+                                ((c[1] as u16 + fin[1] as u16) / 2) as u8,
+                                ((c[2] as u16 + fin[2] as u16) / 2) as u8,
+                            ];
+                            varium_slides::Gradient::linear(90.0, c, fin)
+                        });
+                    }
                 });
+                if let Some(g) = o.gradient.as_mut() {
+                    ui.horizontal_wrapped(|ui| {
+                        for st in g.stops.iter_mut() {
+                            egui::color_picker::color_edit_button_srgb(ui, &mut st.color);
+                        }
+                        ui.selectable_value(&mut g.radial, false, tr("Linéaire"));
+                        ui.selectable_value(&mut g.radial, true, tr("Radial"));
+                        if !g.radial {
+                            ui.add(
+                                egui::DragValue::new(&mut g.angle)
+                                    .range(0.0..=359.0)
+                                    .speed(1.0)
+                                    .suffix(" °"),
+                            );
+                        }
+                    });
+                    o.fill = Some(g.average());
+                }
             }
             ui.horizontal(|ui| {
                 let mut on = o.stroke.is_some();
@@ -1873,10 +2037,17 @@ impl SlidesApp {
         };
         let screen = ui.max_rect();
         let base = fit_rect(screen, self.deck.aspect.ratio());
-        let mut navs = self.tools_keys(&ctx);
-        let used = self.tools_pointer(&ctx, base, i0);
-        navs.extend(Self::read_nav(&ctx, !used));
-        navs.extend(self.auto_nav(&ctx));
+        let mut navs = if self.kiosk.is_some() {
+            self.kiosk_nav(&ctx, now)
+        } else {
+            let mut navs = self.tools_keys(&ctx);
+            let used = self.tools_pointer(&ctx, base, i0);
+            navs.extend(Self::read_nav(&ctx, !used));
+            navs
+        };
+        if self.kiosk.is_none() {
+            navs.extend(self.auto_nav(&ctx));
+        }
         for nav in navs {
             if !self.apply_nav(&ctx, nav, true) {
                 return;
@@ -1933,6 +2104,9 @@ impl SlidesApp {
                 self.rehearsal_overlay(ui, screen, now);
                 if self.tools.grid {
                     goto = self.grid_ui(ui, screen, i);
+                }
+                if self.kiosk.is_some() {
+                    self.kiosk_overlay(ui, screen);
                 }
             });
         if let Some(k) = goto {
@@ -2593,6 +2767,9 @@ impl SlidesApp {
         self.beautify_window(ctx);
         self.text_deck_window(ctx);
         self.handout_window(ctx);
+        self.qr_window(ctx);
+        self.album_window(ctx);
+        self.kiosk_window(ctx);
     }
 
     /// Après une répétition : garder le minutage ?
@@ -2887,6 +3064,418 @@ impl SlidesApp {
         }
     }
 
+    // ---------------- Album photo, codes QR, mode kiosque ----------------
+
+    /// Choix du dossier d'un album photo ; ses images sont lues en arrière-plan.
+    fn pick_album_folder(&self, ctx: &egui::Context) {
+        let inbox = self.album_inbox.clone();
+        let ctx = ctx.clone();
+        let dialog = rfd::AsyncFileDialog::new().set_title(tr("Dossier d'images de l'album"));
+        std::thread::spawn(move || {
+            block_on(async move {
+                let Some(dossier) = dialog.pick_folder().await else {
+                    return;
+                };
+                let chemin = dossier.path().to_path_buf();
+                let images = read_album_folder(&chemin);
+                let nom = chemin
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                *inbox.lock().unwrap_or_else(|e| e.into_inner()) = Some((nom, images));
+                ctx.request_repaint();
+            })
+        });
+    }
+
+    /// Réglages de l'album, puis sa création.
+    fn album_window(&mut self, ctx: &egui::Context) {
+        let lu = self
+            .album_inbox
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some((folder, images)) = lu {
+            if images.is_empty() {
+                self.notify(ctx, tr("Aucune image PNG ou JPEG dans ce dossier"), true);
+            } else {
+                let options = AlbumOptions {
+                    title: folder.clone(),
+                    theme: Theme::Sombre,
+                    ..AlbumOptions::default()
+                };
+                self.album = Some(AlbumDialog {
+                    folder,
+                    images,
+                    options,
+                    auto: true,
+                    seconds: 5.0,
+                });
+            }
+        }
+        let Some(mut d) = self.album.take() else {
+            return;
+        };
+        let mut ouvert = true;
+        let mut creer = false;
+        egui::Window::new(tr("Album photo"))
+            .open(&mut ouvert)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                let n = d.images.len();
+                ui.label(trf!("{n} image(s) dans « {dossier} »", n, dossier = d.folder));
+                ui.label(
+                    RichText::new(tr(
+                        "Une diapositive par image, classées par date de prise de vue (sinon par nom).",
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(4.0);
+                egui::Grid::new("album-options")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(tr("Titre"));
+                        ui.text_edit_singleline(&mut d.options.title);
+                        ui.end_row();
+                        ui.label(tr("Thème"));
+                        egui::ComboBox::from_id_salt("album-theme")
+                            .selected_text(labels::theme(d.options.theme))
+                            .show_ui(ui, |ui| {
+                                for t in Theme::ALL {
+                                    ui.selectable_value(&mut d.options.theme, t, labels::theme(t));
+                                }
+                            });
+                        ui.end_row();
+                        ui.label(tr("Transition"));
+                        egui::ComboBox::from_id_salt("album-transition")
+                            .selected_text(labels::transition(d.options.transition))
+                            .show_ui(ui, |ui| {
+                                for t in Transition::ALL {
+                                    ui.selectable_value(
+                                        &mut d.options.transition,
+                                        t,
+                                        labels::transition(t),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+                    });
+                ui.checkbox(
+                    &mut d.options.alternate,
+                    tr("Alterner plein cadre et image encadrée"),
+                );
+                ui.checkbox(
+                    &mut d.options.captions,
+                    tr("Légende tirée du nom du fichier"),
+                );
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut d.auto, tr("Avancer automatiquement après"));
+                    ui.add_enabled(
+                        d.auto,
+                        egui::DragValue::new(&mut d.seconds)
+                            .range(1.0..=600.0)
+                            .speed(0.5)
+                            .suffix(" s"),
+                    );
+                });
+                ui.separator();
+                if ui
+                    .button(RichText::new(tr("Créer l'album")).strong())
+                    .clicked()
+                {
+                    creer = true;
+                }
+            });
+        if creer {
+            let mut options = d.options.clone();
+            options.seconds = d.auto.then_some(d.seconds);
+            options.subtitle = trf!("{n} photo(s)", n = d.images.len());
+            let (deck, ignorees) = Deck::photo_album(&d.images, &options);
+            let n = deck.slides.len();
+            self.replace_deck(ctx, deck);
+            if ignorees.is_empty() {
+                self.notify(ctx, trf!("Album créé : {n} diapositive(s)", n), false);
+            } else {
+                self.notify(
+                    ctx,
+                    trf!(
+                        "Album créé : {n} diapositive(s) ; ignorées : {liste}",
+                        n,
+                        liste = ignorees.join(", ")
+                    ),
+                    true,
+                );
+            }
+        } else if ouvert {
+            self.album = Some(d);
+        }
+    }
+
+    /// Fenêtre « Code QR » ou « Diapositive Partager ».
+    fn qr_window(&mut self, ctx: &egui::Context) {
+        let Some((mut url, partager)) = self.qr_dialog.take() else {
+            return;
+        };
+        let mut ouvert = true;
+        let mut valider = false;
+        let titre = if partager {
+            tr("Diapositive « Partager »")
+        } else {
+            tr("Code QR")
+        };
+        egui::Window::new(titre)
+            .open(&mut ouvert)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(if partager {
+                    tr("Adresse où retrouver la présentation (site, dossier partagé…) :")
+                } else {
+                    tr("Adresse ou texte à coder (champs {{…}} acceptés) :")
+                });
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut url)
+                        .hint_text("https://…")
+                        .desired_width(360.0),
+                );
+                if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    valider = true;
+                }
+                r.request_focus();
+                let essai = varium_core::qr::QrCode::encode(url.trim());
+                match &essai {
+                    Ok(q) => ui.label(
+                        RichText::new(trf!("Code de {n} × {n} modules", n = q.size()))
+                            .small()
+                            .weak(),
+                    ),
+                    Err(e) => ui.label(RichText::new(e.to_string()).small().color(Color32::RED)),
+                };
+                ui.separator();
+                let bouton = if partager {
+                    tr("Ajouter la diapositive")
+                } else {
+                    tr("Insérer le code QR")
+                };
+                if ui
+                    .add_enabled(
+                        essai.is_ok() && !url.trim().is_empty(),
+                        egui::Button::new(RichText::new(bouton).strong()),
+                    )
+                    .clicked()
+                {
+                    valider = true;
+                }
+            });
+        if valider && !url.trim().is_empty() {
+            let now = ctx.input(|i| i.time);
+            let before = self.deck.clone();
+            let res = if partager {
+                self.deck
+                    .add_share_slide(self.current, &url, tr("Retrouvez cette présentation"))
+                    .map(|i| {
+                        self.current = i;
+                        None
+                    })
+            } else {
+                self.deck.insert_qr(self.current, &url).map(Some)
+            };
+            match res {
+                Ok(k) => {
+                    self.undo.push(before);
+                    self.redo.clear();
+                    self.last_change = now;
+                    self.selected = k.map(|k| (self.current, k));
+                    self.qr_url = url.trim().to_string();
+                }
+                Err(e) => self.notify(ctx, e, true),
+            }
+        } else if ouvert {
+            self.qr_dialog = Some((url, partager));
+        }
+    }
+
+    /// Fenêtre de lancement du mode kiosque.
+    fn kiosk_window(&mut self, ctx: &egui::Context) {
+        if !self.kiosk_dialog {
+            return;
+        }
+        let mut ouvert = true;
+        let mut lancer = false;
+        let k = &mut self.kiosk_settings;
+        egui::Window::new(tr("Mode kiosque"))
+            .open(&mut ouvert)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(tr(
+                    "Le diaporama tourne en boucle, plein écran, sans commandes : idéal pour un stand ou une vitrine.",
+                ));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(tr("Durée d'une diapositive sans minutage"));
+                    ui.add(
+                        egui::DragValue::new(&mut k.seconds)
+                            .range(1.0..=600.0)
+                            .speed(0.5)
+                            .suffix(" s"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut k.restart, tr("Redémarrer après inactivité"));
+                    ui.add_enabled(
+                        k.restart,
+                        egui::DragValue::new(&mut k.idle)
+                            .range(5.0..=3600.0)
+                            .speed(1.0)
+                            .suffix(" s"),
+                    );
+                });
+                ui.label(
+                    RichText::new(tr(
+                        "Les visiteurs peuvent avancer ou reculer (flèches, clic). Pour sortir : Échap, puis confirmer.",
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.separator();
+                if ui
+                    .button(RichText::new(tr("▶ Lancer le kiosque")).strong())
+                    .clicked()
+                {
+                    lancer = true;
+                }
+            });
+        self.kiosk_dialog = ouvert && !lancer;
+        if lancer {
+            let now = ctx.input(|i| i.time);
+            self.start(ctx, 0);
+            self.kiosk = Some(Kiosk {
+                last_input: now,
+                touched: false,
+                confirm: false,
+                last_pointer: None,
+            });
+        }
+    }
+
+    /// Commandes du kiosque : les visiteurs avancent ou reculent ; l'avance est
+    /// automatique et boucle ; Échap demande confirmation ; après une inactivité,
+    /// retour au début.
+    fn kiosk_nav(&mut self, ctx: &egui::Context, now: f64) -> Vec<Nav> {
+        let Some((i, since)) = self.presenting else {
+            return Vec::new();
+        };
+        let settings = self.kiosk_settings;
+        let Some(k) = self.kiosk.as_mut() else {
+            return Vec::new();
+        };
+        let mut navs = Vec::new();
+        let (pos, esc, enter) = ctx.input(|inp| {
+            (
+                inp.pointer.hover_pos(),
+                inp.key_pressed(Key::Escape),
+                inp.key_pressed(Key::Enter),
+            )
+        });
+        if k.confirm {
+            // La confirmation est gérée par sa fenêtre ; Échap la referme, Entrée quitte.
+            if esc {
+                k.confirm = false;
+            } else if enter {
+                navs.push(Nav::Stop);
+            }
+            return navs;
+        }
+        if esc {
+            k.confirm = true;
+            return navs;
+        }
+        let saisie: Vec<Nav> = Self::read_nav(ctx, true)
+            .into_iter()
+            .filter(|n| matches!(n, Nav::Next | Nav::Prev))
+            .collect();
+        let bouge = pos.is_some() && pos != k.last_pointer && k.last_pointer.is_some();
+        k.last_pointer = pos;
+        if !saisie.is_empty() || bouge {
+            k.last_input = now;
+            if !saisie.is_empty() {
+                k.touched = true;
+            }
+        }
+        for n in saisie {
+            navs.push(match n {
+                Nav::Next => Nav::Goto(self.deck.kiosk_next(i)),
+                _ if i == 0 => Nav::Goto(self.deck.slides.len().saturating_sub(1)),
+                other => other,
+            });
+        }
+        // Retour au début après une inactivité (si un visiteur avait navigué).
+        if settings.restart && k.touched && now - k.last_input > settings.idle as f64 {
+            k.touched = false;
+            k.last_input = now;
+            navs.push(Nav::Goto(0));
+            return navs;
+        }
+        if navs.is_empty() {
+            let d = self.deck.kiosk_duration(i, settings.seconds) as f64;
+            let reste = d - (now - since);
+            if reste <= 0.0 {
+                navs.push(Nav::Goto(self.deck.kiosk_next(i)));
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(
+                    reste.clamp(0.05, 1.0),
+                ));
+            }
+        }
+        // Pas de pointeur visible.
+        ctx.set_cursor_icon(CursorIcon::None);
+        navs
+    }
+
+    /// Confirmation de sortie du kiosque.
+    fn kiosk_overlay(&mut self, ui: &egui::Ui, screen: Rect) {
+        let Some(k) = self.kiosk.as_mut() else {
+            return;
+        };
+        if !k.confirm {
+            return;
+        }
+        let ctx = ui.ctx().clone();
+        ui.painter()
+            .rect_filled(screen, 0.0, Color32::from_black_alpha(140));
+        let mut quitter = false;
+        let mut rester = false;
+        egui::Window::new(tr("Quitter le mode kiosque ?"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(&ctx, |ui| {
+                ui.label(tr("Le diaporama s'arrêtera et Varium réapparaîtra."));
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(RichText::new(tr("Quitter (Entrée)")).strong())
+                        .clicked()
+                    {
+                        quitter = true;
+                    }
+                    if ui.button(tr("Continuer (Échap)")).clicked() {
+                        rester = true;
+                    }
+                });
+            });
+        ctx.set_cursor_icon(CursorIcon::Default);
+        if rester {
+            k.confirm = false;
+        }
+        if quitter {
+            self.stop(&ctx);
+        }
+    }
+
     /// « Exporter en images » : une image PNG par diapositive (1920 × 1080 en
     /// 16:9) dans le dossier choisi.
     fn export_images(&mut self, ctx: &egui::Context) {
@@ -3076,6 +3665,102 @@ impl SlidesApp {
 }
 
 /// La « Merci ! / Questions ? » de clôture, dans la langue de l'interface.
+/// Les images PNG et JPEG d'un dossier (sans les sous-dossiers), au plus
+/// [`varium_slides::MAX_ALBUM_IMAGES`], chacune d'au plus 20 Mo.
+fn read_album_folder(dir: &std::path::Path) -> Vec<AlbumImage> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for e in entries.flatten() {
+        if out.len() >= varium_slides::MAX_ALBUM_IMAGES {
+            break;
+        }
+        let p = e.path();
+        let ext = p
+            .extension()
+            .map(|x| x.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if !matches!(ext.as_str(), "png" | "jpg" | "jpeg") || !p.is_file() {
+            continue;
+        }
+        if e.metadata()
+            .is_ok_and(|m| m.len() > varium_slides::MAX_IMAGE_BYTES as u64)
+        {
+            continue;
+        }
+        if let Ok(bytes) = std::fs::read(&p) {
+            out.push(AlbumImage {
+                name: p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                bytes,
+            });
+        }
+    }
+    out
+}
+
+/// Aperçu d'un thème : fond, barre de titre, ligne de texte, accent, et « Aa »
+/// dans la police des titres.
+fn theme_swatch(ui: &mut egui::Ui, t: Theme, selected: bool) -> egui::Response {
+    let p = t.palette();
+    let (r, resp) = ui.allocate_exact_size(Vec2::new(210.0, 44.0), Sense::click());
+    let painter = ui.painter_at(r);
+    if selected || resp.hovered() {
+        painter.rect_filled(r, 6.0, ui.visuals().selection.bg_fill.gamma_multiply(0.5));
+    }
+    let mini = Rect::from_min_size(r.min + Vec2::new(4.0, 4.0), Vec2::new(64.0, 36.0));
+    painter.rect_filled(mini, 3.0, rgb(p.background));
+    painter.rect_stroke(
+        mini,
+        3.0,
+        Stroke::new(1.0, Color32::from_gray(140)),
+        egui::StrokeKind::Inside,
+    );
+    let police = crate::fonts::family(
+        if p.serif_titles {
+            DocFont::Serif
+        } else {
+            DocFont::Sans
+        },
+        true,
+        false,
+    );
+    painter.text(
+        mini.left_top() + Vec2::new(6.0, 4.0),
+        Align2::LEFT_TOP,
+        "Aa",
+        FontId::new(15.0, police),
+        rgb(p.title),
+    );
+    painter.line_segment(
+        [
+            mini.left_top() + Vec2::new(6.0, 25.0),
+            mini.left_top() + Vec2::new(44.0, 25.0),
+        ],
+        Stroke::new(2.0, rgb(p.text)),
+    );
+    painter.circle_filled(mini.right_top() + Vec2::new(-9.0, 9.0), 4.5, rgb(p.accent));
+    painter.rect_filled(
+        Rect::from_min_size(
+            mini.left_bottom() + Vec2::new(6.0, -6.0),
+            Vec2::new(20.0, 2.5),
+        ),
+        1.0,
+        rgb(p.muted),
+    );
+    painter.text(
+        Pos2::new(mini.right() + 10.0, r.center().y),
+        Align2::LEFT_CENTER,
+        labels::theme(t),
+        FontId::proportional(14.0),
+        ui.visuals().text_color(),
+    );
+    resp
+}
+
 fn closing() -> Closing<'static> {
     Closing {
         thanks: tr("Merci !"),
@@ -3313,6 +3998,7 @@ fn shape_label(kind: ObjectKind) -> String {
         ObjectKind::Line => "╱",
         ObjectKind::Arrow => "➚",
         ObjectKind::Image => "🖼",
+        ObjectKind::Qr => "▦",
     };
     format!("{icon} {}", labels::object(kind))
 }
@@ -3497,8 +4183,19 @@ fn segment_distance(p: Pos2, a: Pos2, b: Pos2) -> f32 {
 }
 
 /// L'objet le plus en avant sous le pointeur.
-fn hit_object(slide: Rect, objects: &[Object], p: Pos2) -> Option<usize> {
+fn hit_object(slide: Rect, objects: &[Object], p0: Pos2) -> Option<usize> {
+    let ratio = slide.width() / slide.height().max(1.0);
     objects.iter().enumerate().rev().find_map(|(k, o)| {
+        // Un objet tourné : le pointeur ramené dans son repère.
+        let f = (
+            (p0.x - slide.left()) / slide.width().max(1.0),
+            (p0.y - slide.top()) / slide.height().max(1.0),
+        );
+        let (fx, fy) = o.unrotate(f, ratio);
+        let p = Pos2::new(
+            slide.left() + fx * slide.width(),
+            slide.top() + fy * slide.height(),
+        );
         let hit = if o.kind.is_line() {
             let (a, b) = line_ends(slide, o);
             let sw = o.stroke_width * slide.width() / 720.0;
@@ -3799,7 +4496,88 @@ fn draw_body(ui: &egui::Ui, area: Rect, paras: &[Para], ink: &Ink, centered: boo
     }
 }
 
-/// Dessine un objet (image ou forme) de la diapositive.
+/// Rotation d'un point de l'écran autour de `c` (degrés, sens horaire).
+fn rot(p: Pos2, c: Pos2, deg: f32) -> Pos2 {
+    let q = varium_slides::rotate_point((p.x, p.y), (c.x, c.y), deg);
+    Pos2::new(q.0, q.1)
+}
+
+/// Contour d'une forme fermée (polygone convexe) dans `r`, non tourné.
+fn shape_outline(kind: ObjectKind, r: Rect) -> Vec<Pos2> {
+    match kind {
+        ObjectKind::Ellipse => (0..72)
+            .map(|k| {
+                let a = k as f32 / 72.0 * std::f32::consts::TAU;
+                r.center() + Vec2::new(a.cos() * r.width() / 2.0, a.sin() * r.height() / 2.0)
+            })
+            .collect(),
+        ObjectKind::RoundRect => {
+            let rad = (r.width().min(r.height()) * Object::CORNER).max(0.0);
+            let coins = [
+                (Pos2::new(r.right() - rad, r.top() + rad), -90.0f32),
+                (Pos2::new(r.right() - rad, r.bottom() - rad), 0.0),
+                (Pos2::new(r.left() + rad, r.bottom() - rad), 90.0),
+                (Pos2::new(r.left() + rad, r.top() + rad), 180.0),
+            ];
+            coins
+                .iter()
+                .flat_map(|(c, debut)| {
+                    (0..=8).map(move |k| {
+                        let a = (debut + k as f32 * 90.0 / 8.0).to_radians();
+                        *c + Vec2::new(a.cos(), a.sin()) * rad
+                    })
+                })
+                .collect()
+        }
+        _ => vec![
+            r.left_top(),
+            r.right_top(),
+            r.right_bottom(),
+            r.left_bottom(),
+        ],
+    }
+}
+
+/// Maillage d'une forme remplie d'un dégradé : un éventail depuis le centre,
+/// découpé en anneaux, chaque sommet coloré selon sa place dans le cadre `r`
+/// (non tourné), puis tourné de `deg`.
+fn gradient_mesh(outline: &[Pos2], r: Rect, g: &varium_slides::Gradient, deg: f32) -> egui::Mesh {
+    const ANNEAUX: usize = 10;
+    let mut mesh = egui::Mesh::default();
+    let c = r.center();
+    let couleur = |p: Pos2| {
+        rgb(g.color_in(
+            p.x - r.left(),
+            p.y - r.top(),
+            r.width().max(1e-3),
+            r.height().max(1e-3),
+        ))
+    };
+    let n = outline.len();
+    if n < 3 {
+        return mesh;
+    }
+    // Sommets : centre, puis un point par anneau et par sommet du contour.
+    mesh.colored_vertex(rot(c, c, deg), couleur(c));
+    for j in 1..=ANNEAUX {
+        let k = j as f32 / ANNEAUX as f32;
+        for p in outline {
+            let q = c + (*p - c) * k;
+            mesh.colored_vertex(rot(q, c, deg), couleur(q));
+        }
+    }
+    let at = |j: usize, i: usize| (1 + (j - 1) * n + i % n) as u32;
+    for i in 0..n {
+        mesh.add_triangle(0, at(1, i), at(1, i + 1));
+        for j in 1..ANNEAUX {
+            mesh.add_triangle(at(j, i), at(j + 1, i), at(j + 1, i + 1));
+            mesh.add_triangle(at(j, i), at(j + 1, i + 1), at(j, i + 1));
+        }
+    }
+    mesh
+}
+
+/// Dessine un objet (image, forme, code QR) de la diapositive, tourné s'il le faut.
 fn draw_object(
     ui: &egui::Ui,
     slide: Rect,
@@ -3811,6 +4589,8 @@ fn draw_object(
 ) {
     let painter = ui.painter_at(slide);
     let r = frame_rect(slide, o.frame);
+    let c = r.center();
+    let deg = o.rotation;
     // Épaisseurs en points d'une diapositive de 720 pt de large.
     let k = slide.width() / 720.0;
     let stroke = match o.stroke {
@@ -3821,12 +4601,16 @@ fn draw_object(
     match o.kind {
         ObjectKind::Image => match textures.get(ui.ctx(), deck, &o.media) {
             Some(tex) => {
-                painter.image(
-                    tex,
+                let mut mesh = egui::Mesh::with_texture(tex);
+                mesh.add_rect_with_uv(
                     r,
                     Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                     Color32::WHITE,
                 );
+                if deg != 0.0 {
+                    mesh.rotate(egui::emath::Rot2::from_angle(deg.to_radians()), c);
+                }
+                painter.add(egui::Shape::mesh(mesh));
             }
             None => {
                 painter.rect(
@@ -3845,37 +4629,90 @@ fn draw_object(
                 );
             }
         },
-        ObjectKind::Rect | ObjectKind::RoundRect => {
-            let radius = if o.kind == ObjectKind::RoundRect {
-                (r.width().min(r.height()) * Object::CORNER).min(255.0)
+        ObjectKind::Qr => {
+            let mut mesh = egui::Mesh::default();
+            mesh.add_colored_rect(r, Color32::WHITE);
+            if let Some(q) = o.qr_code(values) {
+                let cote = (q.size() + 2 * Object::QR_MARGIN) as f32;
+                let (mx, my) = (r.width() / cote, r.height() / cote);
+                let ink = rgb(o.qr_ink());
+                for (x, y, l) in q.segments() {
+                    let min = r.min
+                        + Vec2::new(
+                            (x + Object::QR_MARGIN) as f32 * mx,
+                            (y + Object::QR_MARGIN) as f32 * my,
+                        );
+                    mesh.add_colored_rect(
+                        Rect::from_min_size(min, Vec2::new(l as f32 * mx + 0.3, my + 0.3)),
+                        ink,
+                    );
+                }
             } else {
-                0.0
-            };
-            painter.rect(r, radius, fill, stroke, egui::StrokeKind::Middle);
+                painter.text(
+                    c,
+                    Align2::CENTER_CENTER,
+                    tr("Adresse du code QR ?"),
+                    FontId::proportional((r.height() * 0.08).clamp(6.0, 14.0)),
+                    Color32::DARK_GRAY,
+                );
+            }
+            if deg != 0.0 {
+                mesh.rotate(egui::emath::Rot2::from_angle(deg.to_radians()), c);
+            }
+            painter.add(egui::Shape::mesh(mesh));
         }
-        ObjectKind::Ellipse => {
-            painter.add(egui::Shape::Ellipse(egui::epaint::EllipseShape {
-                center: r.center(),
-                radius: r.size() / 2.0,
-                fill,
-                stroke,
-                angle: 0.0,
-            }));
+        ObjectKind::Rect | ObjectKind::RoundRect | ObjectKind::Ellipse
+            if deg == 0.0 && o.gradient.is_none() =>
+        {
+            match o.kind {
+                ObjectKind::Ellipse => {
+                    painter.add(egui::Shape::Ellipse(egui::epaint::EllipseShape {
+                        center: r.center(),
+                        radius: r.size() / 2.0,
+                        fill,
+                        stroke,
+                        angle: 0.0,
+                    }));
+                }
+                _ => {
+                    let radius = if o.kind == ObjectKind::RoundRect {
+                        (r.width().min(r.height()) * Object::CORNER).min(255.0)
+                    } else {
+                        0.0
+                    };
+                    painter.rect(r, radius, fill, stroke, egui::StrokeKind::Middle);
+                }
+            }
+        }
+        ObjectKind::Rect | ObjectKind::RoundRect | ObjectKind::Ellipse => {
+            // Tournée ou en dégradé : un polygone (ou un maillage coloré).
+            let contour = shape_outline(o.kind, r);
+            if let Some(g) = &o.gradient {
+                painter.add(egui::Shape::mesh(gradient_mesh(&contour, r, g, deg)));
+            }
+            let pts: Vec<Pos2> = contour.iter().map(|p| rot(*p, c, deg)).collect();
+            let plein = if o.gradient.is_some() {
+                Color32::TRANSPARENT
+            } else {
+                fill
+            };
+            painter.add(egui::Shape::convex_polygon(pts, plein, stroke));
         }
         ObjectKind::Line | ObjectKind::Arrow => {
-            let c = rgb(o.stroke.unwrap_or(pal.text));
+            let col = rgb(o.stroke.unwrap_or(pal.text));
             let w = (o.stroke_width * k).max(1.0);
             let (a, b) = line_ends(slide, o);
+            let (a, b) = (rot(a, c, deg), rot(b, c, deg));
             if o.kind == ObjectKind::Arrow {
                 let (fin, tri) = arrow_head((a.x, a.y), (b.x, b.y), w);
-                painter.line_segment([a, Pos2::new(fin.0, fin.1)], Stroke::new(w, c));
+                painter.line_segment([a, Pos2::new(fin.0, fin.1)], Stroke::new(w, col));
                 painter.add(egui::Shape::convex_polygon(
                     tri.iter().map(|p| Pos2::new(p.0, p.1)).collect(),
-                    c,
+                    col,
                     Stroke::NONE,
                 ));
             } else {
-                painter.line_segment([a, b], Stroke::new(w, c));
+                painter.line_segment([a, b], Stroke::new(w, col));
             }
         }
     }
@@ -3901,10 +4738,22 @@ fn draw_object(
             .collect();
         let total: f32 = galleys.iter().map(|g| g.size().y).sum();
         let mut y = inner.center().y - total / 2.0;
-        let clip = painter.with_clip_rect(r.intersect(slide));
+        let clip = if deg == 0.0 {
+            painter.with_clip_rect(r.intersect(slide))
+        } else {
+            painter.clone()
+        };
         for g in galleys {
             let h = g.size().y;
-            clip.galley(Pos2::new(inner.center().x, y), g, color);
+            let pos = Pos2::new(inner.center().x, y);
+            if deg == 0.0 {
+                clip.galley(pos, g, color);
+            } else {
+                clip.add(
+                    egui::epaint::TextShape::new(rot(pos, c, deg), g, color)
+                        .with_angle(deg.to_radians()),
+                );
+            }
             y += h;
         }
     }
@@ -4094,6 +4943,11 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
                 A::FromText,
                 None,
             ),
+            &b.item(
+                tr("Nouvelle présentation depuis un dossier d'images…"),
+                A::PhotoAlbum,
+                None,
+            ),
             &b.item(tr("Présentation d'exemple"), A::Sample, None),
             &b.item(tr("Ouvrir…"), A::Open, Some("Cmd+O")),
             &sep(),
@@ -4129,6 +4983,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         true,
         &[
             &b.item(tr("🖼 Image…"), A::InsertImage, Some("Cmd+Shift+I")),
+            &b.item(tr("Code QR…"), A::InsertQr, None),
             &sep(),
         ],
     )?;
@@ -4144,6 +4999,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         &[
             &b.item(tr("Nouvelle diapositive"), A::NewSlide, Some("Cmd+Shift+N")),
             &b.item(tr("Dupliquer"), A::DuplicateSlide, None),
+            &b.item(tr("Diapositive « Partager »…"), A::ShareSlide, None),
             &b.item(tr("Supprimer"), A::DeleteSlide, None),
             &sep(),
             &b.item(tr("Monter"), A::MoveUp, None),
@@ -4171,6 +5027,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             ),
             &sep(),
             &b.item(tr("Mode présentateur"), A::Presenter, Some("Cmd+Alt+Enter")),
+            &b.item(tr("Mode kiosque…"), A::Kiosk, None),
             &sep(),
             &b.item(tr("Répéter le minutage"), A::Rehearse, None),
             &b.item(
@@ -4435,6 +5292,22 @@ impl SlidesApp {
                 None,
                 false,
             ),
+            (A::InsertQr, n_("Code QR…"), insertion, None, false),
+            (
+                A::ShareSlide,
+                n_("Diapositive « Partager »…"),
+                diapositive,
+                None,
+                false,
+            ),
+            (
+                A::PhotoAlbum,
+                n_("Nouvelle présentation depuis un dossier d'images…"),
+                fichier,
+                None,
+                false,
+            ),
+            (A::Kiosk, n_("Mode kiosque…"), diaporama, None, false),
         ]
     }
 

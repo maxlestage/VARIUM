@@ -60,6 +60,11 @@ impl CalcError {
         }
     }
 
+    /// Explication dans la langue donnée (voir [`crate::message_in`]).
+    pub fn description_in(self, lang: varium_core::Lang) -> &'static str {
+        crate::i18n::loc(lang, self.description())
+    }
+
     /// Reconnaît un code d'erreur français ou anglais (`#VALEUR!`, `#VALUE!`…).
     pub fn from_code(code: &str) -> Option<Self> {
         Some(match code.to_uppercase().as_str() {

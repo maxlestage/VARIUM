@@ -29,6 +29,61 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// Libellé dans une langue de l'interface.
+    pub fn label_in(self, lang: Lang) -> &'static str {
+        let t: [&'static str; 6] = match self {
+            Kind::Espace => [
+                "Espace",
+                "Spacing",
+                "Espacio",
+                "Leerzeichen",
+                "Spazio",
+                "Espaço",
+            ],
+            Kind::Ponctuation => [
+                "Ponctuation",
+                "Punctuation",
+                "Puntuación",
+                "Zeichensetzung",
+                "Punteggiatura",
+                "Pontuação",
+            ],
+            Kind::Majuscule => [
+                "Majuscule",
+                "Capitalisation",
+                "Mayúscula",
+                "Großschreibung",
+                "Maiuscola",
+                "Maiúscula",
+            ],
+            Kind::Repetition => [
+                "Répétition",
+                "Repetition",
+                "Repetición",
+                "Wiederholung",
+                "Ripetizione",
+                "Repetição",
+            ],
+            Kind::Orthographe => [
+                "Orthographe",
+                "Spelling",
+                "Ortografía",
+                "Rechtschreibung",
+                "Ortografia",
+                "Ortografia",
+            ],
+            Kind::Equilibre => [
+                "Parenthèses",
+                "Brackets",
+                "Paréntesis",
+                "Klammern",
+                "Parentesi",
+                "Parênteses",
+            ],
+        };
+        t[Lang::ALL.iter().position(|&l| l == lang).unwrap_or(0)]
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Kind::Espace => "Espace",
@@ -41,6 +96,220 @@ impl Kind {
     }
 }
 
+/// Le code d'une remarque : il donne son message dans chaque langue de
+/// l'interface ([`Issue::message_in`]), les `{0}`, `{1}` étant remplacés par
+/// [`Issue::args`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Code {
+    /// Plusieurs espaces de suite.
+    EspacesEnTrop,
+    /// Espace avant une virgule ou un point.
+    PasEspaceAvant,
+    /// Espace manquante après une virgule ou un point-virgule.
+    EspaceManquante,
+    /// Français : espace avant `; : ! ?`.
+    EspaceAvantFr,
+    /// Autres langues : pas d'espace avant `; : ! ?`.
+    PasEspaceAvantLangue,
+    /// Mot répété.
+    MotRepete,
+    /// Mot fréquemment mal écrit (argument : la bonne orthographe).
+    OnEcrit,
+    /// Anglais : « an » devant un son de voyelle.
+    AnVoyelle,
+    /// Anglais : « a » devant un son de consonne.
+    AConsonne,
+    /// Anglais : « I » en majuscule.
+    PronomI,
+    /// Espagnol : ¿ ou ¡ en tête de phrase.
+    OuvertureEs,
+    /// Majuscule en début de phrase.
+    MajusculePhrase,
+    /// Parenthèse ou crochet fermant sans ouvrant.
+    SansOuverture,
+    /// Parenthèse ou guillemet ouvrant jamais fermé.
+    JamaisFerme,
+    /// Mot absent du dictionnaire.
+    Inconnu,
+    /// Mot absent du dictionnaire, avec une suggestion.
+    InconnuSuggestion,
+}
+
+impl Code {
+    pub const ALL: [Code; 16] = [
+        Code::EspacesEnTrop,
+        Code::PasEspaceAvant,
+        Code::EspaceManquante,
+        Code::EspaceAvantFr,
+        Code::PasEspaceAvantLangue,
+        Code::MotRepete,
+        Code::OnEcrit,
+        Code::AnVoyelle,
+        Code::AConsonne,
+        Code::PronomI,
+        Code::OuvertureEs,
+        Code::MajusculePhrase,
+        Code::SansOuverture,
+        Code::JamaisFerme,
+        Code::Inconnu,
+        Code::InconnuSuggestion,
+    ];
+
+    /// Les modèles du message : français, anglais, espagnol, allemand, italien,
+    /// portugais (ordre de [`Lang::ALL`]).
+    fn modeles(self) -> [&'static str; 6] {
+        match self {
+            Code::EspacesEnTrop => [
+                "Espaces en trop",
+                "Extra spaces",
+                "Espacios de más",
+                "Überflüssige Leerzeichen",
+                "Spazi in eccesso",
+                "Espaços a mais",
+            ],
+            Code::PasEspaceAvant => [
+                "Pas d'espace avant « {0} »",
+                "No space before “{0}”",
+                "Sin espacio antes de «{0}»",
+                "Kein Leerzeichen vor „{0}“",
+                "Nessuno spazio prima di «{0}»",
+                "Sem espaço antes de «{0}»",
+            ],
+            Code::EspaceManquante => [
+                "Espace manquante après « {0} »",
+                "Missing space after “{0}”",
+                "Falta un espacio después de «{0}»",
+                "Fehlendes Leerzeichen nach „{0}“",
+                "Manca uno spazio dopo «{0}»",
+                "Falta um espaço depois de «{0}»",
+            ],
+            Code::EspaceAvantFr => [
+                "En français, une espace précède « {0} »",
+                "In French, a space comes before “{0}”",
+                "En francés, se pone un espacio antes de «{0}»",
+                "Im Französischen steht vor „{0}“ ein Leerzeichen",
+                "In francese, «{0}» è preceduto da uno spazio",
+                "Em francês, «{0}» é precedido de um espaço",
+            ],
+            Code::PasEspaceAvantLangue => [
+                "Pas d'espace avant « {0} » dans cette langue",
+                "No space before “{0}” in this language",
+                "En este idioma no se pone espacio antes de «{0}»",
+                "In dieser Sprache kein Leerzeichen vor „{0}“",
+                "In questa lingua niente spazio prima di «{0}»",
+                "Nesta língua não se põe espaço antes de «{0}»",
+            ],
+            Code::MotRepete => [
+                "Mot répété : « {0} »",
+                "Repeated word: “{0}”",
+                "Palabra repetida: «{0}»",
+                "Wiederholtes Wort: „{0}“",
+                "Parola ripetuta: «{0}»",
+                "Palavra repetida: «{0}»",
+            ],
+            Code::OnEcrit => [
+                "On écrit « {0} »",
+                "The correct spelling is “{0}”",
+                "Se escribe «{0}»",
+                "Richtig ist „{0}“",
+                "Si scrive «{0}»",
+                "Escreve-se «{0}»",
+            ],
+            Code::AnVoyelle => [
+                "« {0} » devant un son de voyelle",
+                "“{0}” before a vowel sound",
+                "«{0}» delante de un sonido vocálico",
+                "„{0}“ vor einem Vokallaut",
+                "«{0}» davanti a un suono vocalico",
+                "«{0}» antes de um som de vogal",
+            ],
+            Code::AConsonne => [
+                "« {0} » devant un son de consonne",
+                "“{0}” before a consonant sound",
+                "«{0}» delante de un sonido consonántico",
+                "„{0}“ vor einem Konsonantenlaut",
+                "«{0}» davanti a un suono consonantico",
+                "«{0}» antes de um som de consoante",
+            ],
+            Code::PronomI => [
+                "Le pronom anglais « I » prend toujours une majuscule",
+                "The pronoun “I” is always capitalised",
+                "El pronombre inglés «I» siempre va en mayúscula",
+                "Das englische Pronomen „I“ wird immer großgeschrieben",
+                "Il pronome inglese «I» vuole sempre la maiuscola",
+                "O pronome inglês «I» leva sempre maiúscula",
+            ],
+            Code::OuvertureEs => [
+                "En espagnol, la phrase commence par « {0} »",
+                "In Spanish, the sentence starts with “{0}”",
+                "En español, la oración empieza por «{0}»",
+                "Im Spanischen beginnt der Satz mit „{0}“",
+                "In spagnolo, la frase inizia con «{0}»",
+                "Em espanhol, a frase começa por «{0}»",
+            ],
+            Code::MajusculePhrase => [
+                "Majuscule en début de phrase",
+                "Capital letter at the start of a sentence",
+                "Mayúscula al principio de la oración",
+                "Großschreibung am Satzanfang",
+                "Maiuscola a inizio frase",
+                "Maiúscula no início da frase",
+            ],
+            Code::SansOuverture => [
+                "« {0} » sans ouverture",
+                "“{0}” without an opening match",
+                "«{0}» sin apertura",
+                "„{0}“ ohne Öffnung",
+                "«{0}» senza apertura",
+                "«{0}» sem abertura",
+            ],
+            Code::JamaisFerme => [
+                "« {0} » jamais fermé",
+                "“{0}” never closed",
+                "«{0}» sin cerrar",
+                "„{0}“ nie geschlossen",
+                "«{0}» mai chiuso",
+                "«{0}» nunca fechado",
+            ],
+            Code::Inconnu => [
+                "« {0} » est inconnu du dictionnaire",
+                "“{0}” is not in the dictionary",
+                "«{0}» no está en el diccionario",
+                "„{0}“ steht nicht im Wörterbuch",
+                "«{0}» non è nel dizionario",
+                "«{0}» não está no dicionário",
+            ],
+            Code::InconnuSuggestion => [
+                "« {0} » est inconnu du dictionnaire : « {1} » ?",
+                "“{0}” is not in the dictionary: “{1}”?",
+                "«{0}» no está en el diccionario: ¿«{1}»?",
+                "„{0}“ steht nicht im Wörterbuch: „{1}“?",
+                "«{0}» non è nel dizionario: «{1}»?",
+                "«{0}» não está no dicionário: «{1}»?",
+            ],
+        }
+    }
+
+    /// Le modèle du message dans une langue (`{0}`, `{1}` : les arguments).
+    pub fn template(self, lang: Lang) -> &'static str {
+        let i = Lang::ALL.iter().position(|&l| l == lang).unwrap_or(0);
+        self.modeles()[i]
+    }
+
+    /// Le message dans une langue, arguments remplis (un argument manquant
+    /// devient vide).
+    pub fn message(self, lang: Lang, args: &[String]) -> String {
+        let mut out = self.template(lang).to_string();
+        for k in 0..9 {
+            let marque = format!("{{{k}}}");
+            if out.contains(&marque) {
+                out = out.replace(&marque, args.get(k).map_or("", String::as_str));
+            }
+        }
+        out
+    }
+}
+
 /// Une remarque de la révision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue {
@@ -48,10 +317,41 @@ pub struct Issue {
     pub start: usize,
     pub end: usize,
     pub kind: Kind,
-    /// Explication, en français.
+    /// Explication, en français (voir [`Issue::message_in`] pour les autres langues).
     pub message: String,
     /// Le texte qui remplace `start..end`, quand la correction est sûre.
     pub replacement: Option<String>,
+    /// Le genre précis de la remarque, qui donne son message dans chaque langue.
+    pub code: Code,
+    /// Les éléments variables du message (mot, signe, correction).
+    pub args: Vec<String>,
+}
+
+impl Issue {
+    /// Une remarque, son message français tiré de son code.
+    pub fn new(
+        start: usize,
+        end: usize,
+        kind: Kind,
+        code: Code,
+        args: Vec<String>,
+        replacement: Option<String>,
+    ) -> Issue {
+        Issue {
+            start,
+            end,
+            kind,
+            message: code.message(Lang::Fr, &args),
+            replacement,
+            code,
+            args,
+        }
+    }
+
+    /// L'explication dans la langue `lang` (celle de l'interface).
+    pub fn message_in(&self, lang: Lang) -> String {
+        self.code.message(lang, &self.args)
+    }
 }
 
 /// Les zones de texte vérifiables : hors champs et hors formules.
@@ -122,16 +422,18 @@ fn issue(
     start: usize,
     end: usize,
     kind: Kind,
-    message: impl Into<String>,
+    code: Code,
+    args: &[&dyn std::fmt::Display],
     rep: Option<String>,
 ) -> Issue {
-    Issue {
+    Issue::new(
         start,
         end,
         kind,
-        message: message.into(),
-        replacement: rep,
-    }
+        code,
+        args.iter().map(|a| a.to_string()).collect(),
+        rep,
+    )
 }
 
 /// Mots qui peuvent légitimement se répéter.
@@ -236,7 +538,8 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                     p,
                     pos(e),
                     Kind::Espace,
-                    "Espaces en trop",
+                    Code::EspacesEnTrop,
+                    &[],
                     Some(" ".into()),
                 ));
             }
@@ -254,7 +557,8 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                 start,
                 p + c.len_utf8(),
                 Kind::Espace,
-                format!("Pas d'espace avant « {c} »"),
+                Code::PasEspaceAvant,
+                &[&c],
                 Some(c.to_string()),
             ));
         }
@@ -268,7 +572,8 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                 p,
                 p + 1,
                 Kind::Espace,
-                format!("Espace manquante après « {c} »"),
+                Code::EspaceManquante,
+                &[&c],
                 Some(format!("{c} ")),
             ));
         }
@@ -285,7 +590,8 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                             p,
                             p + 1,
                             Kind::Ponctuation,
-                            format!("En français, une espace précède « {c} »"),
+                            Code::EspaceAvantFr,
+                            &[&c],
                             Some(format!(" {c}")),
                         ));
                     }
@@ -301,7 +607,8 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                             chars[k - 1].0,
                             p + 1,
                             Kind::Ponctuation,
-                            format!("Pas d'espace avant « {c} » dans cette langue"),
+                            Code::PasEspaceAvantLangue,
+                            &[&c],
                             Some(c.to_string()),
                         ));
                     }
@@ -330,7 +637,8 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                     s,
                     e2,
                     Kind::Repetition,
-                    format!("Mot répété : « {w} »"),
+                    Code::MotRepete,
+                    &[&w],
                     Some(w.to_string()),
                 ));
             }
@@ -355,8 +663,9 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                         s,
                         e,
                         Kind::Orthographe,
-                        format!("On écrit « {f} »"),
-                        Some(f),
+                        Code::OnEcrit,
+                        &[&f],
+                        Some(f.clone()),
                     ));
                 }
             }
@@ -378,8 +687,9 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                         s,
                         e,
                         Kind::Orthographe,
-                        format!("On écrit « {f} »"),
-                        Some(f),
+                        Code::OnEcrit,
+                        &[&f],
+                        Some(f.clone()),
                     ));
                 }
             }
@@ -398,8 +708,9 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                         s,
                         e,
                         Kind::Orthographe,
-                        format!("Se escribe « {f} »"),
-                        Some(f),
+                        Code::OnEcrit,
+                        &[&f],
+                        Some(f.clone()),
                     ));
                 }
             }
@@ -415,8 +726,9 @@ fn check_zone(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue
                         s,
                         e,
                         Kind::Orthographe,
-                        format!("Escreve-se « {f} »"),
-                        Some(f),
+                        Code::OnEcrit,
+                        &[&f],
+                        Some(f.clone()),
                     ));
                 }
             }
@@ -445,7 +757,8 @@ fn english_word(src: &str, ws: &[(usize, usize)], i: usize, out: &mut Vec<Issue>
             s,
             e,
             Kind::Majuscule,
-            "The pronoun “I” is always capitalised",
+            Code::PronomI,
+            &[],
             Some("I".into()),
         ));
     }
@@ -476,7 +789,8 @@ fn english_word(src: &str, ws: &[(usize, usize)], i: usize, out: &mut Vec<Issue>
                 s,
                 e,
                 Kind::Orthographe,
-                format!("“{rep}” before a vowel sound"),
+                Code::AnVoyelle,
+                &[&rep],
                 Some(rep.into()),
             ));
         }
@@ -486,7 +800,8 @@ fn english_word(src: &str, ws: &[(usize, usize)], i: usize, out: &mut Vec<Issue>
                 s,
                 e,
                 Kind::Orthographe,
-                format!("“{rep}” before a consonant sound"),
+                Code::AConsonne,
+                &[&rep],
                 Some(rep.into()),
             ));
         }
@@ -537,7 +852,8 @@ fn sentences(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue>
                     p,
                     p + first.len_utf8(),
                     Kind::Ponctuation,
-                    format!("En espagnol, la phrase commence par « {opening} »"),
+                    Code::OuvertureEs,
+                    &[&opening],
                     Some(format!("{opening}{first}")),
                 ));
             }
@@ -560,7 +876,8 @@ fn sentences(src: &str, (a, b): (usize, usize), lang: Lang, out: &mut Vec<Issue>
                 p,
                 p + first.len_utf8(),
                 Kind::Majuscule,
-                "Majuscule en début de phrase",
+                Code::MajusculePhrase,
+                &[],
                 Some(up),
             ));
         }
@@ -592,7 +909,8 @@ fn check_lines(src: &str, lang: Lang, out: &mut Vec<Issue>) {
                                 offset + i,
                                 offset + i + 1,
                                 Kind::Equilibre,
-                                format!("« {c} » sans ouverture"),
+                                Code::SansOuverture,
+                                &[&c],
                                 None,
                             ));
                         }
@@ -613,7 +931,8 @@ fn check_lines(src: &str, lang: Lang, out: &mut Vec<Issue>) {
                 p,
                 p + c.len_utf8(),
                 Kind::Equilibre,
-                format!("« {c} » jamais fermé"),
+                Code::JamaisFerme,
+                &[&c],
                 None,
             ));
         }
@@ -648,6 +967,83 @@ pub fn apply_all(src: &mut String, lang: Lang) -> usize {
         }
     }
     n
+}
+
+#[cfg(test)]
+mod tests_messages {
+    use super::*;
+
+    fn accolades(s: &str) -> Vec<String> {
+        let mut v: Vec<String> = s
+            .match_indices('{')
+            .filter_map(|(i, _)| s[i..].find('}').map(|j| s[i..i + j + 1].to_string()))
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn chaque_code_a_un_message_dans_les_six_langues() {
+        for c in Code::ALL {
+            let fr = c.template(Lang::Fr);
+            for l in Lang::ALL {
+                let t = c.template(l);
+                assert!(!t.trim().is_empty(), "{c:?} en {}", l.code());
+                assert_eq!(accolades(t), accolades(fr), "{c:?} en {}", l.code());
+            }
+        }
+        for k in [
+            Kind::Espace,
+            Kind::Ponctuation,
+            Kind::Majuscule,
+            Kind::Repetition,
+            Kind::Orthographe,
+            Kind::Equilibre,
+        ] {
+            assert_eq!(k.label_in(Lang::Fr), k.label());
+            for l in Lang::ALL {
+                assert!(!k.label_in(l).is_empty());
+            }
+        }
+        for l in Lang::ALL {
+            assert_eq!(l.label_in(Lang::Fr), l.label());
+            for ui in Lang::ALL {
+                assert!(!l.label_in(ui).is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn remarques_traduites() {
+        for (lang, src) in [
+            (Lang::Fr, "Bonjour! le le chat (oups"),
+            (Lang::En, "i saw a apple ,ok. then"),
+            (Lang::Es, "Hola? porfavor"),
+            (Lang::Pt, "derrepente  sim"),
+            (Lang::It, "perchè no"),
+        ] {
+            let issues = check(src, lang);
+            assert!(!issues.is_empty(), "{src}");
+            for i in &issues {
+                assert_eq!(i.message, i.message_in(Lang::Fr));
+                for l in Lang::ALL {
+                    let m = i.message_in(l);
+                    assert!(!m.contains('{') && !m.is_empty(), "{m}");
+                }
+            }
+        }
+        let i = &check("le le chat", Lang::Fr)[0];
+        assert_eq!(i.code, Code::MotRepete);
+        assert_eq!(i.message_in(Lang::En), "Repeated word: “le”");
+        assert_eq!(i.message_in(Lang::De), "Wiederholtes Wort: „le“");
+        // Argument manquant : jamais d'accolade affichée.
+        assert_eq!(Code::MotRepete.message(Lang::Fr, &[]), "Mot répété : «  »");
+        let sp = crate::spell::spelling_issue("chatt", 0..5, &["chat".to_string()]);
+        assert_eq!(
+            sp.message_in(Lang::It),
+            "«chatt» non è nel dizionario: «chat»?"
+        );
+    }
 }
 
 #[cfg(test)]
