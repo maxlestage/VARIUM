@@ -361,7 +361,7 @@ fn pixmap_de(data: &[u8]) -> Option<Pixmap> {
     let img = image::load_from_memory(data).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
     let mut px = img.into_raw();
-    for p in px.chunks_exact_mut(4) {
+    for p in px.as_chunks_mut::<4>().0 {
         let a = p[3] as u16;
         for c in &mut p[..3] {
             *c = ((*c as u16 * a + 127) / 255) as u8;
@@ -413,7 +413,9 @@ impl Deck {
                 peindre(&mut pixmap, &flux, s, ph, &polices, &images);
                 let rgb: Vec<u8> = pixmap
                     .data()
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .flat_map(|p| [p[0], p[1], p[2]])
                     .collect();
                 let mut png = Vec::new();
