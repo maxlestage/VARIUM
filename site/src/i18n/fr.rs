@@ -257,6 +257,10 @@ pub const TEXTES: Textes = Textes {
             effet: "une table des matières générée depuis les titres",
         },
         Ligne {
+            code: "\\note{texte}",
+            effet: "une note numérotée [1], rassemblée en fin de document",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "des formules LaTeX, en ligne ou centrées",
         },

@@ -257,6 +257,10 @@ pub const TEXTES: Textes = Textes {
             effet: "um sumário gerado a partir dos títulos",
         },
         Ligne {
+            code: "\\note{texte}",
+            effet: "uma nota numerada [1], reunida no fim do documento",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "fórmulas LaTeX, no texto ou centradas",
         },
