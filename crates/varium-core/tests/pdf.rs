@@ -238,3 +238,37 @@ fn entrees_aleatoires_sans_panique() {
         assert!(valider(&o) >= 1, "source : {src:?}");
     }
 }
+
+#[test]
+fn signets_des_titres() {
+    let page = PageSetup::default();
+    let src = "# Un\n\ntexte\n\n## Deux\n\n### Trois\n\n## Quatre\n\n# Cinq\n";
+    let o = pdf("t", &[rendu(src, &page)], &page, &polices());
+    valider(&o);
+    let s = texte(&o);
+    assert!(s.contains("/Outlines "));
+    assert!(s.contains("/PageMode /UseOutlines"));
+    assert_eq!(s.matches("/Dest [").count(), 5);
+    // Racine : 5 signets au total ; « Un » a deux enfants, « Deux » un seul.
+    assert!(s.contains("/Type /Outlines"));
+    assert!(s.contains("/Count 5"));
+    assert!(s.contains("/Count 2"));
+    assert!(s.contains("/Count 1"));
+}
+
+#[test]
+fn signets_sur_plusieurs_pages_et_sans_titre() {
+    let page = PageSetup::default();
+    let mut src = String::new();
+    for i in 0..60 {
+        src.push_str(&format!("# Titre {i}\n\nparagraphe\n\n\\saut\n\n"));
+    }
+    let o = pdf("t", &[rendu(&src, &page)], &page, &polices());
+    let pages = valider(&o);
+    assert!(pages >= 2);
+    assert!(texte(&o).matches("/Dest [").count() >= 2);
+    // Sans titre : aucun plan.
+    let o = pdf("t", &[rendu("juste du texte", &page)], &page, &polices());
+    valider(&o);
+    assert!(!texte(&o).contains("/Outlines"));
+}
