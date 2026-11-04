@@ -623,7 +623,38 @@ async fn l_export_statique() {
             r#"<link rel="canonical" href="https://maxlestage.github.io/VARIUM/fr/{rubrique}/"/>"#
         )));
         assert!(html.contains(&format!(r#"href="/VARIUM/de/{rubrique}/""#)));
-        assert!(!html.contains("<script"));
+        // Aucun script en ligne : seulement pwa.js, un fichier du site.
+        assert!(!html.contains("<script>"));
+        assert!(html.contains(r#"<script src="/VARIUM/pwa.js" defer></script>"#));
+    }
+
+    // Le site installable : manifestes, worker, icônes et images de partage, derrière la base.
+    for langue in Langue::ALL {
+        let code = langue.code();
+        let manifeste = lire(&format!("{code}/manifest.webmanifest"));
+        assert!(manifeste.contains(&format!(r#""start_url":"/VARIUM/{code}/?source=pwa""#)));
+        assert!(manifeste.contains(r#""scope":"/VARIUM/""#));
+        let accueil = lire(&format!("{code}/index.html"));
+        assert!(accueil.contains(&format!(
+            r#"<link rel="manifest" href="/VARIUM/{code}/manifest.webmanifest"/>"#
+        )));
+        assert!(accueil.contains(&format!(
+            "https://maxlestage.github.io/VARIUM/partage/{code}.jpg"
+        )));
+        assert!(accueil.contains(r#"class="partage""#));
+        assert!(dossier.join(format!("partage/{code}.jpg")).is_file());
+        assert!(dossier.join(format!("captures/{code}-large.png")).is_file());
+    }
+    assert!(lire("manifest.webmanifest").contains(r#""lang":"fr""#));
+    let worker = lire("sw.js");
+    assert!(worker.contains(r#""/VARIUM/de/syntaxe/""#));
+    for fichier in [
+        "favicon.ico",
+        "pwa.js",
+        "icones/icone-maskable-512.png",
+        "icones/apple-touch-icon.png",
+    ] {
+        assert!(dossier.join(fichier).is_file(), "{fichier}");
     }
 
     let introuvable = lire("404.html");

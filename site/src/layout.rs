@@ -29,7 +29,8 @@ pub fn page(
         .base_url(o.origine(req))
         .site_name("Varium")
         .og_type("website")
-        .locale(langue.locale());
+        .locale(langue.locale())
+        .image(crate::pwa::image(langue));
     match rubrique {
         Some(r) => {
             seo = seo.canonical(r.chemin(langue));
@@ -40,14 +41,21 @@ pub fn page(
         }
         None => seo = seo.noindex(true),
     }
+    // L'adresse partagée : la page elle-même (l'accueil pour une page introuvable).
+    let adresse = format!(
+        "{}{}",
+        o.origine(req),
+        rubrique.unwrap_or(Rubrique::Accueil).chemin(langue)
+    );
     Page::new(titre_complet)
         .lang(langue.code())
         .description(description.to_string())
         .seo(seo)
-        .head(icone(o))
+        .head(crate::pwa::balises(o, langue))
         .stylesheet(o.lien("/site.css"))
         .body(entete(o, langue, rubrique))
         .body(main().class("contenu").child(contenu))
+        .body(crate::pwa::bloc_partage(&adresse, langue))
         .body(pied(langue))
 }
 
@@ -63,9 +71,10 @@ pub fn page_neutre(req: &Request, titre: &str, description: &str, contenu: Node)
                 .base_url(o.origine(req))
                 .site_name("Varium")
                 .og_type("website")
-                .locale(Langue::Fr.locale()),
+                .locale(Langue::Fr.locale())
+                .image(crate::pwa::image(Langue::Fr)),
         )
-        .head(icone(o))
+        .head(crate::pwa::balises(o, Langue::Fr))
         .stylesheet(o.lien("/site.css"))
         .body(header().class("entete").child(marque(o, "/", "Varium")))
         .body(main().class("contenu").child(contenu))
@@ -76,13 +85,6 @@ pub fn page_neutre(req: &Request, titre: &str, description: &str, contenu: Node)
                     .child(a().href(REPO).text("GitHub")),
             ),
         )
-}
-
-fn icone(o: &Options) -> String {
-    format!(
-        r#"<link rel="icon" type="image/svg+xml" href="{}"/>"#,
-        o.lien("/favicon.svg")
-    )
 }
 
 fn marque(o: &Options, chemin: &str, aria: &str) -> Element {

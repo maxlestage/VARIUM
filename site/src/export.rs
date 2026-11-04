@@ -21,6 +21,7 @@
 //! | `syntaxe/index.html`, `essayer/index.html`, `installer/index.html` | les anciennes adresses |
 //! | `404.html` | la page « introuvable » dans toutes les langues, servie par GitHub Pages pour toute adresse inconnue |
 //! | `sitemap.xml`, `robots.txt` | pour les moteurs de recherche |
+//! | `manifest.webmanifest`, `{langue}/manifest.webmanifest`, `sw.js` | le site installable |
 //! | `site.css`, `favicon.svg`… | le contenu de `public/` |
 
 use std::io;
@@ -79,7 +80,16 @@ pub async fn exporter(dossier: &Path, options: Options) -> io::Result<Vec<String
     }
     let introuvable = obtenir("/cette-page-n-existe-pas/", 404).await?;
     ecrire("404.html", introuvable.as_bytes())?;
-    for fichier in ["sitemap.xml", "robots.txt"] {
+    let mut fichiers_generes: Vec<String> = vec![
+        "sitemap.xml".into(),
+        "robots.txt".into(),
+        "manifest.webmanifest".into(),
+        "sw.js".into(),
+    ];
+    for langue in Langue::ALL {
+        fichiers_generes.push(format!("{}/manifest.webmanifest", langue.code()));
+    }
+    for fichier in &fichiers_generes {
         let corps = obtenir(&format!("/{fichier}"), 200).await?;
         ecrire(fichier, corps.as_bytes())?;
     }
