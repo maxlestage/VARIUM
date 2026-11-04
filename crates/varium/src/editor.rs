@@ -18,7 +18,12 @@ pub fn byte_of(s: &str, ch: usize) -> usize {
 }
 
 pub fn char_of(s: &str, byte: usize) -> usize {
-    s[..byte.min(s.len())].chars().count()
+    // Un octet au milieu d'un caractère compte pour le caractère qui le contient.
+    let mut b = byte.min(s.len());
+    while !s.is_char_boundary(b) {
+        b -= 1;
+    }
+    s[..b].chars().count()
 }
 
 /// Une sélection en caractères : (début, fin), début ≤ fin.
@@ -187,7 +192,7 @@ pub fn set_line_style(src: &mut String, sel: Sel, style: LineStyle) -> Sel {
         .iter()
         .map(|line| {
             let (_, pre, suf) = line_markup(line);
-            let body = &line[pre..line.len() - suf];
+            let body = line.get(pre..line.len().saturating_sub(suf)).unwrap_or("");
             if line.trim().is_empty() && lines.len() > 1 {
                 return line.to_string();
             }
@@ -668,6 +673,117 @@ mod tests {
         assert_eq!(s, "aé{{x}} b");
         assert_eq!(sel, (4, 5));
         assert!(table_markup(3, 2).starts_with("| Colonne 1 | Colonne 2 |\n|---|---|\n"));
+    }
+
+    /// Générateur pseudo-aléatoire déterministe (xorshift).
+    fn alea(etat: &mut u64) -> usize {
+        *etat ^= *etat << 13;
+        *etat ^= *etat >> 7;
+        *etat ^= *etat << 17;
+        (*etat >> 11) as usize
+    }
+
+    fn texte_alea(etat: &mut u64) -> String {
+        const ATOMES: &[&str] = &[
+            "a",
+            "é",
+            "日",
+            "🙂",
+            " ",
+            "  ",
+            "\n",
+            "#",
+            "## ",
+            "- ",
+            "* ",
+            "• ",
+            "1. ",
+            "12) ",
+            "> ",
+            ">",
+            "->",
+            "<-",
+            "-> ",
+            " <-",
+            " ->",
+            "**",
+            "__",
+            "*",
+            "~~",
+            "{{",
+            "}}",
+            "{{x}}",
+            "|",
+            "|---|",
+            "$",
+            "$$",
+            "\\note{",
+            "}",
+            "\\newpage",
+            "\u{301}",
+        ];
+        let n = alea(etat) % 14;
+        (0..n).map(|_| ATOMES[alea(etat) % ATOMES.len()]).collect()
+    }
+
+    #[test]
+    fn lignes_limites_sans_panique() {
+        // Régression : « -> <- » avait un préfixe plus long que le corps.
+        for s in ["-> <-", "-> ->", "-><-", "->", "-> ", "->  <-"] {
+            let mut t = s.to_string();
+            for style in [
+                LineStyle::Body,
+                LineStyle::Center,
+                LineStyle::Right,
+                LineStyle::Quote,
+            ] {
+                set_line_style(&mut t, (0, 0), style);
+            }
+        }
+    }
+
+    #[test]
+    fn fuzz_commandes_de_l_editeur() {
+        let mut etat = 0x9E37_79B9_7F4A_7C15_u64;
+        let styles = [
+            LineStyle::Body,
+            LineStyle::Heading(1),
+            LineStyle::Heading(3),
+            LineStyle::Bullet,
+            LineStyle::Numbered,
+            LineStyle::Quote,
+            LineStyle::Center,
+            LineStyle::Right,
+        ];
+        for _ in 0..3000 {
+            let mut s = texte_alea(&mut etat);
+            let n = s.chars().count();
+            // Les positions peuvent dépasser le texte et être inversées.
+            let sel = (alea(&mut etat) % (n + 4), alea(&mut etat) % (n + 4));
+            for marque in ["**", "__", "*", "~~"] {
+                let mut t = s.clone();
+                let r = toggle_wrap(&mut t, sel, marque);
+                assert!(r.0 <= r.1 + 2 * marque.len());
+            }
+            let mut t = s.clone();
+            insert(&mut t, sel, &texte_alea(&mut etat), Some((0, 1)));
+            let mut t = s.clone();
+            let style = styles[alea(&mut etat) % styles.len()];
+            set_line_style(&mut t, sel, style);
+            let _ = line_style_at(&s, sel.0);
+            let _ = outline(&s);
+            let _ = find_all(
+                &s,
+                &texte_alea(&mut etat),
+                alea(&mut etat).is_multiple_of(2),
+            );
+            let _ = char_of(&s, alea(&mut etat) % (s.len() + 3));
+            let pal = Palette::new(false);
+            let plages = [(0, s.len())];
+            let job = highlight(&s, &pal, DocFont::Serif, 15.0, &plages, &plages);
+            assert_eq!(job.text, s);
+            s.clear();
+        }
     }
 
     #[test]

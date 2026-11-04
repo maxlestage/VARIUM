@@ -7,7 +7,8 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Tests de fuzz déterministes du moteur (`crates/varium-core/tests/robustesse.rs`) : analyse, rendu, formules, CSV, exports, projets corrompus, entrées très longues — « Robustesse : fuzz, profondeur des formules, parseur linéaire »
 - [x] Formules très imbriquées refusées proprement (plus de dépassement de pile) — idem
 - [x] Parseur linéaire sur les `{{` non fermés (était quadratique) — idem
-- [ ] Fuzz côté application (editor.rs, pageview.rs) : indexation sur positions de curseur/Unicode
+- [x] Fuzz côté application de editor.rs (sélections hors texte ou inversées, Unicode, marques) : corrige `char_of` (octet hors frontière) et `set_line_style` sur `-> <-` — « Robustesse : fuzz de l'éditeur »
+- [ ] Fuzz de pageview.rs (indexation sur positions de curseur/Unicode)
 - [x] Revue des `unwrap`/`expect` hors tests : pagination (pageview.rs), tableaux et échappements (doc.rs), graphique du Classeur remplacés par du code sans panique ; test `tableaux_et_echappements_limites_ne_paniquent_pas` — « Robustesse : suppression des unwrap hors tests »
   (reste `expect` de `Project::to_json`, infaillible : types à clés texte)
 - [x] Récupération d'un projet corrompu (`Project::recuperer` : JSON tronqué, champs mal typés, version future ; sinon ouverture du texte brut ; le fichier d'origine n'est pas écrasé) — « Robustesse : récupération d'un projet corrompu »
