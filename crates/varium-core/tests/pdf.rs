@@ -272,3 +272,35 @@ fn signets_sur_plusieurs_pages_et_sans_titre() {
     valider(&o);
     assert!(!texte(&o).contains("/Outlines"));
 }
+
+#[test]
+fn liens_cliquables() {
+    let page = PageSetup::default();
+    let src = "# Titre\n\nVoir https://exemple.fr/a(b), puis mailto:moi@exemple.fr. Et http:// seul, ou www.non.fr.\n";
+    let o = pdf("t", &[rendu(src, &page)], &page, &polices());
+    valider(&o);
+    let s = texte(&o);
+    assert_eq!(s.matches("/Subtype /Link").count(), 2);
+    assert!(
+        s.contains("/URI (https://exemple.fr/a\\(b\\))")
+            || s.contains("/URI (https://exemple.fr/a\\(b)")
+    );
+    assert!(s.contains("/URI (mailto:moi@exemple.fr)"));
+    assert!(s.contains("/Annots ["));
+    // Sans adresse : aucune annotation.
+    let o = pdf("t", &[rendu("rien ici", &page)], &page, &polices());
+    valider(&o);
+    assert!(!texte(&o).contains("/Annots"));
+}
+
+#[test]
+fn liens_avec_signets_et_plusieurs_pages() {
+    let page = PageSetup::default();
+    let mut src = String::new();
+    for i in 0..40 {
+        src.push_str(&format!("# T{i}\n\nhttps://exemple.fr/{i}\n\n\\saut\n\n"));
+    }
+    let o = pdf("t", &[rendu(&src, &page)], &page, &polices());
+    valider(&o);
+    assert_eq!(texte(&o).matches("/Subtype /Link").count(), 40);
+}
