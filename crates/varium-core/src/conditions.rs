@@ -138,6 +138,41 @@ pub(crate) fn tested_names(src: &str) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// Pour chaque champ testé par un `{{si}}` : les valeurs auxquelles il est comparé
+/// (`{{si statut = payé}}`), dans l'ordre, sans doublon ; vide s'il n'est testé que
+/// pour sa présence (`{{si remise}}`).
+pub fn valeurs_testees(src: &str) -> Vec<(String, Vec<String>)> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for d in directives(src).into_iter().filter(|d| !d.escaped) {
+        let (nom, valeur) = match d.kind {
+            Kind::If(Cond::Truthy(n, _)) => (n, None),
+            Kind::If(Cond::Eq(n, v, _)) => (n, Some(v)),
+            _ => continue,
+        };
+        let i = match out.iter().position(|(n, _)| *n == nom) {
+            Some(i) => i,
+            None => {
+                out.push((nom, Vec::new()));
+                out.len() - 1
+            }
+        };
+        if let Some(v) = valeur.filter(|v| !v.is_empty())
+            && !out[i]
+                .1
+                .iter()
+                .any(|x| x.to_lowercase() == v.to_lowercase())
+        {
+            out[i].1.push(v);
+        }
+    }
+    out
+}
+
+/// La valeur rend-elle `{{si champ}}` vrai ? (non vide, ni « non », « faux », « false », « 0 »)
+pub fn est_vrai(v: &str) -> bool {
+    truthy(v)
+}
+
 fn truthy(v: &str) -> bool {
     let v = v.trim();
     !(v.is_empty() || ["non", "faux", "false", "0"].contains(&v.to_lowercase().as_str()))

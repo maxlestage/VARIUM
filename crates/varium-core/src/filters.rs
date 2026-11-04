@@ -19,6 +19,7 @@ pub const KNOWN: &[(&str, &str)] = &[
     ("money · money:usd", "1 234,50 €"),
     ("date · date:full · date:short", "15 mars 2026"),
     ("default:\"texte\"", "Valeur si le champ est vide"),
+    ("qr", "Code QR de la valeur"),
 ];
 
 pub fn apply(value: &str, filters: &[Filter]) -> String {
@@ -43,6 +44,8 @@ pub fn apply_one(v: &str, name: &str, arg: Option<&str>) -> String {
         "date" => parse_date(v)
             .map(|d| format_date(d, arg.unwrap_or("long")))
             .unwrap_or_else(|| v.to_string()),
+        // Le code QR est dessiné à partir de la valeur, qui reste inchangée.
+        "qr" => v.to_string(),
         "default" => {
             if v.is_empty() {
                 arg.unwrap_or_default().to_string()

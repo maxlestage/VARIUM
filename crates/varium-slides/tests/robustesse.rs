@@ -166,6 +166,7 @@ fn diapositive(a: &mut Alea) -> Slide {
                 ..Object::default()
             })
             .collect(),
+        duration: a.pile().then(|| a.sous(600) as f32 / 10.0),
     }
 }
 
@@ -179,6 +180,7 @@ fn presentation(a: &mut Alea) -> Deck {
         values: Default::default(),
         slides: (0..a.sous(9)).map(|_| diapositive(a)).collect(),
         media: Default::default(),
+        auto_advance: a.pile(),
     };
     for nom in ["entreprise", "ville", "a", "b", "x", "absent"] {
         if a.pile() {

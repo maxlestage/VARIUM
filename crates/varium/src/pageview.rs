@@ -21,6 +21,7 @@ const FIELD_LINE: Color32 = Color32::from_rgb(0x1F, 0x5F, 0xBF);
 const MISSING_FG: Color32 = Color32::from_rgb(0xB3, 0x26, 0x1E);
 const MISSING_BG: Color32 = Color32::from_rgb(0xFD, 0xE7, 0xE5);
 const MATH: Color32 = Color32::from_rgb(0x3A, 0x25, 0x7A);
+const LIEN: Color32 = Color32::from_rgb(0x1F, 0x5F, 0xBF);
 
 /// Ce qu'il faut savoir pour dessiner.
 pub struct View<'a> {
@@ -91,6 +92,18 @@ impl Metrics {
             if st.strike {
                 f.strikethrough = line;
             }
+            if let Some((_, label)) = r.lien() {
+                f.color = LIEN;
+                f.underline = Stroke::new((size / 16.0).max(1.0), LIEN);
+                job.append(label, 0.0, f);
+                continue;
+            }
+            if let Some(q) = r.qr() {
+                // Un code QR au fil du texte (cellule de tableau) : son contenu, marqué.
+                f.color = MUTED;
+                job.append(&format!("▣ {q}"), 0.0, f);
+                continue;
+            }
             match r {
                 Run::Text { text, .. } => job.append(text, 0.0, f),
                 Run::Value { text, .. } => {
@@ -146,6 +159,14 @@ enum Chunk {
         height: f32,
         header: bool,
     },
+    /// Code QR : ses carrés noirs (x, y, longueur) en modules, sa taille en modules,
+    /// son côté en pixels (marge comprise) et son alignement.
+    Qr {
+        segments: Vec<(usize, usize, usize)>,
+        modules: usize,
+        cote: f32,
+        align: Align,
+    },
     Rule,
     Break,
 }
@@ -176,6 +197,19 @@ fn chunks(ctx: &egui::Context, paras: &[Para], m: &Metrics) -> Vec<Chunk> {
         layout(ctx, job)
     };
     for p in paras {
+        if let (Some(contenu), Para::Text { align, .. }) = (p.qr(), p)
+            && let Ok(q) = varium_core::qr::QrCode::encode(contenu)
+        {
+            out.push(Chunk::Qr {
+                segments: q.segments(),
+                modules: q.size(),
+                cote: (varium_core::qr::TAILLE_MM * m.k)
+                    .min(m.text_w)
+                    .min(m.text_h),
+                align: *align,
+            });
+            continue;
+        }
         match p {
             Para::Text { align, runs } => {
                 let galley = text(runs, m.size, false, false, m.text_w, *align);
@@ -341,6 +375,19 @@ fn paginate(chunks: &[Chunk], m: &Metrics) -> Vec<Vec<Placed>> {
                     height: rule_h,
                 });
                 y += rule_h;
+            }
+            Chunk::Qr { cote, .. } => {
+                if y + cote > m.text_h && y > 0.0 {
+                    pages.push(Vec::new());
+                    y = 0.0;
+                }
+                page_courante(&mut pages).push(Placed {
+                    chunk: i,
+                    y,
+                    offset: 0.0,
+                    height: *cote,
+                });
+                y += cote;
             }
             Chunk::Row { height, .. } => {
                 if y + height > m.text_h && y > 0.0 {
@@ -592,6 +639,30 @@ pub fn show(ui: &mut egui::Ui, view: &View) -> usize {
                         painter.galley(Pos2::new(ax, y + pad), c.galley.clone(), INK);
                     }
                 }
+                Chunk::Qr {
+                    segments,
+                    modules,
+                    cote,
+                    align,
+                } => {
+                    let x0 = match align {
+                        Align::Center => text_rect.left() + (m.text_w - cote) / 2.0,
+                        Align::Right => text_rect.right() - cote,
+                        _ => text_rect.left(),
+                    };
+                    // Marge blanche de deux modules autour du code.
+                    let module = cote / (*modules as f32 + 4.0);
+                    for (x, yy, l) in segments {
+                        let r = Rect::from_min_size(
+                            Pos2::new(
+                                x0 + (*x as f32 + 2.0) * module,
+                                y + (*yy as f32 + 2.0) * module,
+                            ),
+                            Vec2::new(*l as f32 * module, module),
+                        );
+                        painter.rect_filled(r.expand(0.2), 0.0, Color32::BLACK);
+                    }
+                }
                 Chunk::Rule => {
                     let ry = y + p.height / 2.0;
                     painter.line_segment(
@@ -642,6 +713,8 @@ mod tests {
             "| a | b |\n|---|---|\n| 1 | 2 |\n",
             "| seule |\n",
             "{{champ}} ",
+            "{{qr:https://exemple.fr}}",
+            "[lien](https://x.fr) ",
             "**gras** ",
             "-> centré <-\n",
             "\u{a0}",
