@@ -1096,6 +1096,14 @@ pub static T: &[(&str, &str)] = &[
         "«{from}» rinominato in «{to}» ovunque",
     ),
     (
+        "« {name} » est abîmé : contenu récupéré ({detail}). Enregistrez-le sous un nouveau nom.",
+        "«{name}» è danneggiato: contenuto recuperato ({detail}). Salvalo con un nuovo nome.",
+    ),
+    (
+        "« {name} » est illisible ({e}) : texte brut ouvert",
+        "«{name}» è illeggibile ({e}): aperto come testo semplice",
+    ),
+    (
         "« {name} » figé dans le texte",
         "«{name}» fissato nel testo",
     ),

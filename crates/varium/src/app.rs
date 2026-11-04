@@ -1020,7 +1020,40 @@ impl VariumApp {
                                 }
                                 self.notify(ctx, trf!("« {name} » ouvert", name), false);
                             }
-                            Err(e) => self.notify(ctx, e, true),
+                            Err(e) => {
+                                // Projet abîmé : on récupère ce qu'on peut, sans associer
+                                // le fichier d'origine (Enregistrer demandera un nouveau nom).
+                                if let Some((p, notes)) = Project::recuperer(&content) {
+                                    self.load(p);
+                                    let detail = notes.join(" ; ");
+                                    self.notify(
+                                        ctx,
+                                        trf!(
+                                            "« {name} » est abîmé : contenu récupéré ({detail}). Enregistrez-le sous un nouveau nom.",
+                                            name,
+                                            detail
+                                        ),
+                                        true,
+                                    );
+                                } else {
+                                    let title = name
+                                        .rsplit_once('.')
+                                        .map_or(name.as_str(), |(s, _)| s)
+                                        .to_string();
+                                    let mut p = Project::new(title, content, &self.values);
+                                    p.page = self.page.clone();
+                                    self.load(p);
+                                    self.notify(
+                                        ctx,
+                                        trf!(
+                                            "« {name} » est illisible ({e}) : texte brut ouvert",
+                                            name,
+                                            e
+                                        ),
+                                        true,
+                                    );
+                                }
+                            }
                         }
                     } else {
                         let title = name

@@ -10,7 +10,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Fuzz côté application (editor.rs, pageview.rs) : indexation sur positions de curseur/Unicode
 - [x] Revue des `unwrap`/`expect` hors tests : pagination (pageview.rs), tableaux et échappements (doc.rs), graphique du Classeur remplacés par du code sans panique ; test `tableaux_et_echappements_limites_ne_paniquent_pas` — « Robustesse : suppression des unwrap hors tests »
   (reste `expect` de `Project::to_json`, infaillible : types à clés texte)
-- [ ] Récupération d'un projet corrompu dans l'application (message clair, ouverture de la source brute)
+- [x] Récupération d'un projet corrompu (`Project::recuperer` : JSON tronqué, champs mal typés, version future ; sinon ouverture du texte brut ; le fichier d'origine n'est pas écrasé) — « Robustesse : récupération d'un projet corrompu »
 - [x] Test de rétro-compatibilité des projets v1 : existe déjà (`projets_v1_toujours_lisibles`, tests/engine.rs)
 
 ## 2. Fichiers comme Writer
