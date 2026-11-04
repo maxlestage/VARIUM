@@ -21,7 +21,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Documents récents — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
 - [x] Sauvegarde de secours automatique sur disque (`.nom.varium-secours` à côté du document, ou dossier de données ; restauration proposée à l'ouverture/au démarrage ; secours.rs) — « Sauvegarde de secours automatique »
 - [ ] Test d'intégration de l'état « modifié » de l'application (logique is_dirty/guard hors egui)
-- [ ] Restaurer le fichier courant au redémarrage (le chemin n'est pas conservé)
+- [x] Restaurer le fichier courant au redémarrage (`Prefs::dernier_fichier`, `files::lire_projet` ; Ctrl+S réécrit le même fichier, « modifié » si l'état restauré diffère du disque) — « Restaurer le fichier courant au redémarrage »
 
 ## 3. Distribution
 - [x] Workflow de release (binaires Linux, macOS, Windows à chaque tag) — « Binaires à télécharger pour Windows, macOS et Linux (version 0.2.0) »

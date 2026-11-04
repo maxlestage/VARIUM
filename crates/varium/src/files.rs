@@ -53,9 +53,41 @@ pub fn is_project_file(name: &str) -> bool {
     n.ends_with(".json") || n.ends_with(".varium")
 }
 
+/// Relit le projet d'un fichier connu (restauration au démarrage). `None` si
+/// le fichier a disparu ou n'est pas lisible ; un projet abîmé est récupéré
+/// au mieux, sans jamais toucher au fichier.
+pub fn lire_projet(path: &Path) -> Option<varium_core::project::Project> {
+    let texte = std::fs::read_to_string(path).ok()?;
+    match varium_core::project::Project::from_json(&texte) {
+        Ok(p) => Some(p),
+        Err(_) => varium_core::project::Project::recuperer(&texte).map(|(p, _)| p),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lire_projet_relit_recupere_ou_abandonne() {
+        let dir = std::env::temp_dir().join(format!("varium-lire-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ok = dir.join("a.varium.json");
+        let projet = varium_core::project::Project::new(
+            "T",
+            "Bonjour {{nom}}",
+            &varium_core::render::Values::default(),
+        );
+        std::fs::write(&ok, projet.to_json()).unwrap();
+        assert_eq!(lire_projet(&ok).unwrap().source, "Bonjour {{nom}}");
+        let abime = dir.join("b.varium.json");
+        let json = projet.to_json();
+        std::fs::write(&abime, &json[..json.len() / 2]).unwrap();
+        // Tronqué : récupéré ou abandonné, mais jamais de panique.
+        let _ = lire_projet(&abime);
+        assert!(lire_projet(&dir.join("absent.json")).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn titre_de_fenetre() {
