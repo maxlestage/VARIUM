@@ -7,18 +7,24 @@ use crate::tr::{n_, tr};
 use std::path::PathBuf;
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use egui::{Align2, Color32, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use varium_calc::{
     Answer, BinOp, CalcError, CellFormat, CellRef, Clip, ColumnFilter, CompareOp, CondFormat,
     CondRule, CondStyle, ErrorCause, FilterCondition, FormulaNode, FunctionCategory, FunctionInfo,
-    HAlign, NumberFormat, Operation, PasteOptions, PasteWhat, QuestionError, QuickFormat,
+    HAlign, NumberFormat, Operation, PasteOptions, PasteWhat, PivotAgg, PivotCell, PivotError,
+    PivotField, PivotFilter, PivotGroup, PivotTable, PivotValue, QuestionError, QuickFormat,
     QuickTotal, Range, Value, Workbook,
 };
 
 use crate::io::{Event, Io, OpenKind};
 
 pub const STORAGE_KEY: &str = "varium.calc";
+/// Clé d'enregistrement des questions fréquentes (« Poser une question »).
+pub const QUESTIONS_KEY: &str = "varium.calc.questions";
+/// Nombre de questions fréquentes retenues.
+const MAX_QUESTIONS: usize = 12;
 const ROW_H: f32 = 24.0;
 const HEAD_W: f32 = 46.0;
 const DEFAULT_W: f32 = 96.0;
@@ -33,10 +39,12 @@ enum ChartKind {
     Nuage,
     Secteurs,
     Anneau,
+    /// Planning : tâche, début, fin.
+    Gantt,
 }
 
 impl ChartKind {
-    const ALL: [ChartKind; 8] = [
+    const ALL: [ChartKind; 9] = [
         ChartKind::Barres,
         ChartKind::BarresH,
         ChartKind::Empilees,
@@ -45,7 +53,30 @@ impl ChartKind {
         ChartKind::Nuage,
         ChartKind::Secteurs,
         ChartKind::Anneau,
+        ChartKind::Gantt,
     ];
+
+    /// Nom enregistré dans la feuille (voir `SheetChart`).
+    fn key(self) -> &'static str {
+        match self {
+            ChartKind::Barres => "barres",
+            ChartKind::BarresH => "barres-h",
+            ChartKind::Empilees => "empilees",
+            ChartKind::Courbes => "courbes",
+            ChartKind::Aires => "aires",
+            ChartKind::Nuage => "nuage",
+            ChartKind::Secteurs => "secteurs",
+            ChartKind::Anneau => "anneau",
+            ChartKind::Gantt => "gantt",
+        }
+    }
+
+    fn from_key(k: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|c| c.key() == k)
+            .unwrap_or(ChartKind::Barres)
+    }
 
     fn label(self) -> &'static str {
         match self {
@@ -57,6 +88,7 @@ impl ChartKind {
             ChartKind::Nuage => tr("Nuage de points"),
             ChartKind::Secteurs => tr("Secteurs"),
             ChartKind::Anneau => tr("Anneau"),
+            ChartKind::Gantt => tr("Gantt"),
         }
     }
 }
@@ -124,6 +156,26 @@ pub enum CalcAction {
     FormatAsTable,
     /// Formules en clair : info-bulle au survol (bascule).
     ExplainFormulas,
+    /// Galerie « Nouveau depuis un modèle ».
+    NewFromTemplate,
+    /// Tableau croisé dynamique de la zone active.
+    Pivot,
+    /// Actualiser les tableaux croisés du classeur.
+    RefreshPivots,
+    /// Questions fréquentes (boîte « Poser une question »).
+    RecentQuestions,
+    /// Importer un relevé bancaire (CSV, OFX, QIF).
+    ImportBank,
+    /// Règles de classement des opérations bancaires.
+    BankRules,
+    /// Planning de Gantt de la zone active.
+    Gantt,
+    /// Table des taux de change (`DEVISE`).
+    ExchangeRates,
+    /// Renvoyer le texte à la ligne (bascule).
+    WrapText,
+    /// Hauteur des lignes ajustée au contenu.
+    AutoFitRows,
 }
 
 impl CalcAction {
@@ -209,6 +261,20 @@ pub struct CalcApp {
     explain_formulas: bool,
     /// Heure de l'image en cours (secondes).
     now: f64,
+    /// Galerie des modèles ouverte.
+    templates_open: bool,
+    /// Boîte « Tableau croisé dynamique ».
+    pivot: Option<PivotDialog>,
+    /// Questions posées et leur nombre, les plus fréquentes d'abord.
+    questions: Vec<(String, u32)>,
+    /// Relevé bancaire choisi dans le dialogue de fichier (nom, texte).
+    bank_inbox: BankInbox,
+    /// Boîte « Règles de catégories ».
+    rules_dialog: Option<Vec<varium_calc::CategoryRule>>,
+    /// Boîte « Taux de change ».
+    rates_dialog: Option<RatesDialog>,
+    /// Ligne dont on change la hauteur en glissant son bord.
+    dragging_row: Option<u32>,
 }
 
 impl CalcApp {
@@ -251,11 +317,21 @@ impl CalcApp {
             question: None,
             explain_formulas: true,
             now: 0.0,
+            templates_open: false,
+            pivot: None,
+            questions: storage
+                .and_then(|s| eframe::get_value::<Vec<(String, u32)>>(s, QUESTIONS_KEY))
+                .unwrap_or_default(),
+            bank_inbox: Arc::default(),
+            rules_dialog: None,
+            rates_dialog: None,
+            dragging_row: None,
         }
     }
 
     pub fn save(&self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, STORAGE_KEY, &self.wb);
+        eframe::set_value(storage, QUESTIONS_KEY, &self.questions);
     }
 
     pub fn title(&self) -> String {
@@ -429,7 +505,13 @@ impl CalcApp {
                     let title = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
                     // Les fichiers Excel et OpenDocument sont importés : « Enregistrer »
                     // proposera ensuite un classeur Varium.
-                    let res = if lower.ends_with(".xlsx") || lower.ends_with(".xlsm") {
+                    let lang = crate::tr::lang();
+                    let res = if lower.ends_with(".ofx")
+                        || lower.ends_with(".qfx")
+                        || lower.ends_with(".qif")
+                    {
+                        Workbook::from_bank_statement(title, &content, lang).map(|w| (w, None))
+                    } else if lower.ends_with(".xlsx") || lower.ends_with(".xlsm") {
                         Workbook::from_xlsx(title, &file_bytes(path.as_deref(), &content))
                             .map(|w| (w, None))
                     } else if lower.ends_with(".ods") {
@@ -448,12 +530,10 @@ impl CalcApp {
                             self.snapshot();
                             self.wb = wb;
                             self.path = path;
-                            self.sheet = 0;
-                            self.cur = CellRef::new(0, 0);
-                            self.anchor = self.cur;
+                            self.after_load();
                             self.notify(ctx, trf!("« {name} » ouvert", name), false);
                         }
-                        Err(e) => self.notify(ctx, e, true),
+                        Err(e) => self.notify(ctx, varium_calc::message_in(lang, &e), true),
                     }
                 }
                 Event::Opened { .. } => {}
@@ -583,7 +663,10 @@ impl CalcApp {
 
         let dialogs = self.cond_dialog.is_some()
             || self.paste_dialog.is_some()
-            || self.filter_popup.is_some();
+            || self.filter_popup.is_some()
+            || self.pivot.is_some()
+            || self.rules_dialog.is_some()
+            || self.rates_dialog.is_some();
         if !was_editing && !dialogs {
             self.keys(&ctx);
         }
@@ -593,6 +676,18 @@ impl CalcApp {
         self.quick_analysis_ui(&ctx);
         self.wizard_ui(&ctx);
         self.question_ui(&ctx);
+        self.templates_ui(&ctx);
+        self.pivot_ui(&ctx);
+        self.rules_ui(&ctx);
+        self.rates_ui(&ctx);
+        let picked = self
+            .bank_inbox
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some((name, text)) = picked {
+            self.import_bank_text(&ctx, &name, &text);
+        }
         self.flash_hint_ui(&ctx);
         // Le système n'a rien donné à coller : la copie interne, s'il y en a une.
         if let Some((special, t)) = self.paste_request
@@ -631,7 +726,9 @@ impl CalcApp {
         ui.menu_button(tr("Fichier"), |ui| {
             self.entry(ui, tr("Nouveau classeur"), A::New);
             self.entry(ui, tr("Classeur d'exemple"), A::Sample);
+            self.entry(ui, tr("Nouveau depuis un modèle…"), A::NewFromTemplate);
             self.entry(ui, tr("Ouvrir… (classeur, Excel, ODS, CSV)"), A::Open);
+            self.entry(ui, tr("Importer un relevé bancaire…"), A::ImportBank);
             ui.separator();
             self.entry(ui, tr("Enregistrer"), A::Save);
             self.entry(ui, tr("Enregistrer sous…"), A::SaveAs);
@@ -706,6 +803,9 @@ impl CalcApp {
             ui.separator();
             self.entry(ui, tr("Mise en forme conditionnelle…"), A::CondFormat);
             self.entry(ui, tr("Mettre sous forme de tableau"), A::FormatAsTable);
+            ui.separator();
+            self.entry(ui, tr("Renvoyer à la ligne"), A::WrapText);
+            self.entry(ui, tr("Hauteur de ligne automatique"), A::AutoFitRows);
         });
         ui.menu_button(tr("Données"), |ui| {
             self.entry(ui, tr("Trier par ordre croissant"), A::SortAsc);
@@ -727,6 +827,25 @@ impl CalcApp {
             );
             self.entry(ui, tr("Analyse rapide… (Ctrl+Q)"), A::QuickAnalysis);
             self.entry(ui, tr("Poser une question… (Ctrl+Maj+Q)"), A::AskQuestion);
+            self.entry_if(
+                ui,
+                !self.questions.is_empty(),
+                tr("Questions fréquentes…"),
+                A::RecentQuestions,
+            );
+            ui.separator();
+            self.entry(ui, tr("Tableau croisé dynamique…"), A::Pivot);
+            self.entry_if(
+                ui,
+                self.wb.sheets.iter().any(|s| !s.pivots.is_empty()),
+                tr("Actualiser les tableaux croisés"),
+                A::RefreshPivots,
+            );
+            self.entry(ui, tr("Planning de Gantt"), A::Gantt);
+            ui.separator();
+            self.entry(ui, tr("Importer un relevé bancaire…"), A::ImportBank);
+            self.entry(ui, tr("Règles de catégories…"), A::BankRules);
+            self.entry(ui, tr("Taux de change…"), A::ExchangeRates);
             ui.separator();
             self.entry(ui, tr("Somme automatique"), A::AutoSum);
             self.entry(ui, tr("Remplissage instantané (Ctrl+E)"), A::FlashFill);
@@ -854,6 +973,41 @@ impl CalcApp {
                 self.cur = r.end;
             }
             A::ExplainFormulas => self.explain_formulas = !self.explain_formulas,
+            A::NewFromTemplate => self.templates_open = true,
+            A::Pivot => self.open_pivot(ctx),
+            A::RefreshPivots => self.refresh_pivots(ctx),
+            A::RecentQuestions => self.open_question(),
+            A::ImportBank => self.open_bank_dialog(ctx),
+            A::BankRules => {
+                self.rules_dialog = Some(self.wb.effective_bank_rules(crate::tr::lang()));
+            }
+            A::Gantt => {
+                self.commit();
+                let lang = crate::tr::lang();
+                let sel = self.selection();
+                let r = if sel.start == sel.end {
+                    self.wb.current_region(self.sheet, self.cur)
+                } else {
+                    sel
+                };
+                self.snapshot();
+                match self.wb.make_gantt(self.sheet, r, lang) {
+                    Ok(s) => {
+                        self.sheet = s;
+                        self.cur = CellRef::new(0, 0);
+                        self.anchor = self.cur;
+                        self.show_sheet_chart();
+                    }
+                    Err(e) => {
+                        self.undo_once();
+                        self.redo.clear();
+                        self.notify(ctx, e.message(lang), true);
+                    }
+                }
+            }
+            A::ExchangeRates => self.rates_dialog = Some(RatesDialog::new(&self.wb.rates)),
+            A::WrapText => self.toggle_wrap(ctx),
+            A::AutoFitRows => self.fit_selected_rows(ctx),
         }
     }
 
@@ -936,6 +1090,14 @@ impl CalcApp {
                 {
                     self.update_format(|f| f.align = Some(a));
                 }
+            }
+            if ui
+                .selectable_label(fmt.wrap, "↵")
+                .on_hover_text(tr("Renvoyer à la ligne"))
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.toggle_wrap(&ctx);
             }
             ui.separator();
             for (label, tip, nf) in [
@@ -1121,6 +1283,7 @@ impl CalcApp {
                 if r.clicked() {
                     self.commit();
                     self.sheet = i;
+                    self.show_sheet_chart();
                 }
                 if r.double_clicked() {
                     self.rename = Some((i, name.clone()));
@@ -1296,9 +1459,18 @@ impl CalcApp {
                 ..Default::default()
             },
         );
-        job.wrap.max_width = f32::INFINITY;
+        job.wrap.max_width = if fmt.wrap {
+            (cr.width() - 8.0).max(10.0)
+        } else {
+            f32::INFINITY
+        };
         let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
-        let y = cr.center().y - galley.size().y / 2.0;
+        // Texte sur plusieurs lignes plus haut que la cellule : depuis le haut.
+        let y = if galley.size().y > cr.height() - 4.0 {
+            cr.top() + 2.0
+        } else {
+            cr.center().y - galley.size().y / 2.0
+        };
         let x = match align {
             HAlign::Left => cr.left() + 4.0,
             HAlign::Center => cr.center().x - galley.size().x / 2.0,
@@ -1306,7 +1478,7 @@ impl CalcApp {
         };
         // Le texte déborde à droite si les cellules voisines sont vides, comme dans Calc.
         let mut clip = cr;
-        if matches!(value, Value::Text(_)) && align == HAlign::Left {
+        if matches!(value, Value::Text(_)) && align == HAlign::Left && !fmt.wrap {
             let mut c2 = at.col + 1;
             while c2 < g.cols.min(at.col + 6)
                 && matches!(wb.value(self.sheet, CellRef::new(at.row, c2)), Value::Empty)
@@ -1335,16 +1507,25 @@ impl CalcApp {
         let widths: Vec<f32> = xs.windows(2).map(|w| w[1] - w[0]).collect();
         // Lignes masquées par le filtre automatique : hauteur nulle.
         let hidden = self.wb.filtered_rows(self.sheet);
+        // Hauteurs des lignes (variables) ; lignes masquées par le filtre
+        // automatique : hauteur nulle.
+        let heights: Vec<f32> = (0..rows)
+            .map(|r| {
+                if hidden.contains(&r) {
+                    0.0
+                } else {
+                    self.row_height(r)
+                }
+            })
+            .collect();
         let mut ys = Vec::with_capacity(rows as usize + 1);
         let mut y = 0.0;
-        for r in 0..rows {
+        for h in &heights {
             ys.push(y);
-            if !hidden.contains(&r) {
-                y += ROW_H;
-            }
+            y += h;
         }
         ys.push(y);
-        let row_h = |r: u32| if hidden.contains(&r) { 0.0 } else { ROW_H };
+        let row_h = |r: u32| heights.get(r as usize).copied().unwrap_or(ROW_H);
         let total = Vec2::new(x, ROW_H + ys[rows as usize]);
         let dark = ui.visuals().dark_mode;
         let (bg, line, head_bg, ink) = if dark {
@@ -1637,8 +1818,10 @@ impl CalcApp {
                         painter.with_clip_rect(row_heads.intersect(clip))
                     };
                     let y = row_y(r);
-                    let hr =
-                        Rect::from_min_max(Pos2::new(left, y), Pos2::new(left + HEAD_W, y + ROW_H));
+                    let hr = Rect::from_min_max(
+                        Pos2::new(left, y),
+                        Pos2::new(left + HEAD_W, y + row_h(r)),
+                    );
                     let on = r >= sel.start.row && r <= sel.end.row;
                     p.rect_filled(
                         hr,
@@ -1705,6 +1888,22 @@ impl CalcApp {
                     let c = to_col(p.x)?;
                     (r >= 0).then(|| CellRef::new(r as u32, c))
                 };
+                // Ligne dont le bord bas est sous le pointeur (en-tête des lignes).
+                let row_border = |y: f32| -> Option<u32> {
+                    let r = to_row(y);
+                    if r < 0 {
+                        return None;
+                    }
+                    let r = r as u32;
+                    let bottom = row_y(r) + row_h(r);
+                    if (bottom - y).abs() <= 4.0 {
+                        Some(r)
+                    } else if r > 0 && (row_y(r) - y).abs() <= 4.0 && row_h(r - 1) > 0.0 {
+                        Some(r - 1)
+                    } else {
+                        None
+                    }
+                };
                 // Formules en clair : explication au survol.
                 if self.explain_formulas
                     && self.edit.is_none()
@@ -1752,10 +1951,25 @@ impl CalcApp {
                             self.dragging_col = Some(((k - 1) as u32, p.x));
                         }
                     }
+                    // Hauteur d'une ligne : glisser son bord bas dans l'en-tête.
+                    if resp.drag_started()
+                        && self.dragging_col.is_none()
+                        && p.x < left + HEAD_W
+                        && p.y >= top + ROW_H
+                        && let Some(r) = row_border(p.y)
+                    {
+                        self.snapshot();
+                        self.dragging_row = Some(r);
+                    }
                     if let Some((c, _)) = self.dragging_col {
                         let w = (p.x - col_x(c)).clamp(30.0, 600.0);
                         if let Some(s) = self.wb.sheets.get_mut(self.sheet) {
                             s.col_widths.insert(c, w);
+                        }
+                    } else if let Some(r) = self.dragging_row {
+                        let h = (p.y - row_y(r)).clamp(8.0, 600.0);
+                        if let Some(s) = self.wb.sheets.get_mut(self.sheet) {
+                            s.row_heights.insert(r, h);
                         }
                     } else if let Some(cell) = to_cell(p) {
                         if resp.drag_started() || resp.clicked() {
@@ -1786,10 +2000,23 @@ impl CalcApp {
                 }
                 if resp.drag_stopped() {
                     self.dragging_col = None;
+                    self.dragging_row = None;
                 }
-                if resp.double_clicked()
+                // Double-clic sur le bord d'une ligne : hauteur ajustée au contenu.
+                let fit = resp
+                    .interact_pointer_pos()
+                    .filter(|p| resp.double_clicked() && p.x < left + HEAD_W && p.y >= top + ROW_H)
+                    .and_then(|p| row_border(p.y));
+                if let Some(r) = fit {
+                    let ctx = ui.ctx().clone();
+                    self.snapshot();
+                    self.fit_row(&ctx, r);
+                } else if resp.double_clicked()
                     && self.dragging_col.is_none()
                     && on_filter_button.is_none()
+                    && resp
+                        .interact_pointer_pos()
+                        .is_some_and(|p| p.x >= left + HEAD_W)
                 {
                     self.anchor = self.cur;
                     self.start_edit(None);
@@ -2056,13 +2283,45 @@ impl CalcApp {
                 ui.selectable_value(&mut chart.kind, k, k.label());
             }
         });
+        let mut keep = None;
+        let kept = self.wb.sheets.get(chart.sheet).is_some_and(|s| {
+            s.charts
+                .iter()
+                .any(|c| c.range == chart.range && c.kind == chart.kind.key())
+        });
         ui.horizontal(|ui| {
             ui.label(RichText::new(trf!("Données : {range}", range = chart.range.name())).weak());
             if ui.small_button(tr("Prendre la sélection")).clicked() {
                 chart.range = Range::new(self.anchor, self.cur);
                 chart.sheet = self.sheet;
             }
+            let mut on = kept;
+            if ui
+                .checkbox(&mut on, tr("Garder avec la feuille"))
+                .on_hover_text(tr(
+                    "Le graphique est enregistré dans le classeur et réapparaît avec la feuille",
+                ))
+                .changed()
+            {
+                keep = Some(on);
+            }
         });
+        if let Some(on) = keep {
+            let (sheet, kind, range) = (chart.sheet, chart.kind, chart.range);
+            self.snapshot();
+            if let Some(sh) = self.wb.sheets.get_mut(sheet) {
+                if on {
+                    // Un seul graphique par feuille : le nouveau remplace l'ancien.
+                    sh.charts = vec![varium_calc::SheetChart {
+                        kind: kind.key().to_string(),
+                        range,
+                        title: String::new(),
+                    }];
+                } else {
+                    sh.charts.retain(|c| c.range != range);
+                }
+            }
+        }
         if close {
             self.chart = None;
             return;
@@ -2070,7 +2329,6 @@ impl CalcApp {
         let Some(chart) = self.chart.as_ref() else {
             return;
         };
-        let data = chart_data(&self.wb, chart.sheet, chart.range);
         let (rect, _) = ui.allocate_exact_size(
             Vec2::new(
                 ui.available_width(),
@@ -2078,7 +2336,13 @@ impl CalcApp {
             ),
             Sense::hover(),
         );
-        draw_chart(ui, rect, chart.kind, &data);
+        if chart.kind == ChartKind::Gantt {
+            let tasks = self.wb.gantt_tasks(chart.sheet, chart.range);
+            draw_gantt(ui, rect, &tasks, varium_calc::today_serial());
+        } else {
+            let data = chart_data(&self.wb, chart.sheet, chart.range);
+            draw_chart(ui, rect, chart.kind, &data);
+        }
     }
 
     // ---------------- Mise en forme conditionnelle ----------------
@@ -2832,7 +3096,10 @@ fn explain_formula(tree: &FormulaNode) -> String {
 /// Explication d'une erreur en mots simples.
 fn error_text(c: &ErrorCause) -> String {
     match c {
-        ErrorCause::Syntax(m) => trf!("Formule incorrecte : {m}", m),
+        ErrorCause::Syntax(m) => trf!(
+            "Formule incorrecte : {m}",
+            m = varium_calc::message_in(crate::tr::lang(), m)
+        ),
         ErrorCause::DivZero {
             cell: Some(cell),
             empty: true,
@@ -4114,6 +4381,10 @@ fn question_error_text(e: &QuestionError) -> String {
         QuestionError::TooManyGroups => {
             tr("Trop de valeurs différentes pour un regroupement lisible.").to_string()
         }
+        QuestionError::NoDateColumn => tr(
+            "Pour un total par mois, trimestre, semaine ou année, il faut une colonne de dates.",
+        )
+        .to_string(),
     }
 }
 
@@ -4129,7 +4400,7 @@ impl CalcApp {
 
     /// Traduit la question et prépare l'aperçu sur une copie du classeur.
     fn question_preview(&self, text: &str) -> Result<QuestionPreview, QuestionError> {
-        let answer = self.wb.ask(self.sheet, text)?;
+        let answer = self.wb.ask_in(self.sheet, text, crate::tr::lang())?;
         let (op, total) = (operation_label(answer.operation), tr("Total"));
         let cells = answer.cells(&op, total);
         let rows = cells.len() as u32;
@@ -4166,6 +4437,8 @@ impl CalcApp {
         }
         let mut open = true;
         let mut insert = false;
+        let mut with_chart = false;
+        let frequent: Vec<String> = self.recent_questions().into_iter().take(8).collect();
         egui::Window::new(tr("Poser une question"))
             .id(egui::Id::unique("calc-question"))
             .open(&mut open)
@@ -4191,6 +4464,23 @@ impl CalcApp {
                     ))
                     .weak(),
                 );
+                ui.label(
+                    RichText::new(tr(
+                        "Avec des dates : « total par mois », « ventes par trimestre », « évolution des ventes », « ventes 2025 vs 2026 », « top 5 des produits ».",
+                    ))
+                    .weak(),
+                );
+                if !frequent.is_empty() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(tr("Questions fréquentes :")).strong());
+                        for q in &frequent {
+                            if ui.small_button(q).clicked() {
+                                d.text.clone_from(q);
+                                d.focus = true;
+                            }
+                        }
+                    });
+                }
                 ui.separator();
                 match d.cache.as_ref().map(|c| &c.3) {
                     Some(Ok(p)) => {
@@ -4209,9 +4499,19 @@ impl CalcApp {
                                     ui.end_row();
                                 }
                             });
-                        if ui.button(tr("Insérer")).clicked() || enter {
-                            insert = true;
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button(tr("Insérer")).clicked() || enter {
+                                insert = true;
+                            }
+                            if p.answer.chart_range(p.target).is_some()
+                                && ui
+                                    .button(tr("📊 Insérer avec un graphique"))
+                                    .clicked()
+                            {
+                                insert = true;
+                                with_chart = true;
+                            }
+                        });
                     }
                     Some(Err(e)) if !d.text.trim().is_empty() => {
                         ui.colored_label(Color32::from_rgb(0xD0, 0x30, 0x2A), question_error_text(e));
@@ -4220,6 +4520,7 @@ impl CalcApp {
                 }
             });
         if insert && let Some((_, _, _, Ok(p))) = d.cache.take() {
+            self.remember_question(&d.text);
             self.snapshot();
             let (op, total) = (operation_label(p.answer.operation), tr("Total"));
             let (rows, cols) = self
@@ -4230,6 +4531,17 @@ impl CalcApp {
                 (p.target.row + rows - 1).min(varium_calc::MAX_ROWS - 1),
                 (p.target.col + cols - 1).min(varium_calc::MAX_COLS - 1),
             );
+            if with_chart && let Some(range) = p.answer.chart_range(p.target) {
+                self.chart = Some(Chart {
+                    kind: if p.answer.period.is_some() {
+                        ChartKind::Courbes
+                    } else {
+                        ChartKind::Barres
+                    },
+                    sheet: self.sheet,
+                    range,
+                });
+            }
             return;
         }
         if open {
@@ -4575,11 +4887,7 @@ fn file_bytes(path: Option<&std::path::Path>, content: &str) -> Vec<u8> {
     if let Some(bytes) = path.and_then(|p| std::fs::read(p).ok()) {
         return bytes;
     }
-    const HIGH: [char; 32] = [
-        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž',
-        '\u{8F}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}',
-        'ž', 'Ÿ',
-    ];
+    const HIGH: [char; 32] = CP1252_HIGH;
     let decoded: Option<Vec<u8>> = content
         .chars()
         .map(|c| match HIGH.iter().position(|h| *h == c) {
@@ -4589,6 +4897,12 @@ fn file_bytes(path: Option<&std::path::Path>, content: &str) -> Vec<u8> {
         .collect();
     decoded.unwrap_or_else(|| content.as_bytes().to_vec())
 }
+
+/// Caractères de Windows-1252 pour les octets 0x80 à 0x9F.
+const CP1252_HIGH: [char; 32] = [
+    '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}',
+    '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}', 'ž', 'Ÿ',
+];
 
 fn sel_contains(r: Range, at: CellRef) -> bool {
     at.row >= r.start.row && at.row <= r.end.row && at.col >= r.start.col && at.col <= r.end.col
@@ -5147,6 +5461,1204 @@ fn draw_chart(ui: &egui::Ui, rect: Rect, kind: ChartKind, d: &ChartData) {
         axis,
     );
 }
+// ---------------------------------------------------------------- Outils du Classeur
+// Modèles, tableau croisé dynamique, relevés bancaires, Gantt, taux de change,
+// hauteur des lignes.
+
+/// Zones de la boîte « Tableau croisé dynamique ».
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PivotZone {
+    Filters,
+    Cols,
+    Rows,
+    Values,
+}
+
+impl PivotZone {
+    const ALL: [PivotZone; 4] = [
+        PivotZone::Filters,
+        PivotZone::Cols,
+        PivotZone::Rows,
+        PivotZone::Values,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            PivotZone::Filters => tr("Filtres"),
+            PivotZone::Cols => tr("Colonnes"),
+            PivotZone::Rows => tr("Lignes"),
+            PivotZone::Values => tr("Valeurs"),
+        }
+    }
+}
+
+/// Ce que l'on glisse : un champ de la liste, ou un champ déjà placé.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PivotDrag {
+    Field(u32),
+    Placed(PivotZone, usize),
+}
+
+/// Résultat calculé d'un tableau croisé.
+type PivotResult = Result<Vec<Vec<PivotCell>>, PivotError>;
+/// Réponse du téléchargement des taux (texte XML ou erreur).
+type FetchSlot = Arc<Mutex<Option<Result<String, String>>>>;
+
+/// Boîte « Tableau croisé dynamique ».
+struct PivotDialog {
+    spec: PivotTable,
+    /// Tableau existant modifié : feuille et coin.
+    editing: Option<(usize, CellRef)>,
+    names: Vec<String>,
+    dates: Vec<bool>,
+    numeric: Vec<bool>,
+    /// Valeurs de chaque champ (filtres), calculées à la demande.
+    values: BTreeMap<u32, Vec<String>>,
+    new_sheet: bool,
+    target: String,
+    preview: Option<(PivotTable, PivotResult)>,
+}
+
+impl PivotDialog {
+    fn new(wb: &Workbook, spec: PivotTable, editing: Option<(usize, CellRef)>) -> Self {
+        let names = spec.field_names(wb);
+        let n = names.len() as u32;
+        let dates = (0..n).map(|c| spec.is_date_field(wb, c)).collect();
+        let sheet = wb.sheet_index(&spec.source_sheet).unwrap_or(0);
+        let numeric = (0..n)
+            .map(|c| {
+                let col = spec.source.start.col + c;
+                (spec.source.start.row + 1..=spec.source.end.row.min(spec.source.start.row + 20))
+                    .any(|r| matches!(wb.value(sheet, CellRef::new(r, col)), Value::Number(_)))
+            })
+            .collect();
+        let target = match editing {
+            Some((_, at)) => at.name(),
+            None => wb
+                .free_spot(
+                    sheet,
+                    CellRef::new(spec.source.start.row, spec.source.end.col.saturating_add(2)),
+                    12,
+                    4,
+                )
+                .name(),
+        };
+        Self {
+            spec,
+            new_sheet: editing.is_none(),
+            editing,
+            names,
+            dates,
+            numeric,
+            values: BTreeMap::new(),
+            target,
+            preview: None,
+        }
+    }
+
+    fn take(&mut self, zone: PivotZone, i: usize) -> Option<u32> {
+        let s = &mut self.spec;
+        match zone {
+            PivotZone::Filters => (i < s.filters.len()).then(|| s.filters.remove(i).col),
+            PivotZone::Cols => (i < s.cols.len()).then(|| s.cols.remove(i).col),
+            PivotZone::Rows => (i < s.rows.len()).then(|| s.rows.remove(i).col),
+            PivotZone::Values => (i < s.values.len()).then(|| s.values.remove(i).col),
+        }
+    }
+
+    fn put(&mut self, zone: PivotZone, col: u32) {
+        let date = self.dates.get(col as usize).copied().unwrap_or(false);
+        let numeric = self.numeric.get(col as usize).copied().unwrap_or(false);
+        let s = &mut self.spec;
+        match zone {
+            PivotZone::Filters => {
+                if !s.filters.iter().any(|f| f.col == col) {
+                    s.filters.push(PivotFilter {
+                        col,
+                        hidden: Vec::new(),
+                    });
+                }
+            }
+            PivotZone::Cols | PivotZone::Rows => {
+                let f = PivotField {
+                    col,
+                    group: if date {
+                        PivotGroup::Month
+                    } else {
+                        PivotGroup::None
+                    },
+                };
+                if zone == PivotZone::Cols {
+                    s.cols.push(f);
+                } else {
+                    s.rows.push(f);
+                }
+            }
+            PivotZone::Values => s.values.push(PivotValue {
+                col,
+                agg: if numeric && !date {
+                    PivotAgg::Sum
+                } else {
+                    PivotAgg::Count
+                },
+            }),
+        }
+    }
+
+    fn len(&self, zone: PivotZone) -> usize {
+        match zone {
+            PivotZone::Filters => self.spec.filters.len(),
+            PivotZone::Cols => self.spec.cols.len(),
+            PivotZone::Rows => self.spec.rows.len(),
+            PivotZone::Values => self.spec.values.len(),
+        }
+    }
+
+    fn col_at(&self, zone: PivotZone, i: usize) -> u32 {
+        let s = &self.spec;
+        match zone {
+            PivotZone::Filters => s.filters[i].col,
+            PivotZone::Cols => s.cols[i].col,
+            PivotZone::Rows => s.rows[i].col,
+            PivotZone::Values => s.values[i].col,
+        }
+    }
+}
+
+fn group_label(g: PivotGroup) -> &'static str {
+    match g {
+        PivotGroup::None => tr("Sans regroupement"),
+        PivotGroup::Month => tr("Par mois"),
+        PivotGroup::Quarter => tr("Par trimestre"),
+        PivotGroup::Year => tr("Par année"),
+        PivotGroup::Range { .. } => tr("Par tranches"),
+    }
+}
+
+/// Boîte « Taux de change ».
+struct RatesDialog {
+    base: String,
+    date: String,
+    rows: Vec<(String, String)>,
+    /// Téléchargement des taux de la BCE en cours.
+    fetch: Option<FetchSlot>,
+    fetched: Option<varium_calc::RatesTable>,
+    error: Option<String>,
+}
+
+impl RatesDialog {
+    fn new(t: &varium_calc::RatesTable) -> Self {
+        Self {
+            base: t.base_code().to_string(),
+            date: t.date.clone(),
+            rows: t
+                .rates
+                .iter()
+                .map(|(k, v)| (k.clone(), number_text(*v)))
+                .collect(),
+            fetch: None,
+            fetched: None,
+            error: None,
+        }
+    }
+}
+
+/// Fichier choisi pour l'import d'un relevé : (nom, texte) ou erreur.
+type BankInbox = Arc<Mutex<Option<(String, String)>>>;
+
+/// Octets d'un fichier texte : UTF-8, sinon Windows-1252.
+fn decode_text(bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => e
+            .into_bytes()
+            .iter()
+            .map(|&b| match b {
+                0x80..=0x9F => CP1252_HIGH[(b - 0x80) as usize],
+                b => b as char,
+            })
+            .collect(),
+    }
+}
+
+/// Exécute une tâche asynchrone (dialogue de fichier de rfd) dans le fil
+/// courant.
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    use std::task::{Context, Poll, Wake, Waker};
+    struct ThreadWaker(std::thread::Thread);
+    impl Wake for ThreadWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    let mut fut = std::pin::pin!(fut);
+    loop {
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(v) => return v,
+            Poll::Pending => std::thread::park(),
+        }
+    }
+}
+
+/// Barres d'un planning de Gantt, avec la ligne du jour.
+fn draw_gantt(ui: &egui::Ui, rect: Rect, tasks: &[varium_calc::GanttTask], today: f64) {
+    let p = ui.painter_at(rect);
+    let ink = ui.visuals().text_color();
+    let weak = ui.visuals().weak_text_color();
+    let dark = ui.visuals().dark_mode;
+    let font = FontId::proportional(11.5);
+    p.rect_filled(rect, 6.0, ui.visuals().extreme_bg_color);
+    if tasks.is_empty() {
+        p.text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            tr("Sélectionnez des tâches avec leurs dates de début et de fin"),
+            font,
+            weak,
+        );
+        return;
+    }
+    let lo = tasks.iter().map(|t| t.start).fold(f64::INFINITY, f64::min);
+    let hi = tasks
+        .iter()
+        .map(|t| t.end + 1.0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let span = (hi - lo).max(1.0);
+    let label_w = (rect.width() * 0.32).clamp(60.0, 180.0);
+    let plot = Rect::from_min_max(
+        Pos2::new(rect.left() + label_w + 8.0, rect.top() + 26.0),
+        Pos2::new(rect.right() - 10.0, rect.bottom() - 8.0),
+    );
+    let x_of = |d: f64| plot.left() + ((d - lo) / span) as f32 * plot.width();
+    let n = tasks.len().min(60);
+    let row = (plot.height() / n as f32).clamp(6.0, 34.0);
+    // Graduations : début de chaque mois (ou chaque semaine sur un projet court).
+    let grid = Stroke::new(1.0, weak.gamma_multiply(0.35));
+    let mut d = lo.floor();
+    let mut last_label = f32::NEG_INFINITY;
+    while d <= hi && d - lo < 5000.0 {
+        let Some((y, m, day)) = varium_calc::serial_to_ymd(d) else {
+            break;
+        };
+        let mark = if span > 70.0 {
+            day == 1
+        } else {
+            (d - 2.0).rem_euclid(7.0) == 0.0
+        };
+        if mark {
+            let x = x_of(d);
+            p.line_segment(
+                [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
+                grid,
+            );
+            if x - last_label > 46.0 {
+                let label = if span > 70.0 {
+                    format!("{m:02}/{y}")
+                } else {
+                    format!("{day:02}/{m:02}")
+                };
+                p.text(
+                    Pos2::new(x + 2.0, rect.top() + 8.0),
+                    Align2::LEFT_TOP,
+                    label,
+                    font.clone(),
+                    weak,
+                );
+                last_label = x;
+            }
+        }
+        d += 1.0;
+    }
+    for (i, t) in tasks.iter().take(n).enumerate() {
+        let y = plot.top() + i as f32 * row;
+        let c = series_color(i, dark);
+        let bar = Rect::from_min_max(
+            Pos2::new(x_of(t.start), y + row * 0.18),
+            Pos2::new(x_of(t.end + 1.0).max(x_of(t.start) + 2.0), y + row * 0.82),
+        );
+        p.rect_filled(bar, 3.0, c);
+        let g = p.layout_no_wrap(t.name.clone(), font.clone(), ink);
+        let clip = Rect::from_min_max(
+            Pos2::new(rect.left() + 6.0, y),
+            Pos2::new(rect.left() + label_w, y + row),
+        );
+        p.with_clip_rect(clip).galley(
+            Pos2::new(rect.left() + 6.0, y + (row - g.size().y) / 2.0),
+            g,
+            ink,
+        );
+    }
+    // Ligne du jour.
+    if (lo..=hi).contains(&today) {
+        let x = x_of(today);
+        let red = Color32::from_rgb(0xD0, 0x30, 0x2A);
+        p.line_segment(
+            [Pos2::new(x, plot.top() - 4.0), Pos2::new(x, plot.bottom())],
+            Stroke::new(2.0, red),
+        );
+        p.text(
+            Pos2::new(x + 3.0, plot.bottom() - 2.0),
+            Align2::LEFT_BOTTOM,
+            tr("Aujourd'hui"),
+            font,
+            red,
+        );
+    }
+}
+
+impl CalcApp {
+    // ---------------- Graphiques enregistrés ----------------
+
+    /// Montre le graphique enregistré avec la feuille active, s'il y en a un.
+    fn show_sheet_chart(&mut self) {
+        if let Some(c) = self
+            .wb
+            .sheets
+            .get(self.sheet)
+            .and_then(|s| s.charts.first())
+        {
+            self.chart = Some(Chart {
+                kind: ChartKind::from_key(&c.kind),
+                sheet: self.sheet,
+                range: c.range,
+            });
+        }
+    }
+
+    /// Après l'ouverture d'un classeur : tableaux croisés actualisés, première
+    /// feuille, graphique enregistré.
+    fn after_load(&mut self) {
+        if self.wb.sheets.iter().any(|s| !s.pivots.is_empty()) {
+            self.wb.refresh_pivots(crate::tr::lang());
+        }
+        self.sheet = 0;
+        self.cur = CellRef::new(0, 0);
+        self.anchor = self.cur;
+        self.chart = None;
+        self.show_sheet_chart();
+    }
+
+    // ---------------- Modèles ----------------
+
+    /// Les modèles de classeurs : (identifiant, nom et description dans la
+    /// langue de l'interface, pictogramme). Pour le centre de démarrage.
+    pub fn templates() -> Vec<(&'static str, String, String, &'static str)> {
+        let lang = crate::tr::lang();
+        varium_calc::templates()
+            .iter()
+            .map(|t| {
+                (
+                    t.id,
+                    t.name(lang).to_string(),
+                    t.description(lang).to_string(),
+                    t.icon,
+                )
+            })
+            .collect()
+    }
+
+    /// Remplace le classeur par un modèle (voir [`CalcApp::templates`]).
+    pub fn new_from_template(&mut self, id: &str) {
+        if let Some(wb) = Workbook::from_template(id, crate::tr::lang()) {
+            self.commit();
+            self.snapshot();
+            self.wb = wb;
+            self.path = None;
+            self.templates_open = false;
+            self.after_load();
+        }
+    }
+
+    fn templates_ui(&mut self, ctx: &egui::Context) {
+        if !self.templates_open {
+            return;
+        }
+        let mut open = true;
+        let mut chosen = None;
+        egui::Window::new(tr("Nouveau depuis un modèle"))
+            .id(egui::Id::unique("calc-templates"))
+            .open(&mut open)
+            .default_width(560.0)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label(tr(
+                    "Des classeurs prêts à l'emploi, avec formules, mises en forme et graphiques.",
+                ));
+                ui.add_space(6.0);
+                egui::Grid::new("calc-templates-grid")
+                    .num_columns(2)
+                    .spacing([10.0, 10.0])
+                    .show(ui, |ui| {
+                        for (i, (id, name, desc, icon)) in Self::templates().into_iter().enumerate()
+                        {
+                            let b = egui::Button::new(
+                                RichText::new(format!("{icon}  {name}")).strong().size(15.0),
+                            )
+                            .min_size(Vec2::new(250.0, 34.0));
+                            if ui.add(b).on_hover_text(&desc).clicked() {
+                                chosen = Some(id);
+                            }
+                            ui.label(RichText::new(desc).weak());
+                            let _ = i;
+                            ui.end_row();
+                        }
+                    });
+            });
+        if let Some(id) = chosen {
+            self.new_from_template(id);
+            return;
+        }
+        if !open {
+            self.templates_open = false;
+        }
+    }
+
+    // ---------------- Tableau croisé dynamique ----------------
+
+    fn open_pivot(&mut self, ctx: &egui::Context) {
+        self.commit();
+        let existing = self.wb.sheets.get(self.sheet).and_then(|sh| {
+            sh.pivots.iter().find(|p| {
+                let (r, c) = p.written;
+                r > 0
+                    && c > 0
+                    && sel_contains(
+                        Range::new(
+                            p.at,
+                            CellRef::new(p.at.row + r - 1, p.at.col.saturating_add(c - 1)),
+                        ),
+                        self.cur,
+                    )
+            })
+        });
+        if let Some(p) = existing {
+            let spec = p.clone();
+            let at = p.at;
+            self.pivot = Some(PivotDialog::new(&self.wb, spec, Some((self.sheet, at))));
+            return;
+        }
+        let sel = self.selection();
+        let source = if sel.start == sel.end {
+            self.wb.current_region(self.sheet, self.cur)
+        } else {
+            sel
+        };
+        if source.rows() < 2 {
+            self.notify(
+                ctx,
+                tr("Placez-vous dans un tableau avec une ligne de titres et des données."),
+                true,
+            );
+            return;
+        }
+        let name = self.wb.sheets[self.sheet].name.clone();
+        let spec = PivotTable::new(&name, source, CellRef::new(0, 0));
+        self.pivot = Some(PivotDialog::new(&self.wb, spec, None));
+    }
+
+    fn pivot_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut d) = self.pivot.take() else {
+            return;
+        };
+        let lang = crate::tr::lang();
+        if d.preview.as_ref().is_none_or(|(s, _)| *s != d.spec) {
+            let r = d.spec.compute(&self.wb, lang);
+            d.preview = Some((d.spec.clone(), r));
+        }
+        let mut open = true;
+        let mut insert = false;
+        let mut drops: Vec<(PivotZone, PivotDrag)> = Vec::new();
+        let mut removes: Vec<(PivotZone, usize)> = Vec::new();
+        let mut adds: Vec<(PivotZone, u32)> = Vec::new();
+        let source_label = format!(
+            "{}!{}",
+            varium_calc::quote_sheet_name(&d.spec.source_sheet),
+            d.spec.source.name()
+        );
+        egui::Window::new(tr("Tableau croisé dynamique"))
+            .id(egui::Id::unique("calc-pivot"))
+            .open(&mut open)
+            .default_width(760.0)
+            .default_height(520.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label(trf!("Données : {source}", source = source_label));
+                ui.separator();
+                ui.columns(2, |cols| {
+                    let ui = &mut cols[0];
+                    ui.label(RichText::new(tr("Champs")).strong());
+                    ui.label(
+                        RichText::new(tr(
+                            "Glissez les champs dans les zones, ou utilisez le bouton +.",
+                        ))
+                        .weak(),
+                    );
+                    egui::ScrollArea::vertical()
+                        .id_salt("pivot-fields")
+                        .max_height(150.0)
+                        .show(ui, |ui| {
+                            for (i, name) in d.names.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.dnd_drag_source(
+                                        egui::Id::unique(("pivot-field", i)),
+                                        PivotDrag::Field(i as u32),
+                                        |ui| {
+                                            ui.add(
+                                                egui::Label::new(format!("☰ {name}"))
+                                                    .selectable(false),
+                                            );
+                                        },
+                                    );
+                                    ui.menu_button("+", |ui| {
+                                        for z in PivotZone::ALL {
+                                            if ui.button(z.label()).clicked() {
+                                                adds.push((z, i as u32));
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                });
+                            }
+                        });
+                    ui.separator();
+                    for z in PivotZone::ALL {
+                        ui.label(RichText::new(z.label()).strong());
+                        let frame = egui::Frame::group(ui.style()).inner_margin(6.0);
+                        let (_, dropped) = ui.dnd_drop_zone::<PivotDrag, ()>(frame, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.set_min_height(22.0);
+                            for k in 0..d.len(z) {
+                                let col = d.col_at(z, k);
+                                let name = d.names.get(col as usize).cloned().unwrap_or_default();
+                                ui.horizontal(|ui| {
+                                    ui.dnd_drag_source(
+                                        egui::Id::unique(("pivot-placed", z as u8, k)),
+                                        PivotDrag::Placed(z, k),
+                                        |ui| {
+                                            ui.add(
+                                                egui::Label::new(format!("☰ {name}"))
+                                                    .selectable(false),
+                                            );
+                                        },
+                                    );
+                                    let date = d.dates.get(col as usize).copied().unwrap_or(false);
+                                    let numeric =
+                                        d.numeric.get(col as usize).copied().unwrap_or(false);
+                                    match z {
+                                        PivotZone::Rows | PivotZone::Cols => {
+                                            let f = if z == PivotZone::Rows {
+                                                &mut d.spec.rows[k]
+                                            } else {
+                                                &mut d.spec.cols[k]
+                                            };
+                                            let mut choices = vec![PivotGroup::None];
+                                            if date {
+                                                choices.extend([
+                                                    PivotGroup::Month,
+                                                    PivotGroup::Quarter,
+                                                    PivotGroup::Year,
+                                                ]);
+                                            } else if numeric {
+                                                choices.push(PivotGroup::Range { step: 100.0 });
+                                            }
+                                            egui::ComboBox::from_id_salt((
+                                                "pivot-group",
+                                                z as u8,
+                                                k,
+                                            ))
+                                            .selected_text(group_label(f.group))
+                                            .show_ui(
+                                                ui,
+                                                |ui| {
+                                                    for g in choices {
+                                                        let on = std::mem::discriminant(&f.group)
+                                                            == std::mem::discriminant(&g);
+                                                        if ui
+                                                            .selectable_label(on, group_label(g))
+                                                            .clicked()
+                                                            && !on
+                                                        {
+                                                            f.group = g;
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                            if let PivotGroup::Range { step } = &mut f.group {
+                                                ui.add(
+                                                    egui::DragValue::new(step)
+                                                        .range(0.001..=1e12)
+                                                        .speed(1.0),
+                                                )
+                                                .on_hover_text(tr("Largeur des tranches"));
+                                            }
+                                        }
+                                        PivotZone::Values => {
+                                            let v = &mut d.spec.values[k];
+                                            egui::ComboBox::from_id_salt(("pivot-agg", k))
+                                                .selected_text(v.agg.label(lang))
+                                                .show_ui(ui, |ui| {
+                                                    for a in PivotAgg::ALL {
+                                                        ui.selectable_value(
+                                                            &mut v.agg,
+                                                            a,
+                                                            a.label(lang),
+                                                        );
+                                                    }
+                                                });
+                                        }
+                                        PivotZone::Filters => {
+                                            let values = d.values.entry(col).or_insert_with(|| {
+                                                d.spec.field_values(&self.wb, col)
+                                            });
+                                            let f = &mut d.spec.filters[k];
+                                            let label = if f.hidden.is_empty() {
+                                                tr("Tout").to_string()
+                                            } else {
+                                                trf!("{n} masqué(s)", n = f.hidden.len())
+                                            };
+                                            ui.menu_button(label, |ui| {
+                                                egui::ScrollArea::vertical()
+                                                    .max_height(260.0)
+                                                    .show(ui, |ui| {
+                                                        for v in values.iter() {
+                                                            let mut shown = !f.hidden.contains(v);
+                                                            let text = if v.is_empty() {
+                                                                tr("(vides)")
+                                                            } else {
+                                                                v.as_str()
+                                                            };
+                                                            if ui
+                                                                .checkbox(&mut shown, text)
+                                                                .changed()
+                                                            {
+                                                                if shown {
+                                                                    f.hidden.retain(|h| h != v);
+                                                                } else {
+                                                                    f.hidden.push(v.clone());
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                            });
+                                        }
+                                    }
+                                    if ui.small_button("✕").on_hover_text(tr("Retirer")).clicked()
+                                    {
+                                        removes.push((z, k));
+                                    }
+                                });
+                            }
+                        });
+                        if let Some(p) = dropped {
+                            drops.push((z, *p));
+                        }
+                    }
+                    ui.separator();
+                    ui.checkbox(&mut d.spec.totals, tr("Totaux généraux"));
+                    ui.checkbox(
+                        &mut d.spec.subtotals,
+                        tr("Sous-totaux (premier champ de lignes)"),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut d.new_sheet, true, tr("Nouvelle feuille"));
+                        ui.radio_value(&mut d.new_sheet, false, tr("Cellule :"));
+                        ui.add_enabled(
+                            !d.new_sheet,
+                            egui::TextEdit::singleline(&mut d.target).desired_width(70.0),
+                        );
+                    });
+
+                    let ui = &mut cols[1];
+                    ui.label(RichText::new(tr("Aperçu")).strong());
+                    match d.preview.as_ref().map(|p| &p.1) {
+                        Some(Ok(grid)) => {
+                            egui::ScrollArea::both()
+                                .id_salt("pivot-preview")
+                                .max_height(400.0)
+                                .show(ui, |ui| {
+                                    egui::Grid::new("pivot-preview-grid").striped(true).show(
+                                        ui,
+                                        |ui| {
+                                            for line in grid.iter().take(60) {
+                                                for c in line.iter().take(12) {
+                                                    let t =
+                                                        RichText::new(varium_calc::format_value(
+                                                            &c.value, c.format,
+                                                        ));
+                                                    ui.label(if c.bold { t.strong() } else { t });
+                                                }
+                                                ui.end_row();
+                                            }
+                                        },
+                                    );
+                                });
+                        }
+                        Some(Err(e)) => {
+                            ui.label(RichText::new(e.message(lang)).weak());
+                        }
+                        None => {}
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let ok = matches!(d.preview.as_ref().map(|p| &p.1), Some(Ok(_)));
+                    let label = if d.editing.is_some() {
+                        tr("Mettre à jour")
+                    } else {
+                        tr("Insérer")
+                    };
+                    if ui.add_enabled(ok, egui::Button::new(label)).clicked() {
+                        insert = true;
+                    }
+                });
+            });
+        for (z, k) in removes.into_iter().rev() {
+            d.take(z, k);
+        }
+        for (z, col) in adds {
+            d.put(z, col);
+        }
+        for (z, p) in drops {
+            let col = match p {
+                PivotDrag::Field(c) => Some(c),
+                PivotDrag::Placed(z0, k) => d.take(z0, k),
+            };
+            if let Some(c) = col {
+                d.put(z, c);
+            }
+        }
+        if insert {
+            let target = if d.new_sheet {
+                None
+            } else {
+                match CellRef::parse(&d.target) {
+                    Some(c) => Some(c),
+                    None => {
+                        self.notify(ctx, tr("Cellule de destination invalide (ex. : H1)."), true);
+                        self.pivot = Some(d);
+                        return;
+                    }
+                }
+            };
+            self.snapshot();
+            let (sheet, at) = match (target, d.editing) {
+                (Some(c), Some((s, _))) => (s, c),
+                (Some(c), None) => (self.sheet, c),
+                (None, _) => {
+                    let s = self.wb.add_sheet();
+                    let base = tr("Tableau croisé").to_string();
+                    let mut name = base.clone();
+                    let mut k = 2;
+                    while !self.wb.rename_sheet(s, &name) && k < 1000 {
+                        name = format!("{base} {k}");
+                        k += 1;
+                    }
+                    (s, CellRef::new(0, 0))
+                }
+            };
+            // Un tableau modifié et déplacé : l'ancien résultat est effacé.
+            if let Some((s, old)) = d.editing
+                && (s, old) != (sheet, at)
+                && let Some(i) = self.wb.sheets[s].pivots.iter().position(|p| p.at == old)
+            {
+                let prev = self.wb.sheets[s].pivots.remove(i);
+                let end = CellRef::new(
+                    prev.at.row + prev.written.0.max(1) - 1,
+                    prev.at.col + prev.written.1.max(1) - 1,
+                );
+                self.wb.clear_range(s, Range::new(prev.at, end));
+            }
+            let mut spec = d.spec.clone();
+            spec.at = at;
+            match self.wb.write_pivot(sheet, spec, lang) {
+                Ok(r) => {
+                    self.sheet = sheet;
+                    self.anchor = r.start;
+                    self.cur = r.end;
+                }
+                Err(e) => {
+                    self.undo_once();
+                    self.redo.clear();
+                    self.notify(ctx, e.message(lang), true);
+                }
+            }
+            return;
+        }
+        if open {
+            self.pivot = Some(d);
+        }
+    }
+
+    fn refresh_pivots(&mut self, ctx: &egui::Context) {
+        self.snapshot();
+        let n = self.wb.refresh_pivots(crate::tr::lang());
+        if n == 0 {
+            self.undo.pop();
+            self.notify(ctx, tr("Aucun tableau croisé dans ce classeur."), false);
+        } else {
+            self.notify(ctx, trf!("Tableaux croisés actualisés : {n}", n), false);
+        }
+    }
+
+    // ---------------- Relevés bancaires ----------------
+
+    fn open_bank_dialog(&mut self, ctx: &egui::Context) {
+        let inbox = self.bank_inbox.clone();
+        let ctx = ctx.clone();
+        let dialog = rfd::AsyncFileDialog::new()
+            .set_title(tr("Importer un relevé bancaire"))
+            .add_filter(
+                tr("Relevé bancaire (CSV, OFX, QIF)"),
+                &["csv", "ofx", "qfx", "qif", "txt", "tsv"],
+            );
+        std::thread::spawn(move || {
+            let picked = block_on(async move {
+                let f = dialog.pick_file().await?;
+                Some((f.file_name(), f.read().await))
+            });
+            if let Some((name, bytes)) = picked {
+                *inbox.lock().unwrap_or_else(|e| e.into_inner()) = Some((name, decode_text(bytes)));
+                ctx.request_repaint();
+            }
+        });
+    }
+
+    fn import_bank_text(&mut self, ctx: &egui::Context, name: &str, text: &str) {
+        let lang = crate::tr::lang();
+        self.commit();
+        self.snapshot();
+        match self.wb.import_bank_statement(text, lang) {
+            Ok(r) => {
+                self.sheet = r.summary;
+                self.cur = CellRef::new(0, 0);
+                self.anchor = self.cur;
+                self.show_sheet_chart();
+                self.notify(
+                    ctx,
+                    trf!("{n} opérations importées de « {name} »", n = r.count, name),
+                    false,
+                );
+            }
+            Err(e) => {
+                self.undo_once();
+                self.redo.clear();
+                self.notify(ctx, varium_calc::message_in(lang, &e), true);
+            }
+        }
+    }
+
+    fn rules_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut rules) = self.rules_dialog.take() else {
+            return;
+        };
+        let lang = crate::tr::lang();
+        let mut open = true;
+        let mut save = false;
+        let mut reclass = false;
+        egui::Window::new(tr("Règles de catégories"))
+            .id(egui::Id::unique("calc-bank-rules"))
+            .open(&mut open)
+            .default_width(460.0)
+            .show(ctx, |ui| {
+                ui.label(tr(
+                    "Une opération dont le libellé contient le mot-clé va dans la catégorie (le mot-clé le plus long l'emporte).",
+                ));
+                ui.add_space(4.0);
+                let mut remove = None;
+                egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
+                    egui::Grid::new("calc-rules-grid").striped(true).show(ui, |ui| {
+                        ui.label(RichText::new(tr("Mot-clé")).strong());
+                        ui.label(RichText::new(tr("Catégorie")).strong());
+                        ui.end_row();
+                        for (i, r) in rules.iter_mut().enumerate() {
+                            ui.add(egui::TextEdit::singleline(&mut r.keyword).desired_width(170.0));
+                            ui.add(egui::TextEdit::singleline(&mut r.category).desired_width(150.0));
+                            if ui.small_button("✕").clicked() {
+                                remove = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+                if let Some(i) = remove {
+                    rules.remove(i);
+                }
+                ui.horizontal(|ui| {
+                    if ui.button(tr("+ Ajouter une règle")).clicked() {
+                        rules.insert(0, varium_calc::CategoryRule::default());
+                    }
+                    if ui.button(tr("Règles par défaut")).clicked() {
+                        rules = varium_calc::default_rules(lang);
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    save = ui.button(tr("Enregistrer")).clicked();
+                    reclass = ui
+                        .button(tr("Enregistrer et reclasser la feuille"))
+                        .on_hover_text(tr("Reclasse les opérations de la feuille active"))
+                        .clicked();
+                });
+            });
+        if save || reclass {
+            self.snapshot();
+            rules.retain(|r| !r.keyword.trim().is_empty() && !r.category.trim().is_empty());
+            self.wb.bank_rules = rules;
+            if reclass {
+                let n = self.wb.recategorize(self.sheet, lang);
+                self.notify(ctx, trf!("Opérations reclassées : {n}", n), false);
+            }
+            return;
+        }
+        if open {
+            self.rules_dialog = Some(rules);
+        }
+    }
+
+    // ---------------- Taux de change ----------------
+
+    fn rates_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut d) = self.rates_dialog.take() else {
+            return;
+        };
+        // Téléchargement terminé ?
+        let done = d
+            .fetch
+            .as_ref()
+            .and_then(|f| f.lock().unwrap_or_else(|e| e.into_inner()).take());
+        if let Some(res) = done {
+            d.fetch = None;
+            match res.and_then(|xml| varium_calc::parse_ecb_xml(&xml)) {
+                Ok(t) => {
+                    d.base = t.base_code().to_string();
+                    d.date = t.date.clone();
+                    d.rows = t
+                        .rates
+                        .iter()
+                        .map(|(k, v)| (k.clone(), number_text(*v)))
+                        .collect();
+                    d.fetched = Some(t);
+                    d.error = None;
+                }
+                Err(e) => {
+                    d.error = Some(trf!(
+                        "Mise à jour impossible (hors ligne ?) : {e}",
+                        e = varium_calc::message_in(crate::tr::lang(), &e)
+                    ));
+                }
+            }
+        }
+        if d.fetch.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+        let mut open = true;
+        let mut save = false;
+        let mut fetch = false;
+        egui::Window::new(tr("Taux de change"))
+            .id(egui::Id::unique("calc-rates"))
+            .open(&mut open)
+            .default_width(380.0)
+            .show(ctx, |ui| {
+                ui.label(tr(
+                    "Taux utilisés par =DEVISE(montant; \"EUR\"; \"USD\"; [date]) : unités de chaque monnaie pour une unité de la monnaie de référence.",
+                ));
+                ui.horizontal(|ui| {
+                    ui.label(tr("Monnaie de référence :"));
+                    ui.add(egui::TextEdit::singleline(&mut d.base).desired_width(60.0));
+                    if !d.date.is_empty() {
+                        ui.label(RichText::new(trf!("taux du {date}", date = d.date)).weak());
+                    }
+                });
+                let mut remove = None;
+                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                    egui::Grid::new("calc-rates-grid").striped(true).show(ui, |ui| {
+                        for (i, (code, rate)) in d.rows.iter_mut().enumerate() {
+                            ui.add(egui::TextEdit::singleline(code).desired_width(60.0));
+                            ui.add(egui::TextEdit::singleline(rate).desired_width(110.0));
+                            if ui.small_button("✕").clicked() {
+                                remove = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+                if let Some(i) = remove {
+                    d.rows.remove(i);
+                }
+                ui.horizontal(|ui| {
+                    if ui.button(tr("+ Ajouter une monnaie")).clicked() {
+                        d.rows.push((String::new(), String::new()));
+                    }
+                    if d.fetch.is_some() {
+                        ui.spinner();
+                    } else if ui
+                        .button(tr("Mettre à jour (BCE)"))
+                        .on_hover_text(tr("Taux quotidiens de la Banque centrale européenne"))
+                        .clicked()
+                    {
+                        fetch = true;
+                    }
+                });
+                if let Some(e) = &d.error {
+                    ui.colored_label(Color32::from_rgb(0xD0, 0x30, 0x2A), e);
+                }
+                ui.label(
+                    RichText::new(tr(
+                        "Unités : =CONVERTIR(10; \"km\"; \"mi\"), =CONVERTIR(20; \"C\"; \"F\"), =CONVERTIR(1; \"Go\"; \"Mo\").",
+                    ))
+                    .weak(),
+                );
+                ui.separator();
+                save = ui.button(tr("Enregistrer")).clicked();
+            });
+        if fetch {
+            let slot = Arc::new(Mutex::new(None));
+            d.fetch = Some(slot.clone());
+            d.error = None;
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                let res = std::process::Command::new("curl")
+                    .args(["-sS", "-L", "--max-time", "20", varium_calc::ECB_DAILY_URL])
+                    .output()
+                    .map_err(|e| e.to_string())
+                    .and_then(|o| {
+                        if o.status.success() {
+                            Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+                        } else {
+                            Err(String::from_utf8_lossy(&o.stderr).trim().to_string())
+                        }
+                    });
+                *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(res);
+                ctx.request_repaint();
+            });
+        }
+        if save {
+            self.snapshot();
+            let mut t = self.wb.rates.clone();
+            if let Some(f) = d.fetched.take() {
+                t.update(f);
+            }
+            t.base = d.base.trim().to_uppercase();
+            t.date = d.date.clone();
+            t.rates = d
+                .rows
+                .iter()
+                .filter_map(|(c, r)| {
+                    let c = c.trim().to_uppercase();
+                    let r = varium_calc::parse_number(r)?;
+                    (!c.is_empty() && r.is_finite() && r > 0.0).then_some((c, r))
+                })
+                .collect();
+            self.wb.rates = t;
+            self.wb.invalidate();
+            return;
+        }
+        if open {
+            self.rates_dialog = Some(d);
+        }
+    }
+
+    // ---------------- Lignes ----------------
+
+    /// Hauteur d'une ligne de la feuille active.
+    fn row_height(&self, row: u32) -> f32 {
+        self.wb
+            .sheets
+            .get(self.sheet)
+            .and_then(|s| s.row_heights.get(&row).copied())
+            .filter(|h| h.is_finite() && *h > 0.0)
+            .map_or(ROW_H, |h| h.clamp(4.0, 600.0))
+    }
+
+    /// Hauteur juste suffisante pour le contenu d'une ligne (texte renvoyé à
+    /// la ligne compris).
+    fn fit_row(&mut self, ctx: &egui::Context, row: u32) {
+        let Some(sh) = self.wb.sheets.get(self.sheet) else {
+            return;
+        };
+        let cells: Vec<(u32, bool)> = sh
+            .cells()
+            .filter(|(at, c)| at.row == row && !c.input.is_empty())
+            .map(|(at, c)| (at.col, c.format.wrap))
+            .collect();
+        let mut h = ROW_H;
+        for (col, wrap) in cells {
+            let at = CellRef::new(row, col);
+            let text = self.wb.display(self.sheet, at);
+            let bold = self.wb.format(self.sheet, at).bold;
+            let family = crate::fonts::family(varium_core::DocFont::Sans, bold, false);
+            let mut job = egui::text::LayoutJob::simple(
+                text,
+                FontId::new(14.0, family),
+                Color32::WHITE,
+                if wrap {
+                    (self.col_width(col) - 8.0).max(10.0)
+                } else {
+                    f32::INFINITY
+                },
+            );
+            job.wrap.max_rows = 200;
+            let g = ctx.fonts_mut(|f| f.layout_job(job));
+            h = h.max(g.size().y + 8.0);
+        }
+        if let Some(sh) = self.wb.sheets.get_mut(self.sheet) {
+            if (h - ROW_H).abs() < 0.5 {
+                sh.row_heights.remove(&row);
+            } else {
+                sh.row_heights.insert(row, h.min(600.0));
+            }
+        }
+    }
+
+    fn toggle_wrap(&mut self, ctx: &egui::Context) {
+        let on = !self.wb.format(self.sheet, self.cur).wrap;
+        self.update_format(|f| f.wrap = on);
+        let r = self.selection();
+        for row in r.start.row..=r.end.row.min(r.start.row + 2000) {
+            self.fit_row(ctx, row);
+        }
+    }
+
+    fn fit_selected_rows(&mut self, ctx: &egui::Context) {
+        self.snapshot();
+        let r = self.selection();
+        for row in r.start.row..=r.end.row.min(r.start.row + 5000) {
+            self.fit_row(ctx, row);
+        }
+    }
+
+    // ---------------- Questions fréquentes ----------------
+
+    /// Les questions posées, les plus fréquentes d'abord (pour la palette).
+    pub fn recent_questions(&self) -> Vec<String> {
+        self.questions.iter().map(|(q, _)| q.clone()).collect()
+    }
+
+    fn remember_question(&mut self, q: &str) {
+        let q = q.trim();
+        if q.is_empty() {
+            return;
+        }
+        match self
+            .questions
+            .iter_mut()
+            .find(|(x, _)| x.eq_ignore_ascii_case(q))
+        {
+            Some(e) => e.1 += 1,
+            None => self.questions.push((q.to_string(), 1)),
+        }
+        // Les plus fréquentes d'abord ; à égalité, la plus récente.
+        let last = q.to_lowercase();
+        self.questions.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| (b.0.to_lowercase() == last).cmp(&(a.0.to_lowercase() == last)))
+        });
+        self.questions.truncate(MAX_QUESTIONS);
+    }
+}
+
 /// Les menus du Classeur dans la barre native de macOS (le dernier est « Aide »).
 #[cfg(target_os = "macos")]
 pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::Submenu>> {
@@ -5169,7 +6681,9 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         &[
             &b.item(tr("Nouveau classeur"), A::New, Some("Cmd+N")),
             &b.item(tr("Classeur d'exemple"), A::Sample, None),
+            &b.item(tr("Nouveau depuis un modèle…"), A::NewFromTemplate, None),
             &b.item(tr("Ouvrir…"), A::Open, Some("Cmd+O")),
+            &b.item(tr("Importer un relevé bancaire…"), A::ImportBank, None),
             &sep(),
             &b.item(tr("Enregistrer"), A::Save, Some("Cmd+S")),
             &b.item(tr("Enregistrer sous…"), A::SaveAs, Some("Cmd+Shift+S")),
@@ -5250,6 +6764,9 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         &sep(),
         &b.item(tr("Mise en forme conditionnelle…"), A::CondFormat, None),
         &b.item(tr("Mettre sous forme de tableau"), A::FormatAsTable, None),
+        &sep(),
+        &b.item(tr("Renvoyer à la ligne"), A::WrapText, None),
+        &b.item(tr("Hauteur de ligne automatique"), A::AutoFitRows, None),
     ])?;
     let view = Submenu::with_items(
         tr("Affichage"),
@@ -5281,6 +6798,19 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
                 A::AskQuestion,
                 Some("Cmd+Shift+Q"),
             ),
+            &b.item(tr("Questions fréquentes…"), A::RecentQuestions, None),
+            &sep(),
+            &b.item(tr("Tableau croisé dynamique…"), A::Pivot, None),
+            &b.item(
+                tr("Actualiser les tableaux croisés"),
+                A::RefreshPivots,
+                None,
+            ),
+            &b.item(tr("Planning de Gantt"), A::Gantt, None),
+            &sep(),
+            &b.item(tr("Importer un relevé bancaire…"), A::ImportBank, None),
+            &b.item(tr("Règles de catégories…"), A::BankRules, None),
+            &b.item(tr("Taux de change…"), A::ExchangeRates, None),
             &sep(),
             &b.item(tr("Somme automatique"), A::AutoSum, Some("Cmd+Shift+T")),
         ],
@@ -5579,6 +7109,64 @@ impl CalcApp {
                 Some(K::new(cmd_shift, Key::Q)),
                 false,
             ),
+            (
+                A::RecentQuestions,
+                n_("Questions fréquentes…"),
+                donnees,
+                None,
+                false,
+            ),
+            (
+                A::NewFromTemplate,
+                n_("Nouveau depuis un modèle…"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::ImportBank,
+                n_("Importer un relevé bancaire…"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::Pivot,
+                n_("Tableau croisé dynamique…"),
+                donnees,
+                None,
+                false,
+            ),
+            (
+                A::RefreshPivots,
+                n_("Actualiser les tableaux croisés"),
+                donnees,
+                None,
+                false,
+            ),
+            (A::Gantt, n_("Planning de Gantt"), donnees, None, false),
+            (
+                A::BankRules,
+                n_("Règles de catégories…"),
+                donnees,
+                None,
+                false,
+            ),
+            (
+                A::ExchangeRates,
+                n_("Taux de change…"),
+                donnees,
+                None,
+                false,
+            ),
+            (A::WrapText, n_("Renvoyer à la ligne"), format, None, false),
+            (
+                A::AutoFitRows,
+                n_("Hauteur de ligne automatique"),
+                format,
+                None,
+                false,
+            ),
         ];
         for (label, nf) in NUMBER_FORMATS {
             v.push((A::Number(nf), label, format, None, false));
@@ -5703,5 +7291,46 @@ mod tests {
             }
         }
         assert!(filter_condition(0, "x", "").is_none());
+    }
+
+    #[test]
+    fn graphiques_enregistres_et_textes() {
+        for k in ChartKind::ALL {
+            assert_eq!(ChartKind::from_key(k.key()), k);
+        }
+        assert_eq!(ChartKind::from_key("inconnu"), ChartKind::Barres);
+        assert_eq!(decode_text(b"caf\xe9 \x80".to_vec()), "café €");
+        assert_eq!(decode_text("déjà".as_bytes().to_vec()), "déjà");
+        // Toutes les actions du Classeur sont dans la palette.
+        let entries = CalcApp::palette_entries();
+        for a in [
+            CalcAction::Pivot,
+            CalcAction::RefreshPivots,
+            CalcAction::RecentQuestions,
+            CalcAction::NewFromTemplate,
+            CalcAction::ImportBank,
+            CalcAction::BankRules,
+            CalcAction::Gantt,
+            CalcAction::ExchangeRates,
+            CalcAction::WrapText,
+            CalcAction::AutoFitRows,
+        ] {
+            assert!(entries.iter().any(|e| e.0 == a), "{a:?}");
+        }
+    }
+
+    #[test]
+    fn questions_frequentes() {
+        let mut app = CalcApp::new(None);
+        for q in ["total par mois", "top 5", "Total par mois", "  "] {
+            app.remember_question(q);
+        }
+        assert_eq!(app.recent_questions(), ["total par mois", "top 5"]);
+        assert_eq!(app.questions[0].1, 2);
+        for i in 0..40 {
+            app.remember_question(&format!("question {i}"));
+        }
+        assert_eq!(app.questions.len(), MAX_QUESTIONS);
+        assert_eq!(app.questions[0].0, "total par mois");
     }
 }

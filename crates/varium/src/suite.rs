@@ -23,6 +23,9 @@ use crate::raccourcis::{self, AideMemoire, Demande, Ligne};
 use crate::slides_ui::{SlideAction, SlidesApp};
 
 const MODULE_KEY: &str = "varium.module";
+/// Place laissée aux boutons de la fenêtre dans la barre de titre unifiée (macOS).
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHTS: f32 = 70.0;
 const RECENTS_KEY: &str = "varium.recents";
 const PALETTE_KEY: &str = "varium.palette.recentes";
 /// Fichiers récents de tous les modules.
@@ -119,6 +122,14 @@ pub struct Suite {
     apparence: Apparence,
     zoom_interface: f32,
     apparence_appliquee: Option<(Apparence, f32)>,
+    /// « Apparence selon l'heure ».
+    soir: apparence::Soir,
+    /// Un thème par module (sinon celui de la suite pour tous).
+    theme_par_module: bool,
+    /// Le thème de chaque module (ordre de `Module::ALL`).
+    apparence_modules: [Option<Apparence>; 3],
+    /// Heure locale lue, et à quel instant (relue toutes les 30 s).
+    heure: Option<(f64, u8)>,
     /// Identifiants des commandes récemment lancées depuis la palette.
     palette_recents: Vec<String>,
     /// Fichiers récents des trois modules.
@@ -181,7 +192,17 @@ impl Suite {
                 .and_then(|s| eframe::get_value::<f32>(s, apparence::ZOOM_KEY))
                 .unwrap_or(1.0),
         );
-        let file_arg = std::env::args_os().nth(1).is_some();
+        let soir = cc
+            .storage
+            .and_then(|s| eframe::get_value::<apparence::Soir>(s, apparence::SOIR_KEY))
+            .unwrap_or_default();
+        let codes_modules = cc
+            .storage
+            .and_then(|s| eframe::get_value::<Vec<String>>(s, apparence::MODULES_KEY))
+            .unwrap_or_default();
+        let apparence_modules = apparence::modules_depuis(&codes_modules);
+        let file_arg = !crate::ouverture::arguments().is_empty();
+        crate::ouverture::installer(&cc.egui_ctx);
         #[allow(unused_mut)]
         let mut suite = Self {
             doc: VariumApp::new(cc),
@@ -197,6 +218,10 @@ impl Suite {
             apparence,
             zoom_interface,
             apparence_appliquee: None,
+            soir,
+            theme_par_module: apparence_modules.iter().any(Option::is_some),
+            apparence_modules,
+            heure: None,
             palette_recents,
             recents,
             seen_paths: [None, None, None],
@@ -858,10 +883,155 @@ impl Suite {
         }
     }
 
+    /// Indice du module actif dans `Module::ALL`.
+    fn module_index(&self) -> usize {
+        Module::ALL
+            .iter()
+            .position(|&m| m == self.module)
+            .unwrap_or(0)
+    }
+
+    /// Le thème choisi pour le module actif (ou pour toute la suite).
+    fn apparence_choisie(&self) -> Apparence {
+        if self.theme_par_module {
+            self.apparence_modules[self.module_index()].unwrap_or(self.apparence)
+        } else {
+            self.apparence
+        }
+    }
+
+    /// Le thème à appliquer maintenant : celui du module, remplacé le soir si
+    /// « Apparence selon l'heure » est active.
+    fn apparence_effective(&mut self, ctx: &egui::Context) -> Apparence {
+        let base = self.apparence_choisie();
+        if !self.soir.actif {
+            return base;
+        }
+        let now = ctx.input(|i| i.time);
+        let h = match self.heure {
+            Some((t, h)) if now - t < 30.0 => h,
+            _ => {
+                let h = apparence::heure_locale();
+                self.heure = Some((now, h));
+                h
+            }
+        };
+        // Revenir vérifier l'heure même sans activité.
+        ctx.request_repaint_after(std::time::Duration::from_secs(30));
+        self.soir.effective(base, h)
+    }
+
+    /// Le menu 🎨 : thème, thème par module, apparence selon l'heure, taille.
+    fn menu_apparence(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new(tr("Apparence")).strong());
+        ui.separator();
+        let choisie = self.apparence_choisie();
+        for a in Apparence::TOUTES {
+            if ui.radio(choisie == a, a.nom()).clicked() {
+                if self.theme_par_module {
+                    let i = self.module_index();
+                    self.apparence_modules[i] = Some(a);
+                } else {
+                    self.apparence = a;
+                }
+            }
+        }
+        if ui
+            .checkbox(
+                &mut self.theme_par_module,
+                tr("Un thème différent pour chaque module"),
+            )
+            .on_hover_text(tr(
+                "Le thème choisi ci-dessus ne vaut alors que pour le module affiché",
+            ))
+            .changed()
+            && self.theme_par_module
+        {
+            let i = self.module_index();
+            self.apparence_modules[i].get_or_insert(self.apparence);
+        }
+        ui.separator();
+        ui.label(RichText::new(tr("Apparence selon l'heure")).strong());
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.soir.actif, tr("Le soir, passer en"));
+            ui.selectable_value(
+                &mut self.soir.theme,
+                apparence::SoirTheme::Sepia,
+                tr("Sépia"),
+            );
+            ui.selectable_value(
+                &mut self.soir.theme,
+                apparence::SoirTheme::Sombre,
+                tr("Sombre"),
+            );
+        });
+        ui.add_enabled_ui(self.soir.actif, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(tr("Début"));
+                ui.add(
+                    egui::DragValue::new(&mut self.soir.debut)
+                        .range(0..=23)
+                        .suffix(" h"),
+                );
+                ui.label(tr("Fin"));
+                ui.add(
+                    egui::DragValue::new(&mut self.soir.fin)
+                        .range(0..=23)
+                        .suffix(" h"),
+                );
+            });
+        });
+        self.heure = None;
+        ui.separator();
+        ui.label(RichText::new(tr("Taille de l'interface")).strong());
+        ui.horizontal(|ui| {
+            if ui.button("−").clicked() {
+                self.zoom_interface =
+                    apparence::zoom_valide(self.zoom_interface - apparence::ZOOM_PAS);
+            }
+            ui.label(format!("{} %", (self.zoom_interface * 100.0).round()));
+            if ui.button("+").clicked() {
+                self.zoom_interface =
+                    apparence::zoom_valide(self.zoom_interface + apparence::ZOOM_PAS);
+            }
+            if ui.button(tr("Taille normale")).clicked() {
+                self.zoom_interface = 1.0;
+            }
+        });
+    }
+
+    /// macOS, barre de titre unifiée : le sélecteur de modules est dessiné dans
+    /// la barre de titre transparente ; on y laisse la place des boutons de la
+    /// fenêtre, et le fond de la barre déplace la fenêtre (double-clic : agrandir).
+    #[cfg(target_os = "macos")]
+    fn barre_de_titre(ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let plein_ecran = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+        let r = ui.max_rect();
+        let fond = ui.interact(
+            r,
+            ui.scope_id().with("varium-barre-titre"),
+            egui::Sense::click_and_drag(),
+        );
+        if fond.drag_started() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+        if fond.double_clicked() {
+            let max = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+        }
+        if !plein_ecran {
+            // Les trois boutons de la fenêtre (fermer, réduire, agrandir).
+            ui.add_space(TRAFFIC_LIGHTS);
+        }
+    }
+
     fn switcher(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
+            #[cfg(target_os = "macos")]
+            Self::barre_de_titre(ui);
             let accueil = egui::Button::new(RichText::new("🏠").size(14.0))
                 .min_size(Vec2::new(30.0, 26.0))
                 .corner_radius(13.0)
@@ -917,33 +1087,15 @@ impl Suite {
                 })
                 .response
                 .on_hover_text(tr("Langue de l'interface"));
-                ui.menu_button(format!("🎨 {}", self.apparence.nom()), |ui| {
-                    ui.label(RichText::new(tr("Apparence")).strong());
-                    ui.separator();
-                    for a in Apparence::TOUTES {
-                        if ui.radio(self.apparence == a, a.nom()).clicked() {
-                            self.apparence = a;
-                        }
+                let nom = match self.apparence_appliquee {
+                    Some((a, _)) if a != self.apparence_choisie() => {
+                        format!("{} 🌙", self.apparence_choisie().nom())
                     }
-                    ui.separator();
-                    ui.label(RichText::new(tr("Taille de l'interface")).strong());
-                    ui.horizontal(|ui| {
-                        if ui.button("−").clicked() {
-                            self.zoom_interface =
-                                apparence::zoom_valide(self.zoom_interface - apparence::ZOOM_PAS);
-                        }
-                        ui.label(format!("{} %", (self.zoom_interface * 100.0).round()));
-                        if ui.button("+").clicked() {
-                            self.zoom_interface =
-                                apparence::zoom_valide(self.zoom_interface + apparence::ZOOM_PAS);
-                        }
-                        if ui.button(tr("Taille normale")).clicked() {
-                            self.zoom_interface = 1.0;
-                        }
-                    });
-                })
-                .response
-                .on_hover_text(tr("Thème et taille de l'interface"));
+                    _ => self.apparence_choisie().nom().to_string(),
+                };
+                ui.menu_button(format!("🎨 {nom}"), |ui| self.menu_apparence(ui))
+                    .response
+                    .on_hover_text(tr("Thème et taille de l'interface"));
                 let k = ctx.format_shortcut(&PALETTE_KEYS[1]);
                 if ui
                     .button(format!("🔍 {}", tr("Commandes")))
@@ -1111,9 +1263,15 @@ impl eframe::App for Suite {
             self.update_native_menu();
             self.native_actions(&ctx);
         }
-        if self.apparence_appliquee != Some((self.apparence, self.zoom_interface)) {
-            apparence::appliquer(&ctx, self.apparence, self.zoom_interface);
-            self.apparence_appliquee = Some((self.apparence, self.zoom_interface));
+        let effective = self.apparence_effective(&ctx);
+        if self.apparence_appliquee != Some((effective, self.zoom_interface)) {
+            apparence::appliquer(&ctx, effective, self.zoom_interface);
+            self.apparence_appliquee = Some((effective, self.zoom_interface));
+        }
+        // Fichiers demandés par le système (arguments, Finder, Dock).
+        for p in crate::ouverture::prendre() {
+            self.show_accueil = false;
+            self.open_any(&ctx, &p);
         }
         // Langue changée : les titres de fenêtre suivent.
         if self.title_lang != tr::lang() {
@@ -1211,6 +1369,17 @@ impl eframe::App for Suite {
         eframe::set_value(storage, RECENTS_KEY, &self.recents);
         eframe::set_value(storage, PALETTE_KEY, &self.palette_recents);
         storage.set_string(apparence::THEME_KEY, self.apparence.code().to_string());
+        eframe::set_value(storage, apparence::SOIR_KEY, &self.soir);
+        let modules = if self.theme_par_module {
+            self.apparence_modules
+        } else {
+            [None; 3]
+        };
+        eframe::set_value(
+            storage,
+            apparence::MODULES_KEY,
+            &apparence::modules_codes(&modules),
+        );
         eframe::set_value(storage, apparence::ZOOM_KEY, &self.zoom_interface);
         storage.set_string(tr::STORAGE_KEY, tr::choice_code(tr::choice()).to_string());
     }

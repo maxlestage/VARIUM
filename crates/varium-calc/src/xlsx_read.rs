@@ -85,8 +85,150 @@ fn flag(n: Option<&Node>) -> bool {
     }
 }
 
-fn color_of(n: Option<&Node>) -> Option<[u8; 3]> {
-    n.and_then(|c| c.attr("rgb")).and_then(parse_rgb)
+/// Couleurs du thème Office par défaut, dans l'ordre des index de couleur
+/// de thème d'Excel (clair 1, foncé 1, clair 2, foncé 2, accents 1 à 6,
+/// lien hypertexte, lien visité).
+const DEFAULT_THEME: [[u8; 3]; 12] = [
+    [0xFF, 0xFF, 0xFF],
+    [0x00, 0x00, 0x00],
+    [0xE7, 0xE6, 0xE6],
+    [0x44, 0x54, 0x6A],
+    [0x44, 0x72, 0xC4],
+    [0xED, 0x7D, 0x31],
+    [0xA5, 0xA5, 0xA5],
+    [0xFF, 0xC0, 0x00],
+    [0x5B, 0x9B, 0xD5],
+    [0x70, 0xAD, 0x47],
+    [0x05, 0x63, 0xC1],
+    [0x95, 0x4F, 0x72],
+];
+
+/// Palette des couleurs indexées (anciens fichiers Excel).
+const INDEXED: [u32; 64] = [
+    0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF, 0x000000,
+    0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF, 0x800000, 0x008000,
+    0x000080, 0x808000, 0x800080, 0x008080, 0xC0C0C0, 0x808080, 0x9999FF, 0x993366, 0xFFFFCC,
+    0xCCFFFF, 0x660066, 0xFF8080, 0x0066CC, 0xCCCCFF, 0x000080, 0xFF00FF, 0xFFFF00, 0x00FFFF,
+    0x800080, 0x800000, 0x008080, 0x0000FF, 0x00CCFF, 0xCCFFFF, 0xCCFFCC, 0xFFFF99, 0x99CCFF,
+    0xFF99CC, 0xCC99FF, 0xFFCC99, 0x3366FF, 0x33CCCC, 0x99CC00, 0xFFCC00, 0xFF9900, 0xFF6600,
+    0x666699, 0x969696, 0x003366, 0x339966, 0x003300, 0x333300, 0x993300, 0x993366, 0x333399,
+    0x333333,
+];
+
+/// Couleurs du thème du classeur (`xl/theme/theme1.xml`), dans l'ordre des
+/// index de couleur de thème ; le thème par défaut si elles manquent.
+fn read_theme(text: Option<&str>) -> Vec<[u8; 3]> {
+    let mut out = DEFAULT_THEME.to_vec();
+    let Some(root) = text.and_then(|t| parse(t).ok()) else {
+        return out;
+    };
+    fn find<'a>(n: &'a Node, name: &str, depth: u32) -> Option<&'a Node> {
+        if n.is(name) {
+            return Some(n);
+        }
+        if depth > 6 {
+            return None;
+        }
+        n.elems().find_map(|c| find(c, name, depth + 1))
+    }
+    let Some(scheme) = find(&root, "clrScheme", 0) else {
+        return out;
+    };
+    // Ordre du fichier : dk1, lt1, dk2, lt2, accent1…6, hlink, folHlink.
+    let slots = [1, 0, 3, 2, 4, 5, 6, 7, 8, 9, 10, 11];
+    for (i, c) in scheme.elems().take(12).enumerate() {
+        let rgb = c
+            .child("srgbClr")
+            .and_then(|n| n.attr("val"))
+            .or_else(|| c.child("sysClr").and_then(|n| n.attr("lastClr")))
+            .and_then(parse_rgb);
+        if let Some(rgb) = rgb {
+            out[slots[i]] = rgb;
+        }
+    }
+    out
+}
+
+/// Teinte d'Excel : la luminosité (TSL) est assombrie (teinte négative) ou
+/// éclaircie (positive).
+fn apply_tint(c: [u8; 3], tint: f64) -> [u8; 3] {
+    if !tint.is_finite() || tint == 0.0 {
+        return c;
+    }
+    let tint = tint.clamp(-1.0, 1.0);
+    let [r, g, b] = c.map(|x| f64::from(x) / 255.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    let (h, sat) = if d == 0.0 {
+        (0.0, 0.0)
+    } else {
+        let sat = if l > 0.5 {
+            d / (2.0 - max - min)
+        } else {
+            d / (max + min)
+        };
+        let h = if max == r {
+            (g - b) / d + if g < b { 6.0 } else { 0.0 }
+        } else if max == g {
+            (b - r) / d + 2.0
+        } else {
+            (r - g) / d + 4.0
+        };
+        (h / 6.0, sat)
+    };
+    let l = if tint < 0.0 {
+        l * (1.0 + tint)
+    } else {
+        l * (1.0 - tint) + tint
+    };
+    let hue = |p: f64, q: f64, t: f64| {
+        let t = t.rem_euclid(1.0);
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 0.5 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
+    };
+    let (r, g, b) = if sat == 0.0 {
+        (l, l, l)
+    } else {
+        let q = if l < 0.5 {
+            l * (1.0 + sat)
+        } else {
+            l + sat - l * sat
+        };
+        let p = 2.0 * l - q;
+        (
+            hue(p, q, h + 1.0 / 3.0),
+            hue(p, q, h),
+            hue(p, q, h - 1.0 / 3.0),
+        )
+    };
+    [r, g, b].map(|x| (x.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+/// Couleur d'un élément `<color>` : RVB, couleur de thème (avec sa teinte)
+/// ou couleur indexée.
+fn color_of(n: Option<&Node>, theme: &[[u8; 3]]) -> Option<[u8; 3]> {
+    let c = n?;
+    let base = if let Some(rgb) = c.attr("rgb") {
+        parse_rgb(rgb)?
+    } else if let Some(t) = c.attr("theme") {
+        let i: usize = t.trim().parse().ok()?;
+        *theme.get(i).or_else(|| DEFAULT_THEME.get(i))?
+    } else {
+        let i: usize = c.attr("indexed")?.trim().parse().ok()?;
+        let v = *INDEXED.get(i)?;
+        [(v >> 16) as u8, (v >> 8) as u8, v as u8]
+    };
+    let tint = c.attr("tint").and_then(parse_f64).unwrap_or(0.0);
+    Some(apply_tint(base, tint))
 }
 
 /// Feuille de styles : formats de cellule (`cellXfs`) et styles différentiels (`dxfs`).
@@ -94,12 +236,18 @@ fn color_of(n: Option<&Node>) -> Option<[u8; 3]> {
 struct Styles {
     xfs: Vec<CellFormat>,
     dxfs: Vec<CondStyle>,
+    theme: Vec<[u8; 3]>,
 }
 
-fn read_styles(text: &str) -> Styles {
+fn read_styles(text: &str, theme: Vec<[u8; 3]>) -> Styles {
     let Ok(root) = parse(text) else {
-        return Styles::default();
+        return Styles {
+            theme,
+            ..Styles::default()
+        };
     };
+    let th = theme.as_slice();
+    let color_of = |n: Option<&Node>| color_of(n, th);
     let mut numfmts: HashMap<u32, NumberFormat> = HashMap::new();
     if let Some(nf) = root.child("numFmts") {
         for n in nf.children_named("numFmt") {
@@ -167,6 +315,7 @@ fn read_styles(text: &str) -> Styles {
                     Some("right") => Some(HAlign::Right),
                     _ => None,
                 };
+                f.wrap = truthy(a.attr("wrapText"));
             }
             styles.xfs.push(f);
         }
@@ -185,6 +334,7 @@ fn read_styles(text: &str) -> Styles {
             styles.dxfs.push(s);
         }
     }
+    styles.theme = theme;
     styles
 }
 
@@ -307,7 +457,7 @@ fn cond_rules(sheet_xml: &Node, styles: &Styles) -> Vec<CondFormat> {
                         .child("colorScale")
                         .map(|c| {
                             c.children_named("color")
-                                .filter_map(|n| color_of(Some(n)))
+                                .filter_map(|n| color_of(Some(n), &styles.theme))
                                 .collect()
                         })
                         .unwrap_or_default();
@@ -328,7 +478,7 @@ fn cond_rules(sheet_xml: &Node, styles: &Styles) -> Vec<CondFormat> {
                 "dataBar" => CondRule::DataBar {
                     color: rule
                         .child("dataBar")
-                        .and_then(|d| color_of(d.child("color")))
+                        .and_then(|d| color_of(d.child("color"), &styles.theme))
                         .unwrap_or([0x63, 0x8E, 0xC6]),
                 },
                 _ => continue,
@@ -537,9 +687,14 @@ pub(crate) fn from_xlsx(title: &str, bytes: &[u8]) -> Result<Workbook, String> {
     let strings = part("/sharedStrings", "sharedStrings.xml")
         .map(|t| shared_strings(&t))
         .unwrap_or_default();
-    let styles = part("/styles", "styles.xml")
-        .map(|t| read_styles(&t))
-        .unwrap_or_default();
+    let theme = read_theme(part("/theme", "theme/theme1.xml").as_deref());
+    let styles = match part("/styles", "styles.xml") {
+        Some(t) => read_styles(&t, theme),
+        None => Styles {
+            theme,
+            ..Styles::default()
+        },
+    };
 
     let entries: Vec<(String, Option<String>)> = book
         .child("sheets")
@@ -743,5 +898,56 @@ mod tests {
         assert_eq!(rule_constant("1.5").as_deref(), Some("1,5"));
         assert_eq!(rule_constant("\"a\"\"b\"").as_deref(), Some("a\"b"));
         assert_eq!(rule_constant("A1"), None);
+    }
+
+    #[test]
+    fn couleurs_de_theme_et_teintes() {
+        let theme_xml = r#"<a:theme xmlns:a="x"><a:themeElements><a:clrScheme name="T">
+<a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>
+<a:dk2><a:srgbClr val="1F497D"/></a:dk2><a:lt2><a:srgbClr val="EEECE1"/></a:lt2>
+<a:accent1><a:srgbClr val="4F81BD"/></a:accent1></a:clrScheme></a:themeElements></a:theme>"#;
+        let theme = read_theme(Some(theme_xml));
+        assert_eq!(theme[3], [0x1F, 0x49, 0x7D]);
+        assert_eq!(theme[4], [0x4F, 0x81, 0xBD]);
+        assert_eq!(theme[5], DEFAULT_THEME[5]);
+        let node = |xml: &str| parse(xml).unwrap();
+        assert_eq!(
+            color_of(Some(&node(r#"<color theme="4"/>"#)), &theme),
+            Some([0x4F, 0x81, 0xBD])
+        );
+        // Accent 1 éclairci à 80 % (fond bleu pâle d'Excel) : DCE6F1.
+        let pale = color_of(
+            Some(&node(r#"<color theme="4" tint="0.7999816888943144"/>"#)),
+            &theme,
+        )
+        .unwrap();
+        assert!(
+            pale.iter()
+                .zip([0xDC, 0xE6, 0xF1])
+                .all(|(a, b)| a.abs_diff(b) <= 1),
+            "{pale:?}"
+        );
+        // Assombri de 25 % : 366092.
+        let dark = color_of(
+            Some(&node(r#"<color theme="4" tint="-0.249977111117893"/>"#)),
+            &theme,
+        )
+        .unwrap();
+        assert!(
+            dark.iter()
+                .zip([0x36, 0x60, 0x92])
+                .all(|(a, b)| a.abs_diff(b) <= 1),
+            "{dark:?}"
+        );
+        assert_eq!(
+            color_of(Some(&node(r#"<color indexed="10"/>"#)), &theme),
+            Some([0xFF, 0, 0])
+        );
+        assert_eq!(
+            color_of(Some(&node(r#"<color theme="99"/>"#)), &theme),
+            None
+        );
+        assert_eq!(color_of(Some(&node(r#"<color auto="1"/>"#)), &theme), None);
+        assert_eq!(read_theme(Some("pas du xml")), DEFAULT_THEME.to_vec());
     }
 }

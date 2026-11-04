@@ -58,6 +58,32 @@ impl Deck {
             .and_then(|s| s.duration)
             .filter(|d| d.is_finite() && *d > 0.0)
     }
+
+    /// Mode kiosque : durée d'affichage de la diapositive `i`, en secondes — son
+    /// minutage s'il en a un, sinon `default` (bornée de 1 s à 1 h).
+    pub fn kiosk_duration(&self, i: usize, default: f32) -> f32 {
+        let d = self
+            .slides
+            .get(i)
+            .and_then(|s| s.duration)
+            .filter(|d| d.is_finite() && *d > 0.0)
+            .unwrap_or(default);
+        if d.is_finite() {
+            d.clamp(1.0, 3600.0)
+        } else {
+            8.0
+        }
+    }
+
+    /// Mode kiosque : la diapositive après `i`, en boucle (la première après la
+    /// dernière).
+    pub fn kiosk_next(&self, i: usize) -> usize {
+        match self.slides.len() {
+            0 => 0,
+            n if i.saturating_add(1) >= n => 0,
+            _ => i + 1,
+        }
+    }
 }
 
 #[cfg(test)]

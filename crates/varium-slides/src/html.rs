@@ -243,8 +243,9 @@ fn diapositive(out: &mut String, i: usize, total: usize, r: &Rendu, s: &Slide, d
             );
         }
     }
-    for (o, texte) in s.objects.iter().zip(&r.objets) {
-        objet_html(out, o, texte, p, deck);
+    for (k, ((o, texte), qr)) in s.objects.iter().zip(&r.objets).zip(&r.qrs).enumerate() {
+        let id = format!("d{i}-{k}");
+        objet_html(out, o, texte, qr.as_ref(), &id, p, deck);
     }
     if !r.footer.is_empty() {
         let _ = writeln!(
@@ -341,17 +342,50 @@ fn classe_media(id: &str) -> String {
 /// Un objet (image ou forme) en HTML : l'image en fond CSS, la forme en SVG dont
 /// les unités sont les points d'une diapositive de 720 pt de large, le texte
 /// d'une forme dans une zone centrée par-dessus.
-fn objet_html(out: &mut String, o: &Object, texte: &[Para], p: &Palette, deck: &Deck) {
+fn objet_html(
+    out: &mut String,
+    o: &Object,
+    texte: &[Para],
+    qr: Option<&varium_core::qr::QrCode>,
+    id: &str,
+    p: &Palette,
+    deck: &Deck,
+) {
     let f = o.frame;
+    // Rotation autour du centre (le cadre SVG ci-dessous a le même centre).
+    let tourne = if o.rotation != 0.0 {
+        format!(";transform:rotate({}deg)", nombre(o.rotation))
+    } else {
+        String::new()
+    };
     if o.kind == ObjectKind::Image {
         if deck.media.contains_key(&o.media) {
             let _ = writeln!(
                 out,
-                "<div class=\"objet image m-{}\" role=\"img\" style=\"{}\"></div>",
+                "<div class=\"objet image m-{}\" role=\"img\" style=\"{}{tourne}\"></div>",
                 classe_media(&o.media),
                 position(f)
             );
         }
+        return;
+    }
+    if o.kind == ObjectKind::Qr {
+        let Some(q) = qr else {
+            return;
+        };
+        let marge = Object::QR_MARGIN;
+        let n = q.size() + 2 * marge;
+        let mut d = String::new();
+        for (x, y, l) in q.segments() {
+            let _ = write!(d, "M{} {}h{l}v1h-{l}z", x + marge, y + marge);
+        }
+        let _ = writeln!(
+            out,
+            "<svg class=\"objet forme\" style=\"{}{tourne}\" viewBox=\"0 0 {n} {n}\" preserveAspectRatio=\"none\" shape-rendering=\"crispEdges\" role=\"img\" aria-label=\"{}\"><rect width=\"{n}\" height=\"{n}\" fill=\"#fff\"/><path d=\"{d}\" fill=\"{}\"/></svg>",
+            position(f),
+            echapper(&o.text),
+            hex_color(o.qr_ink())
+        );
         return;
     }
     let (pw, ph) = (720.0, 720.0 / deck.aspect.ratio());
@@ -377,9 +411,40 @@ fn objet_html(out: &mut String, o: &Object, texte: &[Para], p: &Palette, deck: &
         ),
         _ => String::new(),
     };
-    let fond = match o.fill {
-        Some(c) => format!(" fill=\"{}\"", hex_color(c)),
-        None => " fill=\"none\"".to_string(),
+    // Dégradé : défini dans le SVG, en unités de la forme (points).
+    let mut defs = String::new();
+    let fond = match (&o.gradient, o.fill) {
+        (Some(g), _) if o.kind.is_closed() => {
+            let arrets: String = g
+                .stops
+                .iter()
+                .map(|s| {
+                    format!(
+                        "<stop offset=\"{}\" stop-color=\"{}\"/>",
+                        nombre(s.pos),
+                        hex_color(s.color)
+                    )
+                })
+                .collect();
+            if g.radial {
+                defs = format!(
+                    "<defs><radialGradient id=\"{id}\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">{arrets}</radialGradient></defs>"
+                );
+            } else {
+                let (c, s) = g.direction();
+                let e = g.half_extent(w, h);
+                defs = format!(
+                    "<defs><linearGradient id=\"{id}\" gradientUnits=\"userSpaceOnUse\" x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\">{arrets}</linearGradient></defs>",
+                    nombre(w / 2.0 - c * e),
+                    nombre(h / 2.0 - s * e),
+                    nombre(w / 2.0 + c * e),
+                    nombre(h / 2.0 + s * e)
+                );
+            }
+            format!(" fill=\"url(#{id})\"")
+        }
+        (_, Some(c)) => format!(" fill=\"{}\"", hex_color(c)),
+        _ => " fill=\"none\"".to_string(),
     };
     let dessin = match o.kind {
         ObjectKind::Rect | ObjectKind::RoundRect => {
@@ -435,11 +500,11 @@ fn objet_html(out: &mut String, o: &Object, texte: &[Para], p: &Palette, deck: &
                 )
             }
         }
-        ObjectKind::Image => String::new(),
+        ObjectKind::Image | ObjectKind::Qr => String::new(),
     };
     let _ = writeln!(
         out,
-        "<svg class=\"objet forme\" style=\"{}\" viewBox=\"{} {} {} {}\" preserveAspectRatio=\"none\" aria-hidden=\"true\">{dessin}</svg>",
+        "<svg class=\"objet forme\" style=\"{}{tourne}\" viewBox=\"{} {} {} {}\" preserveAspectRatio=\"none\" aria-hidden=\"true\">{defs}{dessin}</svg>",
         position(cadre),
         nombre(-m),
         nombre(-m),
@@ -450,7 +515,7 @@ fn objet_html(out: &mut String, o: &Object, texte: &[Para], p: &Palette, deck: &
         let zone = f.inset(0.012, 0.012 * deck.aspect.ratio());
         let _ = writeln!(
             out,
-            "<div class=\"boite milieu centre texte-forme\" style=\"{};--fs:{};color:{}\"><div class=\"dedans\">{}</div></div>",
+            "<div class=\"boite milieu centre texte-forme\" style=\"{}{tourne};--fs:{};color:{}\"><div class=\"dedans\">{}</div></div>",
             position(zone),
             nombre(o.text_size),
             hex_color(o.text_ink(p)),

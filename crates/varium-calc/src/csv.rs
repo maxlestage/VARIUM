@@ -94,7 +94,7 @@ fn detect_separator(text: &str) -> char {
 
 /// Découpe un texte CSV en lignes de champs (les lignes vides sont gardées
 /// pour respecter la position des données).
-fn records(text: &str, sep: char) -> Result<Vec<Vec<String>>, String> {
+pub(crate) fn records(text: &str, sep: char) -> Result<Vec<Vec<String>>, String> {
     let mut out: Vec<Vec<String>> = Vec::new();
     let mut row: Vec<String> = Vec::new();
     let mut field = String::new();

@@ -4,9 +4,12 @@
 # Les noms de fichiers ne changent pas d'une version à l'autre : le site les télécharge par
 # https://github.com/maxlestage/VARIUM/releases/latest/download/<fichier>.
 #
-#   varium-windows-x86_64.zip     varium.exe
-#   varium-macos.zip              Varium.app (Apple Silicon et Intel)
-#   varium-linux-x86_64.tar.gz    varium, varium.desktop, varium.svg, varium.png
+#   varium-windows-x86_64-setup.exe  installateur (associations de fichiers, raccourcis)
+#   varium-windows-x86_64.zip        varium.exe, associer.ps1 (associations sans installateur)
+#   varium-macos.zip                 Varium.app (Apple Silicon et Intel ; types de documents
+#                                    dans Info.plist : double-clic dans le Finder)
+#   varium-linux-x86_64.tar.gz       varium, varium.desktop, varium-mime.xml, installer.sh,
+#                                    varium.svg, varium.png
 
 name: Release
 
@@ -58,7 +61,16 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/release/varium.exe dist/
           Copy-Item crates/varium/assets/fonts/LICENSE-OFL.txt dist/
+          Copy-Item packaging/windows/associer.ps1 dist/
           Compress-Archive -Path dist/* -DestinationPath varium-windows-x86_64.zip
+          # Installateur Inno Setup (présent sur les images Windows de GitHub ; sinon Chocolatey).
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          & $iscc "/DVersion=$version" "/DSource=$PWD\dist" packaging\windows\varium.iss
+          if (-not (Test-Path varium-windows-x86_64-setup.exe)) { throw "installateur absent" }
 
       - name: macOS (binaire universel dans Varium.app)
         if: runner.os == 'macOS'
@@ -92,6 +104,8 @@ jobs:
           mkdir -p dist/varium
           cp target/release/varium dist/varium/
           cp packaging/varium.desktop dist/varium/
+          cp packaging/linux/varium-mime.xml packaging/linux/installer.sh dist/varium/
+          chmod +x dist/varium/installer.sh
           cp crates/varium/assets/icon.svg dist/varium/varium.svg
           cp crates/varium/assets/icon-256.png dist/varium/varium.png
           cp crates/varium/assets/fonts/LICENSE-OFL.txt dist/varium/
@@ -120,9 +134,9 @@ jobs:
           ls -la assets
           notes="Varium ${TAG} — application de bureau pour Windows, macOS et Linux.
 
-          - **Windows** : varium-windows-x86_64.zip, décompressez puis lancez varium.exe (SmartScreen : « Informations complémentaires » → « Exécuter quand même »).
-          - **macOS** : varium-macos.zip (Apple Silicon et Intel), glissez Varium dans Applications ; au premier lancement, clic droit → Ouvrir.
-          - **Linux** : varium-linux-x86_64.tar.gz, décompressez puis lancez ./varium.
+          - **Windows** : varium-windows-x86_64-setup.exe installe Varium et l'ajoute à « Ouvrir avec » pour ses formats (SmartScreen : « Informations complémentaires » → « Exécuter quand même ») ; ou varium-windows-x86_64.zip, décompressez puis lancez varium.exe (associer.ps1 ajoute les associations).
+          - **macOS** : varium-macos.zip (Apple Silicon et Intel), glissez Varium dans Applications ; au premier lancement, clic droit → Ouvrir. Le Finder propose ensuite Varium pour ses fichiers.
+          - **Linux** : varium-linux-x86_64.tar.gz, décompressez puis lancez ./varium, ou ./installer.sh pour l'installer avec ses types de fichiers (double-clic).
 
           Mode d'emploi : https://maxlestage.github.io/VARIUM/installer/"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

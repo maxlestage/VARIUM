@@ -11,6 +11,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
+use crate::convert::RatesTable;
 use crate::format::{self, format_general, parse_literal, text_format};
 use crate::functions::F;
 use crate::lexer::Op;
@@ -176,7 +177,7 @@ impl Graph<'_> {
 }
 
 /// Recalcule toutes les cellules du classeur.
-pub(crate) fn recalc(sheets: &[Sheet], today: f64) -> Computed {
+pub(crate) fn recalc(sheets: &[Sheet], today: f64, rates: &RatesTable) -> Computed {
     let names = sheet_resolver(sheets);
     let resolve = |n: &str| names.get(&n.to_lowercase()).copied();
 
@@ -285,6 +286,7 @@ pub(crate) fn recalc(sheets: &[Sheet], today: f64) -> Computed {
                             extents: &extents,
                             at,
                             today,
+                            rates,
                         };
                         ctx.result(e)
                     }
@@ -310,16 +312,24 @@ pub(crate) struct Probe<'a> {
     extents: Vec<(u32, u32)>,
     at: CellRef,
     today: f64,
+    rates: &'a RatesTable,
 }
 
 impl<'a> Probe<'a> {
-    pub(crate) fn new(sheets: &'a [Sheet], values: &'a [CellMap], at: CellRef, today: f64) -> Self {
+    pub(crate) fn new(
+        sheets: &'a [Sheet],
+        values: &'a [CellMap],
+        at: CellRef,
+        today: f64,
+        rates: &'a RatesTable,
+    ) -> Self {
         Self {
             sheets,
             values,
             extents: sheets.iter().map(Sheet::used_size).collect(),
             at,
             today,
+            rates,
         }
     }
 
@@ -330,6 +340,7 @@ impl<'a> Probe<'a> {
             extents: &self.extents,
             at: self.at,
             today: self.today,
+            rates: self.rates,
         }
     }
 
@@ -389,6 +400,7 @@ struct Ctx<'a> {
     extents: &'a [(u32, u32)],
     at: CellRef,
     today: f64,
+    rates: &'a RatesTable,
 }
 
 fn num_result(n: f64) -> Value {
@@ -1550,6 +1562,27 @@ impl Ctx<'_> {
             F::Na => {
                 arity(0, 0)?;
                 Err(CalcError::NA)
+            }
+            F::Convertir => {
+                arity(3, 3)?;
+                let x = self.num(a(0))?;
+                let from = self.text(a(1))?;
+                let to = self.text(a(2))?;
+                n(crate::convert::convert(x, &from, &to).ok_or(CalcError::NA)?)
+            }
+            F::Devise => {
+                arity(3, 4)?;
+                let x = self.num(a(0))?;
+                let from = self.text(a(1))?;
+                let to = self.text(a(2))?;
+                let date = match a(3) {
+                    Expr::Missing => None,
+                    e => Some(self.num(e)?),
+                };
+                n(self
+                    .rates
+                    .convert(x, &from, &to, date)
+                    .ok_or(CalcError::NA)?)
             }
         }
     }
