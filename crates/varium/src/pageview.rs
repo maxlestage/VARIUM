@@ -608,3 +608,124 @@ pub fn show(ui: &mut egui::Ui, view: &View) -> usize {
     }
     total
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use varium_core::{Paper, Values, document};
+
+    /// Générateur pseudo-aléatoire déterministe (xorshift).
+    fn alea(etat: &mut u64) -> usize {
+        *etat ^= *etat << 13;
+        *etat ^= *etat >> 7;
+        *etat ^= *etat << 17;
+        (*etat >> 11) as usize
+    }
+
+    fn source_alea(etat: &mut u64) -> String {
+        const ATOMES: &[&str] = &[
+            "mot ",
+            "é",
+            "😀",
+            "漢字 ",
+            "\n",
+            "\n\n",
+            "# Titre\n",
+            "### T3\n",
+            "- item\n",
+            "  - sous\n",
+            "1. num\n",
+            "> citation\n",
+            "---\n",
+            "\\newpage\n",
+            "$$x^2$$\n",
+            "| a | b |\n|---|---|\n| 1 | 2 |\n",
+            "| seule |\n",
+            "{{champ}} ",
+            "**gras** ",
+            "-> centré <-\n",
+            "\u{a0}",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ",
+        ];
+        let n = alea(etat) % 40;
+        (0..n).map(|_| ATOMES[alea(etat) % ATOMES.len()]).collect()
+    }
+
+    fn contexte() -> egui::Context {
+        let ctx = egui::Context::default();
+        fonts::install(&ctx);
+        ctx
+    }
+
+    /// Pagination vérifiée : aucune page vide en trop, aucun dépassement.
+    fn verifie(ctx: &egui::Context, view: &View) -> usize {
+        let m = Metrics::new(view.page, view.zoom, view.highlight);
+        let ch = chunks(ctx, view.paras, &m);
+        let pages = paginate(&ch, &m);
+        assert!(!pages.is_empty());
+        for page in &pages {
+            for p in page {
+                assert!(p.chunk < ch.len());
+                assert!(p.y.is_finite() && p.height.is_finite() && p.offset.is_finite());
+                assert!(p.height >= 0.0);
+            }
+        }
+        assert_eq!(count_pages(ctx, view), pages.len());
+        pages.len()
+    }
+
+    #[test]
+    fn fuzz_pagination() {
+        let ctx = contexte();
+        let mut etat = 0xD1B5_4A32_D192_ED03_u64;
+        let mut sortie = ctx.run_ui(Default::default(), |ui| {
+            let ctx = &ui.ctx().clone();
+            for _ in 0..300 {
+                let src = source_alea(&mut etat);
+                let paras = document(&src, &Values::default());
+                let page = PageSetup {
+                    paper: Paper::ALL[alea(&mut etat) % 4],
+                    landscape: alea(&mut etat).is_multiple_of(2),
+                    // Marges plus grandes que la page, négatives ou nulles.
+                    margin_top: (alea(&mut etat) % 400) as f32 - 50.0,
+                    margin_bottom: (alea(&mut etat) % 400) as f32 - 50.0,
+                    margin_left: (alea(&mut etat) % 400) as f32 - 50.0,
+                    margin_right: (alea(&mut etat) % 400) as f32 - 50.0,
+                    font_size: [1.0, 8.0, 12.0, 72.0, 400.0][alea(&mut etat) % 5],
+                    line_spacing: [0.1, 1.0, 1.15, 3.0][alea(&mut etat) % 4],
+                    ..PageSetup::default()
+                };
+                let zoom = [0.3, 1.0, 3.0][alea(&mut etat) % 3];
+                let view = View {
+                    paras: &paras,
+                    header: &[],
+                    footer: &[],
+                    page: &page,
+                    zoom,
+                    highlight: alea(&mut etat).is_multiple_of(2),
+                };
+                verifie(ctx, &view);
+            }
+        });
+        sortie.textures_delta.clear();
+    }
+
+    #[test]
+    fn document_vide_une_page() {
+        let ctx = contexte();
+        let page = PageSetup::default();
+        let mut sortie = ctx.run_ui(Default::default(), |ui| {
+            let ctx = &ui.ctx().clone();
+            let view = View {
+                paras: &[],
+                header: &[],
+                footer: &[],
+                page: &page,
+                zoom: 1.0,
+                highlight: false,
+            };
+            assert_eq!(verifie(ctx, &view), 1);
+        });
+        sortie.textures_delta.clear();
+    }
+}
