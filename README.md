@@ -111,6 +111,7 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   reviennent, et propose d'en faire des `{{champs}}` en un clic (noms modifiables, cases à
   cocher). Chaque champ garde la valeur d'origine : le document ne change pas, mais il
   devient un modèle réutilisable (publipostage compris). Annulable avec Ctrl+Z.
+- **Poser une question** (Classeur, menu Données, Ctrl+Maj+Q) : écrivez « total des ventes par région », « moyenne de B », « combien de clients » ou « maximum des ventes » ; Varium la traduit en formules (`SOMME`, `MOYENNE`, `NBVAL`, `MAX`, `MIN`, `MEDIANE`, `SOMME.SI`, `MOYENNE.SI`, `NB.SI`), montre le résultat et l'écrit dans un espace libre, sans toucher à vos données. Les colonnes se désignent par leur titre ou leur lettre ; les mots-clés sont compris en français, anglais, espagnol, allemand, italien et portugais.
 - **Apparence et taille de l'interface** (bouton 🎨 en haut à droite, sur les trois modules) :
   thème automatique (suit le système), clair, sombre, **sépia** (papier chaud, reposant) ou
   **contraste élevé** (noir et blanc, rapport ≥ 7:1, contours épais), et zoom de 80 à 200 %

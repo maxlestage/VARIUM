@@ -41,7 +41,7 @@ pub const TEXTES: Textes = Textes {
             genre: "Spreadsheet",
             texte: "Worksheets with cells, formulas and charts.",
             points: [
-                "Cells, formulas and several sheets per workbook",
+                "Cells, formulas and several sheets per workbook, plus questions in plain language",
                 "Function names in French or English: SOMME or SUM, SI or IF, RECHERCHEV or VLOOKUP",
                 "Conditional formatting, colour scales, data bars and frozen panes",
                 "Eight charts: bars, stacked bars, lines, areas, pie, doughnut, scatter",
