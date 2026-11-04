@@ -33,7 +33,7 @@ pub const TEXTES: Textes = Textes {
                 "Títulos, listas, tablas y páginas reales en A4, A5 o Carta",
                 "Campos {{…}} globales, calculados y condicionales; combinación de correspondencia; detección automática de campos",
                 "Barra de herramientas al estilo de Writer, inspector al estilo de Pages",
-                "Exportación a PDF, DOCX, ODT, RTF, EPUB, HTML y LaTeX",
+                "Exportación a PDF, DOCX, ODT, RTF, EPUB, HTML y LaTeX, y un control «Listo para enviar» antes del PDF",
                 "Ortografía en seis idiomas, con verdaderos diccionarios Hunspell",
             ],
         },

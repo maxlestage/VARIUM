@@ -315,6 +315,10 @@ pub static T: &[(&str, &str)] = &[
         "Avancer automatiquement selon le minutage",
         "Avançar automaticamente segundo os intervalos",
     ),
+    (
+        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer :",
+        "Antes de enviar, eis o que o destinatário poderá notar:",
+    ),
     ("Avant une modification", "Antes de uma alteração"),
     ("Avant une restauration", "Antes de um restauro"),
     ("Avant « {op} »", "Antes de “{op}”"),
@@ -766,6 +770,10 @@ pub static T: &[(&str, &str)] = &[
     ("Exporter en EPUB", "Exportar em EPUB"),
     ("Exporter en HTML…", "Exportar em HTML…"),
     ("Exporter en PDF", "Exportar como PDF"),
+    (
+        "Exporter en PDF quand même",
+        "Exportar para PDF mesmo assim",
+    ),
     ("Exporter le PDF…", "Exportar o PDF…"),
     (
         "Exporter pour LibreOffice (.odt)",
@@ -796,6 +804,7 @@ pub static T: &[(&str, &str)] = &[
         "Folha {v} de {sheet_count}",
     ),
     ("Fichier", "Ficheiro"),
+    ("Fichier : {nom}", "Ficheiro: {nom}"),
     (
         "Fichiers Varium, Office et OpenDocument",
         "Ficheiros Varium, Office e OpenDocument",
@@ -1053,6 +1062,10 @@ pub static T: &[(&str, &str)] = &[
         "O campo tem o mesmo valor em todos os sítios onde aparece.",
     ),
     (
+        "Le champ {champ} n'est pas rempli.",
+        "O campo {champ} não está preenchido.",
+    ),
+    (
         "Le diaporama s'arrêtera et Varium réapparaîtra.",
         "A apresentação vai parar e o Varium reaparecerá.",
     ),
@@ -1064,6 +1077,7 @@ pub static T: &[(&str, &str)] = &[
         "Le document actuel reste récupérable avec Annuler (Ctrl+Z).",
         "O documento atual pode ser recuperado com Anular (Ctrl+Z).",
     ),
+    ("Le document est vide.", "O documento está vazio."),
     (
         "Le document reprend ce texte (l'état actuel est gardé dans l'historique, Ctrl+Z pour revenir)",
         "O documento retoma este texto (o estado atual fica no histórico; Ctrl+Z para voltar)",
@@ -1544,6 +1558,8 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Présentation d'exemple", "Apresentação de exemplo"),
     ("Présenter à partir d'ici", "Projetar a partir daqui"),
+    ("Prêt à envoyer ?", "Pronto para enviar?"),
+    ("Prêt à envoyer…", "Pronto para enviar…"),
     ("Publipostage", "Impressão em série"),
     ("Publipostage…", "Impressão em série…"),
     ("Question {i} sur {n}", "Pergunta {i} de {n}"),
@@ -2456,6 +2472,10 @@ pub static T: &[(&str, &str)] = &[
         "{n} campo(s) do documento preenchido(s) a partir da folha de cálculo",
     ),
     (
+        "{n} commentaire(s) de relecture restent dans le texte.",
+        "{n} comentário(s) de revisão permanecem no texto.",
+    ),
+    (
         "{n} correction(s) appliquée(s)",
         "{n} correção(ões) aplicada(s)",
     ),
@@ -2487,6 +2507,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} masqué(s)", "{n} oculto(s)"),
     ("{n} min", "{n} min"),
+    (
+        "{n} modification(s) proposée(s) attendent d'être acceptées ou refusées.",
+        "{n} alteração(ões) proposta(s) aguardam aceitação ou rejeição.",
+    ),
     ("{n} mots", "{n} palavras"),
     ("{n} mots inconnus", "{n} palavras desconhecidas"),
     (
@@ -2499,6 +2523,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} photo(s)", "{n} fotografia(s)"),
     ("{n} questions", "{n} perguntas"),
+    (
+        "{n} remarque(s) de révision (orthographe, espaces, majuscules…).",
+        "{n} observação(ões) de revisão (ortografia, espaços, maiúsculas…).",
+    ),
     ("{n} remarques", "{n} observações"),
     ("{n} réponse(s) à vérifier", "{n} resposta(s) a verificar"),
     ("{n} s", "{n} s"),
@@ -2718,6 +2746,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("✔ Accepter", "✔ Aceitar"),
     ("✔ Dictionnaire {locale}", "✔ Dicionário {locale}"),
+    (
+        "✔ Rien à signaler : le document est prêt.",
+        "✔ Nada a assinalar: o documento está pronto.",
+    ),
     ("✔ Tout accepter", "✔ Aceitar tudo"),
     (
         "✔ Tout est rempli. Exportez le document (Fichier → Exporter) ou terminez.",
