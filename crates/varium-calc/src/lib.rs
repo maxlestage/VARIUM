@@ -78,6 +78,7 @@ mod paste;
 mod pivot;
 mod question;
 mod refs;
+mod relecture;
 mod rewrite;
 mod sample;
 mod templates;
@@ -111,6 +112,7 @@ pub use pivot::{
 };
 pub use question::{Answer, MAX_GROUPS, Operation, Period, QuestionError};
 pub use refs::{CellRef, MAX_COLS, MAX_ROWS, Range, col_index, col_name, quote_sheet_name};
+pub use relecture::{MAX_REMARQUES, Remarque};
 pub use rewrite::{shift_formula, translate_to_english};
 pub use templates::{TemplateInfo, templates};
 pub use value::{CalcError, Value};

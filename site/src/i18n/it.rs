@@ -149,6 +149,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Trascinate le colonne in righe, colonne e valori: totali, medie e conteggi per gruppo in un attimo.",
         },
         Item {
+            titre: "La cartella si rilegge",
+            texte: "Prima di inviare, Dati → Rivedi la cartella: celle con errori, numeri scritti come testo, formule dimenticate in una colonna, righe duplicate. Un clic porta alla cella.",
+        },
+        Item {
             titre: "Cronologia delle versioni",
             texte: "Ogni salvataggio conserva una versione del documento; confrontatele, con le differenze evidenziate, e tornate indietro con un clic.",
         },
