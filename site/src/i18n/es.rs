@@ -149,6 +149,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Arrastre las columnas a filas, columnas y valores: totales, medias y recuentos por grupo en un instante.",
         },
         Item {
+            titre: "El libro se revisa solo",
+            texte: "Antes de enviar, Datos → Revisar el libro: celdas con error, números escritos como texto, fórmulas olvidadas en una columna, filas duplicadas. Un clic lleva a la celda.",
+        },
+        Item {
             titre: "Historial de versiones",
             texte: "Cada guardado conserva una versión del documento; compárelas, con las diferencias resaltadas, y vuelva atrás con un clic.",
         },
