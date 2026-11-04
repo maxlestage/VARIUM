@@ -306,6 +306,10 @@ pub static T: &[(&str, &str)] = &[
         "Avancer automatiquement selon le minutage",
         "Automatisch nach Anzeigedauer weiterschalten",
     ),
+    (
+        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer :",
+        "Vor dem Versand: Das könnte Ihrem Empfänger auffallen:",
+    ),
     ("Avant une modification", "Vor einer Änderung"),
     ("Avant une restauration", "Vor einer Wiederherstellung"),
     ("Avant « {op} »", "Vor „{op}“"),
@@ -745,6 +749,7 @@ pub static T: &[(&str, &str)] = &[
     ("Exporter en EPUB", "Als EPUB exportieren"),
     ("Exporter en HTML…", "Als HTML exportieren…"),
     ("Exporter en PDF", "Als PDF exportieren"),
+    ("Exporter en PDF quand même", "Trotzdem als PDF exportieren"),
     ("Exporter le PDF…", "PDF exportieren…"),
     (
         "Exporter pour LibreOffice (.odt)",
@@ -775,6 +780,7 @@ pub static T: &[(&str, &str)] = &[
         "Tabelle {v} von {sheet_count}",
     ),
     ("Fichier", "Datei"),
+    ("Fichier : {nom}", "Datei: {nom}"),
     (
         "Fichiers Varium, Office et OpenDocument",
         "Varium-, Office- und OpenDocument-Dateien",
@@ -1029,6 +1035,10 @@ pub static T: &[(&str, &str)] = &[
         "Das Feld hat überall, wo es vorkommt, denselben Wert.",
     ),
     (
+        "Le champ {champ} n'est pas rempli.",
+        "Das Feld {champ} ist nicht ausgefüllt.",
+    ),
+    (
         "Le diaporama s'arrêtera et Varium réapparaîtra.",
         "Die Bildschirmpräsentation endet und Varium erscheint wieder.",
     ),
@@ -1040,6 +1050,7 @@ pub static T: &[(&str, &str)] = &[
         "Le document actuel reste récupérable avec Annuler (Ctrl+Z).",
         "Das aktuelle Dokument kann mit Rückgängig (Strg+Z) wiederhergestellt werden.",
     ),
+    ("Le document est vide.", "Das Dokument ist leer."),
     (
         "Le document reprend ce texte (l'état actuel est gardé dans l'historique, Ctrl+Z pour revenir)",
         "Das Dokument übernimmt diesen Text (der aktuelle Stand bleibt im Verlauf; Strg+Z zum Zurückkehren)",
@@ -1520,6 +1531,8 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Présentation d'exemple", "Beispielpräsentation"),
     ("Présenter à partir d'ici", "Präsentation ab hier"),
+    ("Prêt à envoyer ?", "Versandfertig?"),
+    ("Prêt à envoyer…", "Versandfertig…"),
     ("Publipostage", "Serienbrief"),
     ("Publipostage…", "Serienbrief…"),
     ("Question {i} sur {n}", "Frage {i} von {n}"),
@@ -2441,6 +2454,10 @@ pub static T: &[(&str, &str)] = &[
         "{n} Dokumentfeld(er) aus der Tabelle ausgefüllt",
     ),
     (
+        "{n} commentaire(s) de relecture restent dans le texte.",
+        "{n} Kommentar(e) der Durchsicht stehen noch im Text.",
+    ),
+    (
         "{n} correction(s) appliquée(s)",
         "{n} Korrektur(en) angewendet",
     ),
@@ -2472,6 +2489,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} masqué(s)", "{n} ausgeblendet"),
     ("{n} min", "{n} min"),
+    (
+        "{n} modification(s) proposée(s) attendent d'être acceptées ou refusées.",
+        "{n} vorgeschlagene Änderung(en) warten auf Annahme oder Ablehnung.",
+    ),
     ("{n} mots", "{n} Wörter"),
     ("{n} mots inconnus", "{n} unbekannte Wörter"),
     (
@@ -2484,6 +2505,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} photo(s)", "{n} Foto(s)"),
     ("{n} questions", "{n} Fragen"),
+    (
+        "{n} remarque(s) de révision (orthographe, espaces, majuscules…).",
+        "{n} Hinweis(e) der Korrektur (Rechtschreibung, Leerzeichen, Großschreibung…).",
+    ),
     ("{n} remarques", "{n} Hinweise"),
     ("{n} réponse(s) à vérifier", "{n} Antwort(en) zu prüfen"),
     ("{n} s", "{n} s"),
@@ -2703,6 +2728,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("✔ Accepter", "✔ Annehmen"),
     ("✔ Dictionnaire {locale}", "✔ Wörterbuch {locale}"),
+    (
+        "✔ Rien à signaler : le document est prêt.",
+        "✔ Nichts zu beanstanden: Das Dokument ist bereit.",
+    ),
     ("✔ Tout accepter", "✔ Alle annehmen"),
     (
         "✔ Tout est rempli. Exportez le document (Fichier → Exporter) ou terminez.",

@@ -315,6 +315,10 @@ pub static T: &[(&str, &str)] = &[
         "Avancer automatiquement selon le minutage",
         "Avanzar automáticamente según los intervalos",
     ),
+    (
+        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer :",
+        "Antes de enviar, esto es lo que su destinatario podría notar:",
+    ),
     ("Avant une modification", "Antes de un cambio"),
     ("Avant une restauration", "Antes de una restauración"),
     ("Avant « {op} »", "Antes de «{op}»"),
@@ -778,6 +782,10 @@ pub static T: &[(&str, &str)] = &[
     ("Exporter en EPUB", "Exportar como EPUB"),
     ("Exporter en HTML…", "Exportar como HTML…"),
     ("Exporter en PDF", "Exportar como PDF"),
+    (
+        "Exporter en PDF quand même",
+        "Exportar a PDF de todos modos",
+    ),
     ("Exporter le PDF…", "Exportar el PDF…"),
     (
         "Exporter pour LibreOffice (.odt)",
@@ -805,6 +813,7 @@ pub static T: &[(&str, &str)] = &[
     ("Feuille", "Hoja"),
     ("Feuille {v} sur {sheet_count}", "Hoja {v} de {sheet_count}"),
     ("Fichier", "Archivo"),
+    ("Fichier : {nom}", "Archivo: {nom}"),
     (
         "Fichiers Varium, Office et OpenDocument",
         "Archivos de Varium, Office y OpenDocument",
@@ -1065,6 +1074,10 @@ pub static T: &[(&str, &str)] = &[
         "El campo toma el mismo valor en todos los lugares donde aparece.",
     ),
     (
+        "Le champ {champ} n'est pas rempli.",
+        "El campo {champ} no está rellenado.",
+    ),
+    (
         "Le diaporama s'arrêtera et Varium réapparaîtra.",
         "La presentación se detendrá y Varium volverá a aparecer.",
     ),
@@ -1076,6 +1089,7 @@ pub static T: &[(&str, &str)] = &[
         "Le document actuel reste récupérable avec Annuler (Ctrl+Z).",
         "El documento actual se puede recuperar con Deshacer (Ctrl+Z).",
     ),
+    ("Le document est vide.", "El documento está vacío."),
     (
         "Le document reprend ce texte (l'état actuel est gardé dans l'historique, Ctrl+Z pour revenir)",
         "El documento recupera este texto (el estado actual se guarda en el historial; Ctrl+Z para volver)",
@@ -1568,6 +1582,8 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Présentation d'exemple", "Presentación de ejemplo"),
     ("Présenter à partir d'ici", "Proyectar desde aquí"),
+    ("Prêt à envoyer ?", "¿Listo para enviar?"),
+    ("Prêt à envoyer…", "Listo para enviar…"),
     ("Publipostage", "Combinar correspondencia"),
     ("Publipostage…", "Combinar correspondencia…"),
     ("Question {i} sur {n}", "Pregunta {i} de {n}"),
@@ -2477,6 +2493,10 @@ pub static T: &[(&str, &str)] = &[
         "{n} campo(s) del documento rellenado(s) desde la hoja de cálculo",
     ),
     (
+        "{n} commentaire(s) de relecture restent dans le texte.",
+        "{n} comentario(s) de revisión siguen en el texto.",
+    ),
+    (
         "{n} correction(s) appliquée(s)",
         "{n} corrección(es) aplicada(s)",
     ),
@@ -2508,6 +2528,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} masqué(s)", "{n} oculto(s)"),
     ("{n} min", "{n} min"),
+    (
+        "{n} modification(s) proposée(s) attendent d'être acceptées ou refusées.",
+        "{n} cambio(s) propuesto(s) esperan ser aceptados o rechazados.",
+    ),
     ("{n} mots", "{n} palabras"),
     ("{n} mots inconnus", "{n} palabras desconocidas"),
     (
@@ -2520,6 +2544,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} photo(s)", "{n} foto(s)"),
     ("{n} questions", "{n} preguntas"),
+    (
+        "{n} remarque(s) de révision (orthographe, espaces, majuscules…).",
+        "{n} observación(es) de revisión (ortografía, espacios, mayúsculas…).",
+    ),
     ("{n} remarques", "{n} observaciones"),
     ("{n} réponse(s) à vérifier", "{n} respuesta(s) por revisar"),
     ("{n} s", "{n} s"),
@@ -2742,6 +2770,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("✔ Accepter", "✔ Aceptar"),
     ("✔ Dictionnaire {locale}", "✔ Diccionario {locale}"),
+    (
+        "✔ Rien à signaler : le document est prêt.",
+        "✔ Nada que señalar: el documento está listo.",
+    ),
     ("✔ Tout accepter", "✔ Aceptar todo"),
     (
         "✔ Tout est rempli. Exportez le document (Fichier → Exporter) ou terminez.",
