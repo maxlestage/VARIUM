@@ -15,7 +15,7 @@ use varium_calc::{
     CondRule, CondStyle, ErrorCause, FilterCondition, FormulaNode, FunctionCategory, FunctionInfo,
     HAlign, NumberFormat, Operation, PasteOptions, PasteWhat, PivotAgg, PivotCell, PivotError,
     PivotField, PivotFilter, PivotGroup, PivotTable, PivotValue, QuestionError, QuickFormat,
-    QuickTotal, Range, Value, Workbook,
+    QuickTotal, Range, Remarque, Value, Workbook,
 };
 
 use crate::io::{Event, Io, OpenKind};
@@ -150,6 +150,8 @@ pub enum CalcAction {
     FormulaWizard,
     /// Poser une question en langage simple (Ctrl+Maj+Q).
     AskQuestion,
+    /// « Relire le classeur » : contrôle avant envoi.
+    Relire,
     /// Analyse rapide de la sélection (Ctrl+Q).
     QuickAnalysis,
     /// Mettre sous forme de tableau.
@@ -257,6 +259,8 @@ pub struct CalcApp {
     wizard: Option<Wizard>,
     /// Boîte « Poser une question ».
     question: Option<QuestionDialog>,
+    /// Fenêtre « Relire le classeur » (remarques relevées).
+    relecture: Option<Vec<Remarque>>,
     /// Info-bulle « formule en clair » au survol des cellules.
     explain_formulas: bool,
     /// Heure de l'image en cours (secondes).
@@ -315,6 +319,7 @@ impl CalcApp {
             filter_popup: None,
             wizard: None,
             question: None,
+            relecture: None,
             explain_formulas: true,
             now: 0.0,
             templates_open: false,
@@ -676,6 +681,7 @@ impl CalcApp {
         self.quick_analysis_ui(&ctx);
         self.wizard_ui(&ctx);
         self.question_ui(&ctx);
+        self.relecture_ui(&ctx);
         self.templates_ui(&ctx);
         self.pivot_ui(&ctx);
         self.rules_ui(&ctx);
@@ -827,6 +833,7 @@ impl CalcApp {
             );
             self.entry(ui, tr("Analyse rapide… (Ctrl+Q)"), A::QuickAnalysis);
             self.entry(ui, tr("Poser une question… (Ctrl+Maj+Q)"), A::AskQuestion);
+            self.entry(ui, tr("Relire le classeur…"), A::Relire);
             self.entry_if(
                 ui,
                 !self.questions.is_empty(),
@@ -965,6 +972,10 @@ impl CalcApp {
             A::AutoFilter => self.toggle_auto_filter(),
             A::FormulaWizard => self.open_wizard(),
             A::AskQuestion => self.open_question(),
+            A::Relire => {
+                self.commit();
+                self.relecture = Some(self.wb.relire());
+            }
             A::QuickAnalysis => self.open_quick_analysis(ctx, None),
             A::FormatAsTable => {
                 self.snapshot();
@@ -4550,6 +4561,124 @@ impl CalcApp {
     }
 }
 
+// ---------------------------------------------------------------- Relire le classeur
+
+/// Texte d'une remarque de relecture, dans la langue de l'interface.
+fn remarque_texte(wb: &Workbook, r: &Remarque) -> String {
+    let lieu = |feuille: usize, cellule: CellRef| {
+        let nom = wb.sheets.get(feuille).map_or("", |f| f.name.as_str());
+        format!("{nom}!{}", cellule.name())
+    };
+    match r {
+        Remarque::Erreur {
+            feuille,
+            cellule,
+            erreur,
+        } => trf!(
+            "{lieu} : erreur {code} — {explication}",
+            lieu = lieu(*feuille, *cellule),
+            code = erreur.code(),
+            explication = erreur.description_in(crate::tr::lang())
+        ),
+        Remarque::NombreEnTexte { feuille, cellule } => trf!(
+            "{lieu} : ce nombre est écrit comme du texte, les totaux l'ignoreraient.",
+            lieu = lieu(*feuille, *cellule)
+        ),
+        Remarque::FormuleIncoherente {
+            feuille,
+            cellule,
+            attendue,
+        } => trf!(
+            "{lieu} : la formule diffère de ses voisines (attendu : {formule}).",
+            lieu = lieu(*feuille, *cellule),
+            formule = attendue
+        ),
+        Remarque::ValeurTapee {
+            feuille,
+            cellule,
+            attendue,
+        } => trf!(
+            "{lieu} : valeur tapée à la main au milieu de formules (attendu : {formule}).",
+            lieu = lieu(*feuille, *cellule),
+            formule = attendue
+        ),
+        Remarque::LigneEnDouble {
+            feuille,
+            ligne,
+            premiere,
+        } => trf!(
+            "{nom} : la ligne {ligne} est identique à la ligne {premiere}.",
+            nom = wb.sheets.get(*feuille).map_or("", |f| f.name.as_str()),
+            ligne = ligne + 1,
+            premiere = premiere + 1
+        ),
+    }
+}
+
+impl CalcApp {
+    fn relecture_ui(&mut self, ctx: &egui::Context) {
+        let Some(remarques) = self.relecture.take() else {
+            return;
+        };
+        let mut open = true;
+        let mut aller: Option<(usize, CellRef)> = None;
+        let mut relancer = false;
+        egui::Window::new(tr("Relire le classeur"))
+            .id(egui::Id::unique("calc-relecture"))
+            .open(&mut open)
+            .default_width(520.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                if remarques.is_empty() {
+                    ui.label(
+                        RichText::new(tr("✔ Rien à signaler : le classeur est prêt."))
+                            .color(Color32::from_rgb(40, 150, 70)),
+                    );
+                } else {
+                    ui.label(tr(
+                        "Avant d'envoyer, voici ce que votre destinataire pourrait remarquer. Cliquez sur une ligne pour aller à la cellule.",
+                    ));
+                    if remarques.len() >= varium_calc::MAX_REMARQUES {
+                        ui.label(RichText::new(tr("La liste est tronquée : corrigez, puis relisez.")).weak());
+                    }
+                    ui.separator();
+                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        for r in &remarques {
+                            let (icone, couleur) = if r.grave() {
+                                ("⚠", Color32::from_rgb(200, 120, 20))
+                            } else {
+                                ("ℹ", Color32::GRAY)
+                            };
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new(icone).color(couleur));
+                                if ui.link(remarque_texte(&self.wb, r)).clicked() {
+                                    aller = Some((r.feuille(), r.cellule()));
+                                }
+                            });
+                        }
+                    });
+                }
+                ui.add_space(6.0);
+                if ui.button(tr("Relire à nouveau")).clicked() {
+                    relancer = true;
+                }
+            });
+        if let Some((feuille, cellule)) = aller
+            && feuille < self.wb.sheets.len()
+        {
+            self.sheet = feuille;
+            self.cur = cellule;
+            self.anchor = cellule;
+        }
+        if relancer {
+            self.commit();
+            self.relecture = Some(self.wb.relire());
+        } else if open {
+            self.relecture = Some(remarques);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Mise en forme conditionnelle
 
 /// État de la boîte « Mise en forme conditionnelle ».
@@ -6799,6 +6928,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
                 Some("Cmd+Shift+Q"),
             ),
             &b.item(tr("Questions fréquentes…"), A::RecentQuestions, None),
+            &b.item(tr("Relire le classeur…"), A::Relire, None),
             &sep(),
             &b.item(tr("Tableau croisé dynamique…"), A::Pivot, None),
             &b.item(
@@ -7116,6 +7246,7 @@ impl CalcApp {
                 None,
                 false,
             ),
+            (A::Relire, n_("Relire le classeur…"), donnees, None, false),
             (
                 A::NewFromTemplate,
                 n_("Nouveau depuis un modèle…"),

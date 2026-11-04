@@ -149,6 +149,10 @@ pub const TEXTES: Textes = Textes {
             texte: "Spalten in Zeilen, Spalten und Werte ziehen: Summen, Mittelwerte und Anzahlen pro Gruppe im Handumdrehen.",
         },
         Item {
+            titre: "Die Arbeitsmappe prüft sich selbst",
+            texte: "Vor dem Senden: Daten → Arbeitsmappe prüfen: Zellen mit Fehlern, als Text geschriebene Zahlen, vergessene Formeln in einer Spalte, doppelte Zeilen. Ein Klick springt zur Zelle.",
+        },
+        Item {
             titre: "Versionsverlauf",
             texte: "Jedes Speichern bewahrt eine Version des Dokuments; vergleichen Sie sie mit hervorgehobenen Unterschieden und gehen Sie mit einem Klick zurück.",
         },
