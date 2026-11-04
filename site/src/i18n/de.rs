@@ -257,6 +257,10 @@ pub const TEXTES: Textes = Textes {
             effet: "ein aus den Überschriften erzeugtes Inhaltsverzeichnis",
         },
         Ligne {
+            code: "\\note{texte}",
+            effet: "eine nummerierte Anmerkung [1], am Dokumentende gesammelt",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "LaTeX-Formeln, im Text oder zentriert",
         },

@@ -257,6 +257,10 @@ pub const TEXTES: Textes = Textes {
             effet: "a table of contents generated from the headings",
         },
         Ligne {
+            code: "\\note{texte}",
+            effet: "a numbered note [1], gathered at the end of the document",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "LaTeX formulas, inline or centered",
         },
