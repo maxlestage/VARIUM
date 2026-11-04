@@ -1995,6 +1995,68 @@ impl Couleur {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Polices par défaut (pour les exports qui ont besoin de mesurer : numéros de page
+// de la table des matières en ODT et DOCX, taille des formules)
+// ---------------------------------------------------------------------------
+
+static POLICES: std::sync::RwLock<Vec<(crate::page::DocFont, Arc<PdfFonts>)>> =
+    std::sync::RwLock::new(Vec::new());
+
+/// Enregistre les polices d'une famille (l'application le fait au démarrage).
+pub fn enregistrer_polices(famille: crate::page::DocFont, p: PdfFonts) {
+    if let Ok(mut v) = POLICES.write() {
+        v.retain(|(f, _)| *f != famille);
+        v.push((famille, Arc::new(p)));
+    }
+}
+
+/// Les polices enregistrées pour une famille, sinon des largeurs approchées.
+pub fn polices_pour(famille: crate::page::DocFont) -> Arc<PdfFonts> {
+    POLICES
+        .read()
+        .ok()
+        .and_then(|v| {
+            v.iter()
+                .find(|(f, _)| *f == famille)
+                .map(|(_, p)| p.clone())
+        })
+        .unwrap_or_else(|| Arc::new(PdfFonts::approximate()))
+}
+
+/// Pour chaque document, le numéro de page (à partir de 1) de chacun de ses titres.
+pub fn pages_des_titres(docs: &[Rendered], page: &PageSetup) -> Vec<Vec<usize>> {
+    let f = polices_pour(page.font);
+    let m = mettre_en_page(docs, page, &Options::new(&f), &mut Cache::new());
+    let mut premiere = vec![usize::MAX; docs.len()];
+    for (i, p) in m.pages.iter().enumerate() {
+        if let Some(x) = premiere.get_mut(p.doc) {
+            *x = (*x).min(i);
+        }
+    }
+    let mut out = vec![Vec::new(); docs.len()];
+    for t in &m.titres {
+        let doc = m.pages.get(t.page).map_or(0, |p| p.doc);
+        if let (Some(v), Some(&p0)) = (out.get_mut(doc), premiere.get(doc)) {
+            v.push(t.page.saturating_sub(p0) + 1);
+        }
+    }
+    out
+}
+
+/// Largeur, hauteur et profondeur (points) d'une formule composée.
+pub fn mesure_formule(
+    tex: &str,
+    centree: bool,
+    taille: f32,
+    famille: crate::page::DocFont,
+) -> (f32, f32, f32) {
+    let f = polices_pour(famille);
+    let mesure = |c: char, it: bool| f.glyphe(c, indice_style(false, it)).avance;
+    let b = formule::composer(&formule::lire(tex), taille, centree, &mesure);
+    (b.largeur, b.hauteur, b.profondeur)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2202,66 +2264,4 @@ mod tests {
         );
         assert!(seconde.as_millis() < 150, "avec le cache : {seconde:?}");
     }
-}
-
-// ---------------------------------------------------------------------------
-// Polices par défaut (pour les exports qui ont besoin de mesurer : numéros de page
-// de la table des matières en ODT et DOCX, taille des formules)
-// ---------------------------------------------------------------------------
-
-static POLICES: std::sync::RwLock<Vec<(crate::page::DocFont, Arc<PdfFonts>)>> =
-    std::sync::RwLock::new(Vec::new());
-
-/// Enregistre les polices d'une famille (l'application le fait au démarrage).
-pub fn enregistrer_polices(famille: crate::page::DocFont, p: PdfFonts) {
-    if let Ok(mut v) = POLICES.write() {
-        v.retain(|(f, _)| *f != famille);
-        v.push((famille, Arc::new(p)));
-    }
-}
-
-/// Les polices enregistrées pour une famille, sinon des largeurs approchées.
-pub fn polices_pour(famille: crate::page::DocFont) -> Arc<PdfFonts> {
-    POLICES
-        .read()
-        .ok()
-        .and_then(|v| {
-            v.iter()
-                .find(|(f, _)| *f == famille)
-                .map(|(_, p)| p.clone())
-        })
-        .unwrap_or_else(|| Arc::new(PdfFonts::approximate()))
-}
-
-/// Pour chaque document, le numéro de page (à partir de 1) de chacun de ses titres.
-pub fn pages_des_titres(docs: &[Rendered], page: &PageSetup) -> Vec<Vec<usize>> {
-    let f = polices_pour(page.font);
-    let m = mettre_en_page(docs, page, &Options::new(&f), &mut Cache::new());
-    let mut premiere = vec![usize::MAX; docs.len()];
-    for (i, p) in m.pages.iter().enumerate() {
-        if let Some(x) = premiere.get_mut(p.doc) {
-            *x = (*x).min(i);
-        }
-    }
-    let mut out = vec![Vec::new(); docs.len()];
-    for t in &m.titres {
-        let doc = m.pages.get(t.page).map_or(0, |p| p.doc);
-        if let (Some(v), Some(&p0)) = (out.get_mut(doc), premiere.get(doc)) {
-            v.push(t.page.saturating_sub(p0) + 1);
-        }
-    }
-    out
-}
-
-/// Largeur, hauteur et profondeur (points) d'une formule composée.
-pub fn mesure_formule(
-    tex: &str,
-    centree: bool,
-    taille: f32,
-    famille: crate::page::DocFont,
-) -> (f32, f32, f32) {
-    let f = polices_pour(famille);
-    let mesure = |c: char, it: bool| f.glyphe(c, indice_style(false, it)).avance;
-    let b = formule::composer(&formule::lire(tex), taille, centree, &mesure);
-    (b.largeur, b.hauteur, b.profondeur)
 }

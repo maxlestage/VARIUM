@@ -1645,7 +1645,7 @@ mod tests {
                     .wrapping_add(1442695040888963407);
                 s.push_str(bouts[(k >> 33) as usize % bouts.len()]);
             }
-            let b = composer(&lire(&s), 12.0, e % 2 == 0, &m);
+            let b = composer(&lire(&s), 12.0, e.is_multiple_of(2), &m);
             assert!(b.largeur.is_finite() && b.hauteur.is_finite());
             let _ = mathml(&s, true);
             let _ = omml_formule(&s, false);
