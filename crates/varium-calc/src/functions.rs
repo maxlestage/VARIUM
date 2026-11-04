@@ -82,6 +82,8 @@ pub(crate) enum F {
     EstTexte,
     EstErreur,
     Na,
+    Convertir,
+    Devise,
 }
 
 macro_rules! catalogue {
@@ -220,6 +222,10 @@ catalogue! {
         "VRAI si la valeur est une erreur.";
     Na, "NA", "NA", "NA()",
         "Renvoie l'erreur #N/A (valeur non disponible).";
+    Convertir, "CONVERTIR", "CONVERT", "CONVERTIR(nombre; de_unité; vers_unité)",
+        "Convertit une mesure d'une unité dans une autre : longueurs (\"m\", \"km\", \"mi\", \"pouce\"), masses (\"kg\", \"lbm\"), volumes (\"l\", \"gal\"), températures (\"C\", \"F\", \"K\"), durées, surfaces, vitesses, énergies, données (\"Mo\", \"GiB\").";
+    Devise, "DEVISE", "CURRENCY", "DEVISE(montant; de; vers; date)",
+        "Convertit un montant d'une monnaie dans une autre (\"EUR\", \"USD\"…) avec la table des taux de change du classeur (Données → Taux de change) ; la date choisit des taux enregistrés à cette date.";
 }
 
 /// Toutes les fonctions connues, dans l'ordre du catalogue.
@@ -288,7 +294,8 @@ fn category_of(id: F) -> FunctionCategory {
         | F::Log10
         | F::SommeSi
         | F::SommeSiEns
-        | F::SommeProd => C::Math,
+        | F::SommeProd
+        | F::Convertir => C::Math,
         F::Moyenne
         | F::Min
         | F::Max
@@ -316,7 +323,7 @@ fn category_of(id: F) -> FunctionCategory {
         | F::Substitue => C::Text,
         F::Aujourdhui | F::Date | F::Annee | F::Mois | F::Jour => C::Date,
         F::RechercheV | F::Index | F::Equiv => C::Lookup,
-        F::Vpm => C::Finance,
+        F::Vpm | F::Devise => C::Finance,
         F::EstVide | F::EstNum | F::EstTexte | F::EstErreur | F::Na => C::Information,
     }
 }

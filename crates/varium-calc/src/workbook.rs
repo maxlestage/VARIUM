@@ -6,11 +6,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
+use crate::bank::CategoryRule;
 use crate::cond::{CondFormat, CondFormatter, CondPaint};
+use crate::convert::RatesTable;
 use crate::eval::{Computed, is_formula, recalc, sheet_resolver};
 use crate::filter::AutoFilter;
 use crate::format::{CellFormat, HAlign, NumberFormat, format_value, parse_literal, today_serial};
 use crate::parser::check_formula;
+use crate::pivot::PivotTable;
 use crate::refs::{CellRef, MAX_COLS, MAX_ROWS, Range, quote_sheet_name};
 use crate::rewrite::{
     Structural, adjust_formula, normalize_formula, ref_text, rewrite_refs, shift_formula,
@@ -57,6 +60,35 @@ pub struct Sheet {
     /// Filtre automatique (boutons dans la ligne d'en-tête ; voir [`AutoFilter`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_filter: Option<AutoFilter>,
+    /// Tableaux croisés dynamiques dont le résultat est dans cette feuille.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pivots: Vec<PivotTable>,
+    /// Graphiques enregistrés avec la feuille.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub charts: Vec<SheetChart>,
+}
+
+/// Un graphique enregistré avec une feuille : type (`barres`, `barres-h`,
+/// `empilees`, `courbes`, `aires`, `nuage`, `secteurs`, `anneau`, `gantt`),
+/// plage des données et titre.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SheetChart {
+    pub kind: String,
+    #[serde(with = "crate::cond::range_serde")]
+    pub range: Range,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub title: String,
+}
+
+impl Default for SheetChart {
+    fn default() -> Self {
+        Self {
+            kind: "barres".into(),
+            range: Range::cell(CellRef::default()),
+            title: String::new(),
+        }
+    }
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -278,6 +310,13 @@ impl Clip {
 pub struct Workbook {
     pub title: String,
     pub sheets: Vec<Sheet>,
+    /// Règles de classement des opérations bancaires (mot-clé → catégorie) ;
+    /// vide : les règles par défaut.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bank_rules: Vec<CategoryRule>,
+    /// Taux de change utilisés par la fonction `DEVISE`.
+    #[serde(skip_serializing_if = "RatesTable::is_empty")]
+    pub rates: RatesTable,
     /// Date du jour imposée (numéro de série), pour des tests reproductibles.
     #[serde(skip)]
     today: Option<f64>,
@@ -292,7 +331,7 @@ impl Default for Workbook {
 }
 
 /// Clé de tri à la française : sans casse ni accents.
-fn collation_key(s: &str) -> String {
+pub(crate) fn collation_key(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars().flat_map(char::to_lowercase) {
         match c {
@@ -363,6 +402,8 @@ impl Workbook {
         Self {
             title: "Sans titre".into(),
             sheets: vec![Sheet::new("Feuille 1")],
+            bank_rules: Vec::new(),
+            rates: RatesTable::default(),
             today: None,
             cache: Cache::default(),
         }
@@ -389,7 +430,7 @@ impl Workbook {
             return c.clone();
         }
         let today = self.today.unwrap_or_else(today_serial);
-        let c = Arc::new(recalc(&self.sheets, today));
+        let c = Arc::new(recalc(&self.sheets, today, &self.rates));
         *guard = Some(c.clone());
         c
     }
@@ -1011,12 +1052,18 @@ impl Workbook {
             version: u32,
             title: &'a str,
             sheets: &'a [Sheet],
+            #[serde(skip_serializing_if = "<[CategoryRule]>::is_empty")]
+            bank_rules: &'a [CategoryRule],
+            #[serde(skip_serializing_if = "RatesTable::is_empty")]
+            rates: &'a RatesTable,
         }
         serde_json::to_string_pretty(&Out {
             format: "varium-calc",
             version: 1,
             title: &self.title,
             sheets: &self.sheets,
+            bank_rules: &self.bank_rules,
+            rates: &self.rates,
         })
         .unwrap_or_default()
     }
@@ -1031,6 +1078,10 @@ impl Workbook {
             title: String,
             #[serde(default)]
             sheets: Vec<Sheet>,
+            #[serde(default)]
+            bank_rules: Vec<CategoryRule>,
+            #[serde(default)]
+            rates: RatesTable,
         }
         let parsed: In = serde_json::from_str(text.trim_start_matches('\u{FEFF}'))
             .map_err(|e| format!("Fichier de classeur illisible : {e}"))?;
@@ -1048,6 +1099,8 @@ impl Workbook {
         }
         let mut wb = Workbook::new();
         wb.title = parsed.title;
+        wb.bank_rules = parsed.bank_rules;
+        wb.rates = parsed.rates;
         if !parsed.sheets.is_empty() {
             wb.sheets = parsed.sheets;
         }

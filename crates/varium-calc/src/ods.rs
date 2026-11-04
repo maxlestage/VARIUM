@@ -218,13 +218,16 @@ impl Styles {
                 let _ = write!(x, " style:data-style-name=\"{d}\"");
             }
             x.push('>');
-            if f.fill.is_some() || f.align.is_some() {
+            if f.fill.is_some() || f.align.is_some() || f.wrap {
                 x.push_str("<style:table-cell-properties");
                 if let Some(c) = f.fill {
                     let _ = write!(x, " fo:background-color=\"#{}\"", hex(c).to_lowercase());
                 }
                 if f.align.is_some() {
                     x.push_str(" style:text-align-source=\"fix\"");
+                }
+                if f.wrap {
+                    x.push_str(" fo:wrap-option=\"wrap\"");
                 }
                 x.push_str("/>");
             }

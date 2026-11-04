@@ -77,8 +77,9 @@ const APPLIS: [(&str, &str); 3] = [
 const ICONES_LANGUES: [&str; 4] = ["«»", "✔️", "📅", "📖"];
 
 /// Les icônes des cartes de [`Textes::fonctions`].
-const ICONES_FONCTIONS: [&str; 12] = [
-    "🔁", "🧮", "🔀", "✉️", "🗂️", "🏷️", "📄", "📤", "💾", "🔍", "∑", "📱",
+const ICONES_FONCTIONS: [&str; 26] = [
+    "🔁", "🧮", "🔀", "✉️", "🗂️", "🏷️", "📄", "📤", "💾", "🔍", "∑", "📱", "⌘", "🏁", "⚡", "🧩",
+    "🕘", "▦", "✨", "🎤", "🖼️", "📥", "💬", "¹", "✍️", "🔊",
 ];
 
 /// Les paquets du workspace, dans l'ordre de [`Textes::capot_roles`].

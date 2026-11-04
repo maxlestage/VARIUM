@@ -382,7 +382,18 @@ fn libelles_en_francais() {
     let themes: Vec<&str> = Theme::ALL.iter().map(|t| t.label()).collect();
     assert_eq!(
         themes,
-        ["Clair", "Sombre", "Océan", "Élégant", "Craie", "Corail"]
+        [
+            "Clair",
+            "Sombre",
+            "Océan",
+            "Élégant",
+            "Craie",
+            "Corail",
+            "Papier",
+            "Minuit",
+            "Forêt",
+            "Agrume"
+        ]
     );
     let transitions: Vec<&str> = Transition::ALL.iter().map(|t| t.label()).collect();
     assert_eq!(transitions, ["Aucune", "Fondu", "Glissement", "Zoom"]);

@@ -132,6 +132,62 @@ pub const TEXTES: Textes = Textes {
             titre: "A real Mac app",
             texte: "Menus in the menu bar, ⌘ shortcuts, an app icon, full screen and focus mode; also for Windows and Linux.",
         },
+        Item {
+            titre: "Command palette ⌘K",
+            texte: "Ctrl+K or ⌘K: type a few letters and run any command from the three modules; F1 shows the keyboard shortcut cheat sheet.",
+        },
+        Item {
+            titre: "Start centre",
+            texte: "Templates, recent files and tips as soon as it opens; a file dropped in, or double-clicked in the Finder or Explorer, goes to the right module.",
+        },
+        Item {
+            titre: "Flash Fill",
+            texte: "Ctrl+E in Classeur: Varium guesses the rest of the column from one example, with autocomplete, smart paste and quick analysis.",
+        },
+        Item {
+            titre: "Pivot table",
+            texte: "Drag columns into rows, columns and values: totals, averages and counts per group in an instant.",
+        },
+        Item {
+            titre: "Version history",
+            texte: "Every save keeps a version of the document; compare them, differences highlighted, and go back in one click.",
+        },
+        Item {
+            titre: "QR codes",
+            texte: "A QR code in a document or on a slide, and a “Share” slide that gives the address of the presentation.",
+        },
+        Item {
+            titre: "Beautify and Harmonise",
+            texte: "Layouts suggested from the slide's content, then the whole presentation made consistent, with ten themes.",
+        },
+        Item {
+            titre: "Presenter view",
+            texte: "The audience on the projector, and for you the notes, the next slide, the timer, the laser pointer, the pen and zoom.",
+        },
+        Item {
+            titre: "Kiosk mode and photo album",
+            texte: "A looping slideshow with no controls that returns to the start after inactivity; an album made from a folder of images, sorted by date.",
+        },
+        Item {
+            titre: "Word, LibreOffice and PowerPoint import",
+            texte: "Open .docx and .odt files in Documents, and .pptx presentations with their theme colours, gradients, rotations and tables.",
+        },
+        Item {
+            titre: "Comments and track changes",
+            texte: "Comment on a selection, suggest insertions and deletions, then accept or reject each change.",
+        },
+        Item {
+            titre: "Footnotes",
+            texte: "Real notes at the bottom of the page, numbered automatically, in the preview as in the PDF.",
+        },
+        Item {
+            titre: "Handwritten signature",
+            texte: "Sign with the mouse or trackpad and the signature is placed in the document.",
+        },
+        Item {
+            titre: "Read aloud",
+            texte: "The document read by the system's speech synthesis, in its language, to proofread with your ears.",
+        },
     ],
     etapes_titre: "How it works",
     etapes: [

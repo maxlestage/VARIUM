@@ -112,6 +112,9 @@ impl Values {
         if let Some(contenu) = v.name.strip_prefix(parse::QR) {
             return Some(contenu.to_string());
         }
+        if let Some(nom) = v.name.strip_prefix(parse::SIGNATURE) {
+            return Some(nom.to_string());
+        }
         if let Some(formula) = &v.formula {
             return self.resolve_formula(formula, &v.filters);
         }

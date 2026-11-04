@@ -17,14 +17,16 @@ pub enum Cible {
     Module(Module),
     /// Une image : elle s'insère dans la diapositive (Présentation).
     Image,
-    /// Un document Word ou OpenDocument texte : Varium les écrit mais ne les lit pas.
+    /// Un ancien document Word (`.doc`), RTF ou Pages : Varium les écrit (sauf `.doc`)
+    /// mais ne les lit pas.
     TexteBureautique,
     NonPrisEnCharge,
 }
 
 /// Extensions proposées par le dialogue « Ouvrir… » de l'accueil.
 pub const EXTENSIONS: &[&str] = &[
-    "json", "varium", "md", "txt", "tex", "xlsx", "xlsm", "ods", "csv", "tsv", "odp", "pptx",
+    "json", "varium", "md", "txt", "tex", "docx", "odt", "xlsx", "xlsm", "ods", "csv", "tsv",
+    "odp", "pptx",
 ];
 
 /// Le module d'un fichier, d'après son nom et, pour un `.json`, son début.
@@ -51,11 +53,13 @@ pub fn route(name: &str, head: &[u8]) -> Cible {
                 Cible::Module(Module::Documents)
             }
         }
-        "varium" | "md" | "markdown" | "txt" | "tex" => Cible::Module(Module::Documents),
+        "varium" | "md" | "markdown" | "txt" | "tex" | "docx" | "odt" => {
+            Cible::Module(Module::Documents)
+        }
         "xlsx" | "xlsm" | "ods" | "csv" | "tsv" => Cible::Module(Module::Classeur),
         "odp" | "pptx" => Cible::Module(Module::Presentation),
         "png" | "jpg" | "jpeg" => Cible::Image,
-        "odt" | "docx" | "doc" | "rtf" | "pages" => Cible::TexteBureautique,
+        "doc" | "rtf" | "pages" => Cible::TexteBureautique,
         _ => Cible::NonPrisEnCharge,
     }
 }
@@ -85,11 +89,11 @@ pub fn nom(path: &Path) -> String {
 pub fn refus(cible: Cible, name: &str) -> String {
     match cible {
         Cible::TexteBureautique => trf!(
-            "« {name} » : Varium exporte en Word et en OpenDocument texte, mais ne sait pas encore les ouvrir",
+            "« {name} » : ce format ne s'ouvre pas encore ; enregistrez-le en .docx ou en .odt depuis Word, LibreOffice ou Pages",
             name
         ),
         _ => trf!(
-            "« {name} » : type de fichier non pris en charge (documents .varium.json, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
+            "« {name} » : type de fichier non pris en charge (documents .varium.json, .docx, .odt, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
             name
         ),
     }
@@ -216,8 +220,10 @@ mod tests {
         assert_eq!(route("d.pptx", b""), deck);
         assert_eq!(route("d.varium-slides.json", b""), deck);
         assert_eq!(route("photo.JPG", b""), Cible::Image);
-        assert_eq!(route("lettre.docx", b""), Cible::TexteBureautique);
-        assert_eq!(route("lettre.odt", b""), Cible::TexteBureautique);
+        assert_eq!(route("lettre.docx", b"PK"), doc);
+        assert_eq!(route("Lettre.ODT", b""), doc);
+        assert_eq!(route("ancien.doc", b""), Cible::TexteBureautique);
+        assert_eq!(route("texte.rtf", b""), Cible::TexteBureautique);
         assert_eq!(route("archive.zip", b""), Cible::NonPrisEnCharge);
         assert_eq!(route("sans-extension", b""), Cible::NonPrisEnCharge);
     }

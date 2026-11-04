@@ -1,5 +1,5 @@
 //! Tests de l'export PDF natif : structure du fichier, pagination, en-tête/pied de page,
-//! robustesse sur des entrées absurdes.
+//! polices incorporées, formules, robustesse sur des entrées absurdes.
 
 use varium_core::export::{Rendered, prepare};
 use varium_core::pdf::{Metrics, PdfFonts, pdf};
@@ -31,7 +31,7 @@ fn texte(octets: &[u8]) -> String {
 /// Vérifie la structure : en-tête, table xref exacte, nombre de pages. Retourne ce nombre.
 fn valider(o: &[u8]) -> usize {
     let s = texte(o);
-    assert!(s.starts_with("%PDF-1.4"));
+    assert!(s.starts_with("%PDF-1.7"));
     assert!(s.trim_end().ends_with("%%EOF"));
     let sx = s.rfind("startxref\n").expect("startxref");
     let xref: usize = s[sx + 10..].lines().next().unwrap().parse().unwrap();
@@ -54,6 +54,50 @@ fn valider(o: &[u8]) -> usize {
         );
     }
     s.matches("/Type /Page ").count()
+}
+
+/// Les flux du fichier, décompressés et mis bout à bout.
+fn flux(o: &[u8]) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while let Some(p) = find(&o[i..], b"stream\n") {
+        let debut = i + p + 7;
+        let Some(f) = find(&o[debut..], b"\nendstream") else {
+            break;
+        };
+        let data = &o[debut..debut + f];
+        match miniz_oxide::inflate::decompress_to_vec_zlib(data) {
+            Ok(d) => out.push_str(&String::from_utf8_lossy(&d)),
+            Err(_) => out.push_str(&String::from_utf8_lossy(data)),
+        }
+        out.push('\n');
+        i = debut + f + 11;
+    }
+    out
+}
+
+fn find(h: &[u8], n: &[u8]) -> Option<usize> {
+    h.windows(n.len()).position(|w| w == n)
+}
+
+/// Le texte des pages, tel que la mise en page le pose.
+fn textes_mis_en_page(docs: &[Rendered], page: &PageSetup) -> Vec<String> {
+    use varium_core::mise_en_page::{Cache, Element, Options, mettre_en_page};
+    let f = polices();
+    let m = mettre_en_page(docs, page, &Options::new(&f), &mut Cache::new());
+    m.pages
+        .iter()
+        .map(|p| {
+            let mut s = String::new();
+            p.pour_chaque(|e| {
+                if let Element::Texte(t) = e {
+                    s.push_str(&t.texte);
+                    s.push(' ');
+                }
+            });
+            s
+        })
+        .collect()
 }
 
 fn rendu(src: &str, page: &PageSetup) -> Rendered {
@@ -94,15 +138,118 @@ fn texte_extractible_avec_accents() {
     let page = PageSetup::default();
     let o = pdf(
         "t",
-        &[rendu("Élève « français » — œuvre €", &page)],
+        &[rendu(
+            "Élève « français » — œuvre € Ωμέγα $\\alpha + \\beta$",
+            &page,
+        )],
         &page,
         &polices(),
     );
+    valider(&o);
     let s = texte(&o);
+    // Polices incorporées en sous-ensemble, avec leur table ToUnicode.
+    assert!(s.contains("/FontFile2"));
+    assert!(s.contains("/CIDFontType2"));
+    assert!(s.contains("/Identity-H"));
+    let f = flux(&o);
+    for c in ['É', 'œ', '€', 'Ω', 'α', 'β'] {
+        assert!(
+            f.contains(&format!("<{:04X}>", c as u32)),
+            "{c} absent de ToUnicode"
+        );
+    }
+    assert!(!f.contains("<003F>"), "aucun « ? » de remplacement");
+}
+
+#[test]
+fn sans_police_repli_winansi() {
+    let page = PageSetup::default();
+    let o = pdf(
+        "t",
+        &[rendu("Élève œuvre €", &page)],
+        &page,
+        &PdfFonts::approximate(),
+    );
+    valider(&o);
+    let s = texte(&o);
+    assert!(s.contains("/WinAnsiEncoding"));
+    let f = flux(&o);
     // « É » = 0xC9, « œ » = 0x9C, « € » = 0x80 en WinAnsi.
-    assert!(s.contains("C9"));
-    assert!(s.contains("9C"));
-    assert!(s.contains("80"));
+    assert!(f.contains("C9") && f.contains("9C") && f.contains("80"));
+}
+
+#[test]
+fn flux_compresses_et_metadonnees() {
+    let page = PageSetup {
+        auteur: "Zoé Martin".into(),
+        ..PageSetup::default()
+    };
+    let src = "Un texte répété. ".repeat(400);
+    let o = pdf("Mon titre", &[rendu(&src, &page)], &page, &polices());
+    valider(&o);
+    let s = texte(&o);
+    assert!(s.contains("/FlateDecode"));
+    assert!(s.contains("/Lang (fr-FR)") || s.contains("/Lang (fr"));
+    assert!(s.contains("/Author <FEFF"));
+    assert!(s.contains("/Type /Metadata"));
+    assert!(s.contains("<dc:creator><rdf:Seq><rdf:li>Zo"));
+    assert!(o.len() < 60_000, "{} octets", o.len());
+}
+
+#[test]
+fn formules_composees() {
+    let page = PageSetup::default();
+    let o = pdf(
+        "t",
+        &[rendu(
+            "$$\\frac{a+b}{\\sqrt{x}} = \\sum_{i=1}^{n} x_i^2$$",
+            &page,
+        )],
+        &page,
+        &polices(),
+    );
+    valider(&o);
+    let f = flux(&o);
+    // Barre de fraction (rectangle plein) et signe radical (ligne brisée).
+    assert!(f.contains(" re f"));
+    assert!(f.contains("1 J 1 j"));
+    assert!(f.contains(&format!("<{:04X}>", '∑' as u32)));
+}
+
+#[test]
+fn sommaire_numerote_et_cliquable() {
+    let page = PageSetup::default();
+    let src = "\\sommaire\n# Un\ntexte\n\\newpage\n# Deux\n";
+    let d = rendu(src, &page);
+    let t = textes_mis_en_page(std::slice::from_ref(&d), &page);
+    assert!(t[0].contains("Un") && t[0].contains(" 1 ") && t[0].contains(" 2 "));
+    let o = pdf("t", &[d], &page, &polices());
+    valider(&o);
+    // Deux liens internes vers les titres, plus les deux signets.
+    assert_eq!(texte(&o).matches("/Dest [").count(), 4);
+}
+
+#[test]
+fn notes_et_signature() {
+    let page = PageSetup::default();
+    varium_core::signature::definir(
+        "essai-pdf",
+        varium_core::signature::Signature::depuis_traits(&[vec![
+            (0.0, 0.0),
+            (40.0, 20.0),
+            (80.0, 5.0),
+        ]])
+        .unwrap(),
+    );
+    let src = "Texte[^1] signé :\n{{signature:essai-pdf}}\n[^1]: Une note.";
+    let d = rendu(src, &page);
+    assert_eq!(d.notes.len(), 1);
+    assert!(d.signatures.contains_key("essai-pdf"));
+    let t = textes_mis_en_page(std::slice::from_ref(&d), &page);
+    assert!(t[0].contains("Une note."));
+    let o = pdf("t", &[d], &page, &polices());
+    valider(&o);
+    assert!(flux(&o).contains("1 J 1 j"));
 }
 
 #[test]
@@ -127,12 +274,11 @@ fn numeros_de_page_par_document() {
     let o = pdf("t", &docs, &page, &polices());
     let n = valider(&o);
     assert!(n >= 3);
-    let s = texte(&o);
-    // « Page 1 sur 1 » du premier document (texte codé en hexadécimal).
-    let hex = |t: &str| t.bytes().map(|b| format!("{b:02X}")).collect::<String>();
-    assert!(s.contains(&hex("Page 1 sur 1")));
-    assert!(s.contains(&hex(&format!("Page {} sur {}", n - 1, n - 1))));
-    assert!(s.contains(&hex("Pied")));
+    let t = textes_mis_en_page(&docs, &page);
+    assert_eq!(t.len(), n);
+    assert!(t[0].contains("Page 1 sur 1"));
+    assert!(t[n - 1].contains(&format!("Page {} sur {}", n - 1, n - 1)));
+    assert!(t[1].contains("Pied") && t[1].contains("En-tête"));
 }
 
 #[test]
@@ -144,7 +290,8 @@ fn saut_de_page_et_publipostage() {
         &page,
         &polices(),
     );
-    assert_eq!(valider(&o), 3);
+    // Deux sauts de suite laissent une page blanche, comme dans Writer.
+    assert_eq!(valider(&o), 4);
 }
 
 #[test]
@@ -223,6 +370,21 @@ fn entrees_aleatoires_sans_panique() {
         " <-",
         "$x^2$",
         "$$\\frac{a}{b}$$",
+        "$\\sqrt[3]{x}_i^{\\sum}$",
+        "{: retrait=2cm interligne=exact:30pt avant=40pt} ",
+        "{: alinéa=-3cm}\n",
+        "{:}\n",
+        "[^1]",
+        "\n[^1]: la note\n",
+        "^[en ligne]",
+        "{couleur:rouge}",
+        "{surlignage:#00f}",
+        "{/}",
+        "==",
+        "\n\\sommaire\n",
+        "{{signature}}",
+        "{{signature:absente}}",
+        "{{qr:x}}",
     ];
     let mut e = 0x1234_5678_9abc_def0u64;
     for _ in 0..300 {
@@ -234,8 +396,16 @@ fn entrees_aleatoires_sans_panique() {
             let r = e.wrapping_mul(0x2545_F491_4F6C_DD1D);
             src.push_str(morceaux[(r % morceaux.len() as u64) as usize]);
         }
-        let o = pdf("t", &[rendu(&src, &page)], &page, &f);
+        let r = rendu(&src, &page);
+        let o = pdf("t", std::slice::from_ref(&r), &page, &f);
         assert!(valider(&o) >= 1, "source : {src:?}");
+        let d = [r];
+        let _ = varium_core::odt::odt("t", &d, &page);
+        let _ = varium_core::docx::docx("t", &d, &page);
+        let _ = varium_core::epub::epub("t", &d, &page);
+        let _ = varium_core::rtf::rtf(&d, &page);
+        let _ = varium_core::export::html("t", &d, &page);
+        let _ = varium_core::export::latex("t", &d, &page);
     }
 }
 
@@ -281,11 +451,12 @@ fn liens_cliquables() {
     valider(&o);
     let s = texte(&o);
     assert_eq!(s.matches("/Subtype /Link").count(), 2);
+    let hex = |t: &str| t.bytes().map(|b| format!("{b:02X}")).collect::<String>();
     assert!(
-        s.contains("/URI (https://exemple.fr/a\\(b\\))")
-            || s.contains("/URI (https://exemple.fr/a\\(b)")
+        s.contains(&format!("/URI <{}>", hex("https://exemple.fr/a(b)")))
+            || s.contains(&format!("/URI <{}>", hex("https://exemple.fr/a(b")))
     );
-    assert!(s.contains("/URI (mailto:moi@exemple.fr)"));
+    assert!(s.contains(&format!("/URI <{}>", hex("mailto:moi@exemple.fr"))));
     assert!(s.contains("/Annots ["));
     // Sans adresse : aucune annotation.
     let o = pdf("t", &[rendu("rien ici", &page)], &page, &polices());
@@ -303,4 +474,62 @@ fn liens_avec_signets_et_plusieurs_pages() {
     let o = pdf("t", &[rendu(&src, &page)], &page, &polices());
     valider(&o);
     assert_eq!(texte(&o).matches("/Subtype /Link").count(), 40);
+}
+
+/// Échantillon complet de tous les exports, écrit dans le dossier donné par
+/// `VARIUM_ECHANTILLONS` (vérification à la main : pdftotext, pdffonts, LibreOffice).
+#[test]
+fn echantillons_des_exports() {
+    let Ok(dossier) = std::env::var("VARIUM_ECHANTILLONS") else {
+        return;
+    };
+    let page = PageSetup {
+        page_numbers: true,
+        header: "Varium — essai".into(),
+        footer: "{{client}}".into(),
+        auteur: "Zoé Martin".into(),
+        ..PageSetup::default()
+    };
+    varium_core::signature::definir(
+        "",
+        varium_core::signature::Signature::depuis_traits(&[
+            vec![
+                (0.0, 30.0),
+                (10.0, 0.0),
+                (20.0, 35.0),
+                (35.0, 5.0),
+                (50.0, 30.0),
+                (90.0, 10.0),
+            ],
+            vec![(20.0, 40.0), (85.0, 38.0)],
+        ])
+        .unwrap(),
+    );
+    let src = "\\sommaire\n# Introduction\n{: alinéa=1cm interligne=1,5 après=6pt} Un paragraphe avec un alinéa, un interligne d'une ligne et demie et une note de bas de page[^a]. Le texte continue assez longtemps pour passer à la ligne plusieurs fois et montrer l'interligne.\nDu texte {couleur:rouge}en rouge{/}, ==surligné== et {surlignage:vert}sur fond vert{/}, une note en ligne^[Note écrite dans le texte.] et des caractères variés : € œ Ω α → ∞ 😀 漢字.\n{: retrait=2cm droite=2cm couleur=bleu} Un paragraphe en retrait des deux côtés, en bleu, justifié ou non selon la mise en page du document.\n## Formules\nEn ligne : $E = mc^2$ et $\\frac{a}{b}$, puis centrée :\n$$\\int_0^1 x^2\\,dx = \\frac{1}{3} \\quad \\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$\n$$\\sqrt[3]{x} + \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$$\n## Signature\nFait à Paris, le 4 novembre 2026.\n{{signature}}\n\\newpage\n# Annexe\n| Article | Prix |\n|---|---:|\n| Stylo | 2 € |\n[^a]: Le contenu de la note, avec **du gras**.\n";
+    let mut v = Values::default();
+    v.set("client", "Dupont");
+    let d = vec![prepare(src, &v, &page)];
+    let w = |n: &str, b: &[u8]| std::fs::write(format!("{dossier}/{n}"), b).unwrap();
+    w("essai.pdf", &pdf("Essai Varium", &d, &page, &polices()));
+    w(
+        "essai.odt",
+        &varium_core::odt::odt("Essai Varium", &d, &page),
+    );
+    w(
+        "essai.docx",
+        &varium_core::docx::docx("Essai Varium", &d, &page),
+    );
+    w(
+        "essai.epub",
+        &varium_core::epub::epub("Essai Varium", &d, &page),
+    );
+    w("essai.rtf", varium_core::rtf::rtf(&d, &page).as_bytes());
+    w(
+        "essai.html",
+        varium_core::export::html("Essai Varium", &d, &page).as_bytes(),
+    );
+    w(
+        "essai.tex",
+        varium_core::export::latex("Essai Varium", &d, &page).as_bytes(),
+    );
 }

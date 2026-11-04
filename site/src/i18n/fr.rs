@@ -132,6 +132,62 @@ pub const TEXTES: Textes = Textes {
             titre: "Une vraie application Mac",
             texte: "Menus dans la barre de l'écran, raccourcis ⌘, icône, plein écran et mode concentration\u{a0}; aussi pour Windows et Linux.",
         },
+        Item {
+            titre: "Palette de commandes ⌘K",
+            texte: "Ctrl+K ou ⌘K\u{a0}: tapez quelques lettres et lancez n'importe quelle commande des trois modules\u{a0}; F1 affiche l'aide-mémoire des raccourcis.",
+        },
+        Item {
+            titre: "Centre de démarrage",
+            texte: "Modèles, fichiers récents et astuces dès l'ouverture\u{a0}; un fichier glissé, ou ouvert par double-clic dans le Finder ou l'Explorateur, part dans le bon module.",
+        },
+        Item {
+            titre: "Remplissage instantané",
+            texte: "Ctrl+E dans le Classeur\u{a0}: Varium devine le reste de la colonne à partir d'un exemple, avec saisie semi-automatique, collage intelligent et analyse rapide.",
+        },
+        Item {
+            titre: "Tableau croisé dynamique",
+            texte: "Glissez les colonnes en lignes, colonnes et valeurs\u{a0}: totaux, moyennes et comptes par groupe en un instant.",
+        },
+        Item {
+            titre: "Historique des versions",
+            texte: "Chaque enregistrement garde une version du document\u{a0}; comparez-les, différences surlignées, et revenez en arrière d'un clic.",
+        },
+        Item {
+            titre: "Codes QR",
+            texte: "Un code QR dans un document ou sur une diapositive, et une diapositive «\u{a0}Partager\u{a0}» qui donne l'adresse de la présentation.",
+        },
+        Item {
+            titre: "Embellir et Harmoniser",
+            texte: "Des mises en page proposées d'après le contenu de la diapositive, puis toute la présentation rendue cohérente, avec dix thèmes.",
+        },
+        Item {
+            titre: "Mode présentateur",
+            texte: "Le public sur le projecteur, et pour vous les notes, la diapositive suivante, le chronomètre, le pointeur laser, le stylo et le zoom.",
+        },
+        Item {
+            titre: "Mode kiosque et album photo",
+            texte: "Un diaporama en boucle, sans commandes, qui revient au début après une inactivité\u{a0}; un album tiré d'un dossier d'images, classé par date.",
+        },
+        Item {
+            titre: "Import Word, LibreOffice et PowerPoint",
+            texte: "Ouvrez des fichiers .docx et .odt dans Documents, et des présentations .pptx avec leurs couleurs de thème, dégradés, rotations et tableaux.",
+        },
+        Item {
+            titre: "Commentaires et suivi des modifications",
+            texte: "Commentez une sélection, proposez des ajouts et des suppressions, puis acceptez ou refusez chaque modification.",
+        },
+        Item {
+            titre: "Notes de bas de page",
+            texte: "De vraies notes en bas de la page, numérotées automatiquement, dans l'aperçu comme dans le PDF.",
+        },
+        Item {
+            titre: "Signature manuscrite",
+            texte: "Signez à la souris ou au pavé tactile, et la signature se pose dans le document.",
+        },
+        Item {
+            titre: "Lecture à voix haute",
+            texte: "Le document lu par la synthèse vocale du système, dans sa langue, pour relire avec les oreilles.",
+        },
     ],
     etapes_titre: "Comment ça marche",
     etapes: [

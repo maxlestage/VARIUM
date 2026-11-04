@@ -17,7 +17,7 @@ use crate::geometrie::{
     Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, TITLE_LINE_HEIGHT, footer_frame, number_frame,
 };
 use crate::metriques::LARGEURS;
-use crate::objets::{Object, ObjectKind, arrow_head, format_image, jpeg_composantes};
+use crate::objets::{Gradient, Object, ObjectKind, arrow_head, format_image, jpeg_composantes};
 use crate::texte::MISSING_COLOR;
 use crate::{Deck, Layout, Palette, Rendu, Slide, body_size, subtitle_size, title_size};
 
@@ -1091,11 +1091,90 @@ fn rect_arrondi(x: f32, y: f32, w: f32, h: f32, r: f32) -> String {
     )
 }
 
+/// Matrice PDF (`cm`) d'une rotation de `angle` degrés dans le sens des aiguilles
+/// d'une montre (à l'écran) autour de `(cx, cy)`, en coordonnées PDF.
+pub(crate) fn rotation_cm(angle: f32, cx: f32, cy: f32) -> String {
+    let (s, c) = angle.to_radians().sin_cos();
+    // y vers le haut : un sens horaire à l'écran est un angle négatif.
+    let (a, b, cc, d) = (c, -s, s, c);
+    let e = cx - a * cx - cc * cy;
+    let f = cy - b * cx - d * cy;
+    let k = |v: f32| {
+        let s = format!("{:.4}", if v.is_finite() { v } else { 0.0 });
+        let s = s.trim_end_matches('0').trim_end_matches('.').to_string();
+        if s == "-0" || s.is_empty() {
+            "0".into()
+        } else {
+            s
+        }
+    };
+    format!("{} {} {} {} {} {} cm", k(a), k(b), k(cc), k(d), k(e), k(f))
+}
+
+/// Bandes d'un dégradé qui remplissent le cadre `(x, bas, w, h)` (coordonnées
+/// PDF) ; à dessiner dans le chemin de la forme posé en découpe (`W n`).
+pub(crate) fn bandes_degrade(out: &mut String, g: &Gradient, x: f32, bas: f32, w: f32, h: f32) {
+    const BANDES: usize = 48;
+    let (cx, cy) = (x + w / 2.0, bas + h / 2.0);
+    if g.radial {
+        // Du bord vers le centre : des ellipses de plus en plus petites.
+        let _ = writeln!(
+            out,
+            "{} rg {} {} {} {} re f",
+            rgb(g.color_at(1.0)),
+            n(x - 1.0),
+            n(bas - 1.0),
+            n(w + 2.0),
+            n(h + 2.0)
+        );
+        for k in (0..BANDES).rev() {
+            let r = (k + 1) as f32 / BANDES as f32;
+            let t = (k as f32 + 0.5) / BANDES as f32;
+            let _ = writeln!(
+                out,
+                "{} rg {} f",
+                rgb(g.color_at(t)),
+                ellipse(cx, cy, w / 2.0 * r, h / 2.0 * r)
+            );
+        }
+        return;
+    }
+    // Linéaire : des bandes perpendiculaires à la direction, dans un repère tourné.
+    let e = g.half_extent(w, h);
+    let grand = (w * w + h * h).sqrt() + 2.0;
+    let _ = writeln!(out, "q {}", rotation_cm(g.angle, cx, cy));
+    for k in 0..BANDES {
+        let x0 = if k == 0 {
+            -grand
+        } else {
+            -e + 2.0 * e * k as f32 / BANDES as f32
+        };
+        let x1 = if k + 1 == BANDES {
+            grand
+        } else {
+            -e + 2.0 * e * (k + 1) as f32 / BANDES as f32 + 0.3
+        };
+        let t = (k as f32 + 0.5) / BANDES as f32;
+        let _ = writeln!(
+            out,
+            "{} rg {} {} {} {} re f",
+            rgb(g.color_at(t)),
+            n(cx + x0),
+            n(cy - grand),
+            n(x1 - x0),
+            n(2.0 * grand)
+        );
+    }
+    out.push_str("Q\n");
+}
+
 /// Un objet de la diapositive (image ou forme) en tracés PDF.
+#[allow(clippy::too_many_arguments)]
 fn objet_pdf(
     out: &mut String,
     o: &Object,
     texte: &[Para],
+    qr: Option<&varium_core::qr::QrCode>,
     pal: Palette,
     images: &BTreeMap<String, usize>,
     pw: f32,
@@ -1104,6 +1183,14 @@ fn objet_pdf(
     let (x, y, w, h) = o.frame.scaled(pw, ph);
     // Coordonnées PDF : origine en bas à gauche.
     let bas = ph - (y + h);
+    let tourne = o.rotation != 0.0;
+    if tourne {
+        let _ = writeln!(
+            out,
+            "q {}",
+            rotation_cm(o.rotation, x + w / 2.0, bas + h / 2.0)
+        );
+    }
     match o.kind {
         ObjectKind::Image => {
             if let Some(num) = images.get(&o.media) {
@@ -1117,63 +1204,105 @@ fn objet_pdf(
                 );
             }
         }
-        ObjectKind::Line | ObjectKind::Arrow => {
-            let Some(c) = o.stroke else {
-                return;
-            };
-            let ((x1, y1), (x2, y2)) = o.line_points();
-            let a = (x1 * pw, ph - y1 * ph);
-            let b = (x2 * pw, ph - y2 * ph);
-            let sw = o.stroke_width.max(0.5);
-            let fin = if o.kind == ObjectKind::Arrow {
-                let (fin, tri) = arrow_head(a, b, sw);
-                let _ = writeln!(
-                    out,
-                    "q {} rg {} {} m {} {} l {} {} l h f Q",
-                    rgb(c),
-                    n(tri[0].0),
-                    n(tri[0].1),
-                    n(tri[1].0),
-                    n(tri[1].1),
-                    n(tri[2].0),
-                    n(tri[2].1)
-                );
-                fin
-            } else {
-                b
-            };
+        ObjectKind::Qr => {
             let _ = writeln!(
                 out,
-                "q {} RG {} w 1 J {} {} m {} {} l S Q",
-                rgb(c),
-                n(sw),
-                n(a.0),
-                n(a.1),
-                n(fin.0),
-                n(fin.1)
+                "q 1 1 1 rg {} {} {} {} re f Q",
+                n(x),
+                n(bas),
+                n(w),
+                n(h)
             );
+            if let Some(q) = qr {
+                let cote = (q.size() + 2 * Object::QR_MARGIN) as f32;
+                let (mx, my) = (w / cote, h / cote);
+                let mut c = format!("q {} rg ", rgb(o.qr_ink()));
+                for (qx, qy, l) in q.segments() {
+                    let gx = x + (qx + Object::QR_MARGIN) as f32 * mx;
+                    let gy = bas + h - (qy + Object::QR_MARGIN + 1) as f32 * my;
+                    let _ = write!(
+                        c,
+                        "{} {} {} {} re ",
+                        n(gx),
+                        n(gy),
+                        n(l as f32 * mx + 0.05),
+                        n(my + 0.05)
+                    );
+                }
+                c.push_str("f Q");
+                let _ = writeln!(out, "{c}");
+            }
+        }
+        ObjectKind::Line | ObjectKind::Arrow => {
+            if let Some(c) = o.stroke {
+                let ((x1, y1), (x2, y2)) = o.line_points();
+                let a = (x1 * pw, ph - y1 * ph);
+                let b = (x2 * pw, ph - y2 * ph);
+                let sw = o.stroke_width.max(0.5);
+                let fin = if o.kind == ObjectKind::Arrow {
+                    let (fin, tri) = arrow_head(a, b, sw);
+                    let _ = writeln!(
+                        out,
+                        "q {} rg {} {} m {} {} l {} {} l h f Q",
+                        rgb(c),
+                        n(tri[0].0),
+                        n(tri[0].1),
+                        n(tri[1].0),
+                        n(tri[1].1),
+                        n(tri[2].0),
+                        n(tri[2].1)
+                    );
+                    fin
+                } else {
+                    b
+                };
+                let _ = writeln!(
+                    out,
+                    "q {} RG {} w 1 J {} {} m {} {} l S Q",
+                    rgb(c),
+                    n(sw),
+                    n(a.0),
+                    n(a.1),
+                    n(fin.0),
+                    n(fin.1)
+                );
+            }
         }
         ObjectKind::Rect | ObjectKind::RoundRect | ObjectKind::Ellipse => {
             let trait_ = o.stroke.filter(|_| o.stroke_width > 0.0);
-            let op = match (o.fill.is_some(), trait_.is_some()) {
-                (true, true) => "B",
-                (true, false) => "f",
-                (false, true) => "S",
-                (false, false) => "n",
-            };
-            let mut c = String::from("q ");
-            if let Some(f) = o.fill {
-                let _ = write!(c, "{} rg ", rgb(f));
-            }
-            if let Some(t) = trait_ {
-                let _ = write!(c, "{} RG {} w 1 j ", rgb(t), n(o.stroke_width));
-            }
             let chemin = match o.kind {
                 ObjectKind::Ellipse => ellipse(x + w / 2.0, bas + h / 2.0, w / 2.0, h / 2.0),
                 ObjectKind::RoundRect => rect_arrondi(x, bas, w, h, w.min(h) * Object::CORNER),
                 _ => format!("{} {} {} {} re", n(x), n(bas), n(w), n(h)),
             };
-            let _ = writeln!(out, "{c}{chemin} {op} Q");
+            if let Some(g) = &o.gradient {
+                let _ = writeln!(out, "q {chemin} W n");
+                bandes_degrade(out, g, x, bas, w, h);
+                out.push_str("Q\n");
+                if let Some(t) = trait_ {
+                    let _ = writeln!(
+                        out,
+                        "q {} RG {} w 1 j {chemin} S Q",
+                        rgb(t),
+                        n(o.stroke_width)
+                    );
+                }
+            } else {
+                let op = match (o.fill.is_some(), trait_.is_some()) {
+                    (true, true) => "B",
+                    (true, false) => "f",
+                    (false, true) => "S",
+                    (false, false) => "n",
+                };
+                let mut c = String::from("q ");
+                if let Some(f) = o.fill {
+                    let _ = write!(c, "{} rg ", rgb(f));
+                }
+                if let Some(t) = trait_ {
+                    let _ = write!(c, "{} RG {} w 1 j ", rgb(t), n(o.stroke_width));
+                }
+                let _ = writeln!(out, "{c}{chemin} {op} Q");
+            }
             if !texte.is_empty() {
                 let hab = Habillage {
                     base: Base {
@@ -1201,6 +1330,9 @@ fn objet_pdf(
                 );
             }
         }
+    }
+    if tourne {
+        out.push_str("Q\n");
     }
 }
 
@@ -1369,8 +1501,8 @@ fn page(r: &Rendu, s: &Slide, images: &BTreeMap<String, usize>, pw: f32, ph: f32
             zone(&mut out, paras, f, t, &hab, b.body_anchor, pw, ph);
         }
     }
-    for (o, texte) in s.objects.iter().zip(&r.objets) {
-        objet_pdf(&mut out, o, texte, pal, images, pw, ph);
+    for ((o, texte), qr) in s.objects.iter().zip(&r.objets).zip(&r.qrs) {
+        objet_pdf(&mut out, o, texte, qr.as_ref(), pal, images, pw, ph);
     }
     let pied = Base {
         police: Police::default(),

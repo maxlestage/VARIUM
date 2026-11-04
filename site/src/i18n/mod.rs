@@ -207,7 +207,7 @@ pub struct Textes {
     pub langues_note: &'static str,
     pub fonctions_titre: &'static str,
     pub fonctions_intro: &'static str,
-    pub fonctions: [Item; 12],
+    pub fonctions: [Item; 26],
     pub etapes_titre: &'static str,
     pub etapes: [Item; 3],
     pub bureau: Item,

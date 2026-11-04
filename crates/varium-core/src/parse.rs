@@ -9,6 +9,8 @@
 //!   `fin` sont des mots réservés, on ne peut pas les employer comme noms de champ
 //! - `{{qr:texte}}` : code QR du texte écrit tel quel (nommé `qr:texte`, ce n'est pas un
 //!   champ à remplir) ; `{{site | qr}}` : code QR de la valeur d'un champ
+//! - `{{signature}}`, `{{signature:nom}}` : signature manuscrite enregistrée (nommée
+//!   `signature:nom`, ce n'est pas un champ à remplir)
 
 /// Un filtre appliqué à une variable, ex. `money:usd`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +82,25 @@ fn qr_litteral(inner: &str) -> Option<&str> {
     tete.eq_ignore_ascii_case(QR).then(|| t[3..].trim())
 }
 
+/// Préfixe du nom d'une signature manuscrite : `signature:` (signature par défaut)
+/// ou `signature:nom`.
+pub const SIGNATURE: &str = "signature:";
+
+/// `{{signature}}` ou `{{signature:nom}}` : le nom de la signature (vide par défaut).
+fn signature_litterale(inner: &str) -> Option<String> {
+    let t = inner.trim();
+    let tete = t.get(..9)?;
+    if !tete.eq_ignore_ascii_case("signature") {
+        return None;
+    }
+    let reste = t[9..].trim_start();
+    if reste.is_empty() {
+        return Some(String::new());
+    }
+    let nom = reste.strip_prefix(':')?.trim();
+    (nom.is_empty() || is_valid_name(nom)).then(|| nom.to_string())
+}
+
 /// Essaie de lire une variable commençant à `start` (qui pointe sur `{{`).
 /// Renvoie (nom, filtres, fin) si la syntaxe est valide.
 fn try_token(src: &str, start: usize) -> Option<(String, Vec<Filter>, usize)> {
@@ -96,6 +117,9 @@ fn try_token(src: &str, start: usize) -> Option<(String, Vec<Filter>, usize)> {
     // `{{qr:…}}` : tout ce qui suit est le contenu du code, `|` compris.
     if let Some(contenu) = qr_litteral(inner) {
         return (!contenu.is_empty()).then(|| (format!("{QR}{contenu}"), Vec::new(), close + 2));
+    }
+    if let Some(nom) = signature_litterale(inner) {
+        return Some((format!("{SIGNATURE}{nom}"), Vec::new(), close + 2));
     }
     let (name, filters) = match inner.split_once('|') {
         Some((n, f)) => (n.trim(), parse_filters(f)),
@@ -176,7 +200,7 @@ pub fn variables(src: &str) -> Vec<VarInfo> {
                         .map(|n| (v.range.start, n)),
                 ),
                 // Un code QR littéral n'a rien à remplir.
-                None if v.name.starts_with(QR) => {}
+                None if v.name.starts_with(QR) || v.name.starts_with(SIGNATURE) => {}
                 None => found.push((v.range.start, v.name)),
             }
         }

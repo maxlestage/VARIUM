@@ -18,7 +18,7 @@ version en ligne : vos documents restent sur votre ordinateur.
   mode d'emploi sur la [page Installer](https://maxlestage.github.io/VARIUM/installer/)
 - **Depuis les sources** : `cargo install --git https://github.com/maxlestage/VARIUM varium --locked`, puis `varium`
 
-Une nouvelle version se publie en poussant un tag : `git tag v0.6.0 && git push origin v0.6.0`.
+Une nouvelle version se publie en poussant un tag : `git tag v0.7.0 && git push origin v0.7.0`.
 Le workflow `.github/workflows/release.yml` compile alors les trois binaires et les joint à
 la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
 
@@ -69,11 +69,54 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   (restaurée après un plantage ou une coupure).
 - **Vue page** : de vraies feuilles A4, A5, Lettre ou Légal, en portrait ou en paysage,
   avec marges, en-tête, pied de page, numéros « Page 1 sur 3 », pagination
-  automatique et zoom. Police Liberation Serif ou Sans, celles de LibreOffice.
+  automatique (veuves et orphelines, notes de bas de page en bas de leur page) et zoom ;
+  la même mise en page que le PDF. Police Liberation Serif ou Sans, celles de LibreOffice.
+  **Vignettes des pages** dans une barre latérale (Affichage → Vignettes des pages),
+  comme Pages : un clic mène à la page.
+- **Mise en forme du paragraphe** (inspecteur Format → Paragraphe) : retraits, alinéa,
+  interligne (simple, 1,15, 1,5, double, exact), espaces avant et après, couleur du
+  texte et surlignage ; dans tous les exports.
+- **Signature manuscrite** (Insertion → Signature…) : dessinée à la souris ou au pavé
+  tactile (trait lissé), gardée sur l'ordinateur pour la réutiliser ou intégrée au
+  document ; en traits vectoriels dans la page et le PDF, en SVG en HTML, en image en
+  ODT, DOCX et RTF.
 - **Éditeur mis en forme** : le gras s'affiche en gras, les titres en grand, les marques
   restent discrètes.
 - **Rechercher et remplacer**, **annuler et rétablir**, **barre d'état** (pages, mots,
   caractères, champs, zoom).
+
+**Ouvrir Word et LibreOffice, réviser à plusieurs**
+
+- **Ouvrir .docx et .odt** (Fichier → Ouvrir, glisser-déposer, palette, documents récents) :
+  titres, paragraphes, gras, italique, souligné, barré, listes à plusieurs niveaux
+  (puces et numéros), tableaux (en-tête, alignement des colonnes), liens, alignement,
+  sauts de page, notes de bas de page (`[^1]`), table des matières (`\sommaire`), format
+  du papier, orientation, marges, police, langue, en-tête et pied de page (numéros de
+  page). Les images ne sont pas importées : un commentaire marque leur place. Les
+  commentaires et modifications suivies de Word ou de LibreOffice deviennent des marques
+  de révision. Enregistrer crée un document Varium, l'original n'est jamais réécrit ;
+  un fichier abîmé donne un message clair, jamais un plantage.
+- **Commentaires et suivi des modifications** (Outils → Révision, onglet « Modifications »
+  de l'inspecteur) : « Suivre les modifications » marque ce que vous tapez (`{++ajout++}`,
+  `{--suppression--}`, `{~~ancien~>nouveau~~}`), signé de votre nom et de la date ;
+  « Commenter la sélection » (`{==passage==}{>>remarque<<}`) ; Accepter / Refuser chaque
+  marque, Tout accepter / Tout refuser, aller au texte. Les marques sont colorées dans
+  l'éditeur. Les exports montrent la version finale (ou les marques, en option : ajouts
+  soulignés, suppressions barrées, commentaires en notes).
+- **Modèles intelligents** : Fichier → « Créer un modèle à partir de ce document » repère
+  les dates, montants, e-mails et noms (Détecter les champs), vide les champs et prépare
+  une question par champ (« Quel est le nom du client ? »), dans la galerie de vos
+  modèles. « Nouveau à partir d'un modèle » (et l'accueil) pose ensuite les questions une
+  à une — progression, Précédent / Suivant, saisie adaptée (calendrier, montant, liste de
+  choix, oui/non) — puis écrit le document. Six **lettres types** fournies en six
+  langues : résiliation, réclamation, relance de facture, attestation d'emploi, demande
+  de congés, lettre de motivation.
+- **Badge « 3 champs possibles »** dans la barre d'état quand on colle ou ouvre un texte qui
+  contient des dates, montants, e-mails ou noms répétés : un clic ouvre la détection.
+- **Lire à voix haute** (Outils) : la sélection, ou le document depuis le curseur, lue par
+  la synthèse vocale du système (`say` sur macOS avec une voix de la langue du document,
+  `espeak-ng`, `espeak` ou `spd-say` sous Linux, PowerShell sous Windows), phrase par
+  phrase, la phrase lue surlignée ; Pause / Reprendre / Arrêter dans la barre d'état.
 
 **Comme Pages, et natif sur Mac**
 
@@ -118,7 +161,7 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   pour les gros caractères. Le choix est mémorisé.
 - **Typographie française automatique** : « guillemets », apostrophe ’, …, espaces fines
   avant ; : ! ? (désactivable dans Document).
-- **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur) : polices Times/Helvetica, texte justifié, titres, listes, tableaux coupés entre pages, en-tête, pied de page et « Page X sur N », et un plan de signets (un par titre) dans le lecteur PDF, et des liens cliquables (adresses `http`, `https`, `mailto`). Les caractères hors latin-1/WinAnsi (formules exotiques, émojis) sont remplacés par `?` ; l'incorporation des polices est prévue.
+- **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur), avec la même mise en page que la vue page : polices Liberation **incorporées** (sous-ensemble TrueType, plus une police de secours pour les symboles et les émojis : tout le texte Unicode s'affiche et se copie), flux compressés, texte justifié, titres, listes, tableaux coupés entre pages, **notes de bas de page** en bas de leur page, **formules composées** (fractions, indices, racines, sommes et intégrales avec bornes, matrices), signatures en traits vectoriels, en-tête, pied de page et « Page X sur N », table des matières avec numéros de page et liens vers les titres, plan de signets, liens cliquables (adresses `http`, `https`, `mailto`), métadonnées (titre, auteur, langue, XMP).
 - **Exports Pages** : RTF (Pages, TextEdit) et EPUB (livre numérique), en plus de PDF,
   DOCX, ODT, HTML, LaTeX et texte.
 - **Sur macOS** : menus dans la barre de l'écran (Varium, Fichier, Édition, Insertion,
@@ -221,7 +264,7 @@ Le tout suit le chemin de base (`/VARIUM` sur GitHub Pages) et n'utilise aucun s
 | `{{x \| number:2}}` | `3,14` |
 | `{{t \| default:"texte"}}` | valeur par défaut si le champ est vide |
 | `\{{nom}}` | accolades littérales |
-| `$E = mc^2$`, `$$ \sum_i x_i $$` | formules LaTeX |
+| `$E = mc^2$`, `$$ \sum_i x_i $$` | formules LaTeX, composées dans la page et le PDF (MathML en HTML/EPUB/ODT, formules Word en DOCX) |
 | `\$` | dollar littéral |
 | `{{= quantité * prix \| money}}` | champ calculé (`+ - * / ( )`, `20%`, `arrondi(x; 2)`, `min`, `max`, `somme`) |
 | `{{si champ}}…{{sinon}}…{{fin}}` | texte conditionnel (champ renseigné, `si non`, `=`, `!=`) |
@@ -237,6 +280,13 @@ Le tout suit le chemin de base (`/VARIUM` sur GitHub Pages) et n'utilise aucun s
 | `\| a \| b \|` puis `\|---\|---:\|` | tableau, en-tête et alignement des colonnes |
 | `---` | ligne horizontale |
 | `\newpage` | saut de page |
-| `\sommaire` | table des matières (liste des titres, générée) |
-| `\note{texte}` | note numérotée `[1]`, rassemblée en fin de document |
-| `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |
+| `{: retrait=1cm alinéa=5mm interligne=1,5 avant=6pt après=6pt} texte` | mise en forme du paragraphe : retraits (`retrait=`, `droite=`, `alinéa=` négatif pour un retrait suspendu ; cm par défaut, aussi `mm`, `pt`, `in`), interligne (`simple`, `1,15`, `1,5`, `double`, `exact:14pt`), espaces avant et après (pt), `couleur=`, `surlignage=` ; se combine avec `#`, `-`, `->` |
+| `{: interligne=double}` seul sur sa ligne, puis `{:}` | la même mise en forme pour tous les paragraphes suivants, puis retour à la normale |
+| `{couleur:rouge}texte{/}`, `{surlignage:vert}texte{/}`, `==surligné==` | couleur du texte et surlignage (noir, gris, rouge, orange, jaune, vert, turquoise, cyan, bleu, violet, magenta, rose, marron ou `#rrggbb`) |
+| `\sommaire` | table des matières : titres, points de conduite, numéros de page, liens |
+| `texte[^1]` puis `[^1]: la note`, `^[note en ligne]`, `\note{texte}` | notes de bas de page numérotées, en bas de la page de leur appel (vraies notes en ODT et DOCX, notes de fin en HTML et EPUB) |
+| `{{signature}}`, `{{signature:nom}}` | signature manuscrite (Insertion → Signature…) |
+| `\*`, `\_`, `\~`, `\|`, `\#`, `\>`, `\=`, `\{` | caractère littéral |
+| `{++ajout++}`, `{--retrait--}` | modification suivie (absente des exports : version finale) |
+| `{~~ancien~>nouveau~~}` | remplacement proposé |
+| `{==passage==}{>>remarque<<}`, `{>>remarque<<}` | commentaire (« auteur · date : remarque ») |

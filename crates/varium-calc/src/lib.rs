@@ -42,11 +42,24 @@
 //! formats (valeurs, formules traduites, formats, largeurs, règles, volets) ;
 //! un fichier abîmé donne une erreur en français.
 //!
+//! # Outils
+//!
+//! Tableaux croisés dynamiques ([`PivotTable`]), questions en langage simple
+//! avec périodes, classements et comparaisons ([`Workbook::ask_in`]),
+//! modèles prêts à l'emploi ([`templates`], [`Workbook::from_template`]),
+//! import de relevés bancaires ([`Workbook::import_bank_statement`]),
+//! plannings de Gantt ([`Workbook::make_gantt`]), conversions d'unités et de
+//! monnaies (`CONVERTIR`, `DEVISE`, [`RatesTable`]). Les libellés écrits et
+//! les messages du moteur existent dans les six langues de l'interface
+//! ([`loc`], [`message_in`]).
+//!
 //! Les dates sont des numéros de série comptés depuis le 30/12/1899, comme
 //! dans les tableurs.
 
 mod analysis;
+mod bank;
 mod cond;
+mod convert;
 mod csv;
 mod eval;
 mod explain;
@@ -54,16 +67,20 @@ mod filter;
 mod flash;
 mod format;
 mod functions;
+mod gantt;
+mod i18n;
 mod import;
 mod lexer;
 mod ods;
 mod ods_read;
 mod parser;
 mod paste;
+mod pivot;
 mod question;
 mod refs;
 mod rewrite;
 mod sample;
+mod templates;
 mod value;
 mod workbook;
 mod xlsx;
@@ -72,7 +89,11 @@ mod xml;
 mod xmltree;
 
 pub use analysis::{DataShape, QuickFormat, QuickTotal};
+pub use bank::{
+    BankImport, CATEGORIES, CategoryRule, Transaction, categorize, default_rules, parse_statement,
+};
 pub use cond::{CompareOp, CondFormat, CondFormatter, CondPaint, CondRule, CondStyle};
+pub use convert::{ECB_DAILY_URL, Quantity, RatesTable, convert, parse_ecb_xml, unit_quantity};
 pub use explain::{BinOp, ErrorCause, FormulaNode};
 pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
 pub use flash::{FlashProgram, autocomplete, flash_fill};
@@ -81,12 +102,20 @@ pub use format::{
     format_number, format_value, parse_number, serial_to_ymd, today_serial,
 };
 pub use functions::{FunctionCategory, FunctionInfo, function_info, functions};
+pub use gantt::{GanttColumns, GanttError, GanttTask};
+pub use i18n::{loc, message_in, month_name};
 pub use parser::check_formula;
 pub use paste::{PasteOptions, PasteSource, PasteWhat, parse_table, smart_input};
-pub use question::{Answer, MAX_GROUPS, Operation, QuestionError};
+pub use pivot::{
+    PivotAgg, PivotCell, PivotError, PivotField, PivotFilter, PivotGroup, PivotTable, PivotValue,
+};
+pub use question::{Answer, MAX_GROUPS, Operation, Period, QuestionError};
 pub use refs::{CellRef, MAX_COLS, MAX_ROWS, Range, col_index, col_name, quote_sheet_name};
 pub use rewrite::{shift_formula, translate_to_english};
+pub use templates::{TemplateInfo, templates};
 pub use value::{CalcError, Value};
+pub use varium_core::Lang;
 pub use workbook::{
-    Cell, Clip, ClipCell, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_SHEET_NAME, Sheet, Workbook,
+    Cell, Clip, ClipCell, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_SHEET_NAME, Sheet, SheetChart,
+    Workbook,
 };

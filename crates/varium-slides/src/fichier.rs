@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
-use crate::{Deck, Frame, Layout, Media, Object, Slide};
+use crate::{Deck, Frame, Gradient, GradientStop, Layout, Media, Object, Slide};
 
 /// Nom du format, écrit dans le champ `format` du fichier.
 pub const FORMAT: &str = "varium-slides";
@@ -226,4 +226,52 @@ pub(crate) fn duree<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f32>, D::E
     Ok(valeur_nombre(&Value::deserialize(d)?)
         .filter(|x| *x > 0.0)
         .map(|x| x.min(86_400.0)))
+}
+
+/// Nombre nul (rotation absente), pour ne pas l'écrire dans le fichier.
+pub(crate) fn nul(v: &f32) -> bool {
+    *v == 0.0
+}
+
+/// Couleur obligatoire, écrite `"#rrggbb"`.
+pub(crate) fn couleur_seule<S: Serializer>(c: &[u8; 3], s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&crate::texte::hex_color(*c))
+}
+
+/// Dégradé : `{"radial": bool, "angle": nombre, "stops": [{"pos": 0, "color": "#…"}, …]}`
+/// (un arrêt peut aussi s'écrire `[pos, "#…"]`) ; absent s'il a moins de deux
+/// arrêts lisibles.
+pub(crate) fn degrade<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Gradient>, D::Error> {
+    Ok(valeur_degrade(&Value::deserialize(d)?))
+}
+
+fn valeur_degrade(v: &Value) -> Option<Gradient> {
+    let o = v.as_object()?;
+    let couleur = |v: &Value| match v {
+        Value::String(s) => crate::texte::parse_color(s),
+        _ => None,
+    };
+    let stops = o
+        .get("stops")?
+        .as_array()?
+        .iter()
+        .take(64)
+        .filter_map(|s| {
+            let (pos, color) = match s {
+                Value::Object(m) => (m.get("pos")?, m.get("color")?),
+                Value::Array(a) if a.len() == 2 => (&a[0], &a[1]),
+                _ => return None,
+            };
+            Some(GradientStop {
+                pos: valeur_nombre(pos)?,
+                color: couleur(color)?,
+            })
+        })
+        .collect();
+    Gradient {
+        radial: o.get("radial").and_then(Value::as_bool).unwrap_or(false),
+        angle: o.get("angle").and_then(valeur_nombre).unwrap_or(0.0),
+        stops,
+    }
+    .normalized()
 }
