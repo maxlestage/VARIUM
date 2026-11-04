@@ -33,7 +33,7 @@ pub const TEXTES: Textes = Textes {
                 "Titres, listes, tableaux et vraies pages A4, A5 ou Lettre",
                 "Champs {{…}} globaux, calculés et conditionnels, publipostage, détection automatique des champs",
                 "Barre d'outils façon Writer, inspecteur façon Pages",
-                "Exports PDF, DOCX, ODT, RTF, EPUB, HTML et LaTeX",
+                "Exports PDF, DOCX, ODT, RTF, EPUB, HTML et LaTeX, et un contrôle « Prêt à envoyer » avant le PDF",
                 "Orthographe dans six langues, avec de vrais dictionnaires Hunspell",
             ],
         },
