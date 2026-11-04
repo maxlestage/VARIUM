@@ -33,7 +33,7 @@ pub const TEXTES: Textes = Textes {
                 "Headings, lists, tables and real A4, A5 or Letter pages",
                 "Global, calculated and conditional {{…}} fields, mail merge, automatic field detection",
                 "A Writer-style toolbar and a Pages-style inspector",
-                "Export to PDF, DOCX, ODT, RTF, EPUB, HTML and LaTeX",
+                "Export to PDF, DOCX, ODT, RTF, EPUB, HTML and LaTeX, and a “Ready to send” check before the PDF",
                 "Spell checking in six languages, with real Hunspell dictionaries",
             ],
         },

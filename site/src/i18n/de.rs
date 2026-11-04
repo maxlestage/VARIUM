@@ -33,7 +33,7 @@ pub const TEXTES: Textes = Textes {
                 "Überschriften, Listen, Tabellen und echte Seiten in A4, A5 oder Letter",
                 "Globale, berechnete und bedingte {{…}}-Felder, Serienbriefe, automatische Felderkennung",
                 "Symbolleiste wie in Writer, Seitenleiste wie in Pages",
-                "Export als PDF, DOCX, ODT, RTF, EPUB, HTML und LaTeX",
+                "Export als PDF, DOCX, ODT, RTF, EPUB, HTML und LaTeX, plus Prüfung „Versandfertig“ vor dem PDF",
                 "Rechtschreibprüfung in sechs Sprachen, mit echten Hunspell-Wörterbüchern",
             ],
         },

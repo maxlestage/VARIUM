@@ -22,6 +22,7 @@ pub mod detection;
 pub mod diff;
 pub mod doc;
 pub mod docx;
+pub mod envoi;
 pub mod epub;
 pub mod export;
 pub mod filters;

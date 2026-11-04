@@ -97,6 +97,9 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Détection des champs à la volée — un petit badge « 3 champs possibles » dans la barre d'état quand on colle un document contenant dates et montants
 - [x] Idée : « Poser une question » par période, graphique du résultat, questions fréquentes — version 0.7.0
 - [x] Site installable (PWA) : manifestes par langue, hors ligne, icônes, favicon, partage, images sociales
+- [x] Export « prêt à envoyer » : contrôle avant envoi (champs vides, révision en attente) et PDF au nom de fichier propre (`envoi.rs`, Fichier → Prêt à envoyer…)
+- [ ] Idée : « Prêt à envoyer » étendu au courriel — préparer l'objet et le corps du message depuis le titre et le premier paragraphe, ouvrir le client de messagerie avec le PDF à joindre
+- [ ] Idée : « Le classeur se relit » — contrôle avant envoi du Classeur (cellules en erreur #REF!/#DIV/0!, formules incohérentes dans une colonne, doublons)
 - [ ] Tableau croisé : déplacer la sortie quand on insère des lignes ; vrai `table:data-pilot-table` en ODS
 - [ ] Mise en page : crénage, ligatures, césure ; polices CJK
 - [ ] Varium par défaut pour ses fichiers sous Windows et macOS (extensions propres plutôt que `.json`)
