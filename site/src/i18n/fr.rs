@@ -41,7 +41,7 @@ pub const TEXTES: Textes = Textes {
             genre: "Tableur",
             texte: "Des feuilles de calcul avec cellules, formules et graphiques.",
             points: [
-                "Cellules, formules et plusieurs feuilles par classeur",
+                "Cellules, formules et plusieurs feuilles par classeur, et des questions en langage simple",
                 "Fonctions en français ou en anglais\u{a0}: SOMME ou SUM, SI ou IF, RECHERCHEV ou VLOOKUP",
                 "Mise en forme conditionnelle, échelles de couleurs, barres de données et volets figés",
                 "Huit graphiques\u{a0}: barres, barres empilées, courbes, aires, secteurs, anneau, nuage de points",

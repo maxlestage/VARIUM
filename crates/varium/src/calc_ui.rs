@@ -10,9 +10,10 @@ use std::collections::BTreeMap;
 
 use egui::{Align2, Color32, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use varium_calc::{
-    BinOp, CalcError, CellFormat, CellRef, Clip, ColumnFilter, CompareOp, CondFormat, CondRule,
-    CondStyle, ErrorCause, FilterCondition, FormulaNode, FunctionCategory, FunctionInfo, HAlign,
-    NumberFormat, PasteOptions, PasteWhat, QuickFormat, QuickTotal, Range, Value, Workbook,
+    Answer, BinOp, CalcError, CellFormat, CellRef, Clip, ColumnFilter, CompareOp, CondFormat,
+    CondRule, CondStyle, ErrorCause, FilterCondition, FormulaNode, FunctionCategory, FunctionInfo,
+    HAlign, NumberFormat, Operation, PasteOptions, PasteWhat, QuestionError, QuickFormat,
+    QuickTotal, Range, Value, Workbook,
 };
 
 use crate::io::{Event, Io, OpenKind};
@@ -115,6 +116,8 @@ pub enum CalcAction {
     AutoFilter,
     /// Assistant de formule (Maj+F3).
     FormulaWizard,
+    /// Poser une question en langage simple (Ctrl+Maj+Q).
+    AskQuestion,
     /// Analyse rapide de la sélection (Ctrl+Q).
     QuickAnalysis,
     /// Mettre sous forme de tableau.
@@ -200,6 +203,8 @@ pub struct CalcApp {
     filter_popup: Option<FilterPopup>,
     /// Assistant de formule ouvert.
     wizard: Option<Wizard>,
+    /// Boîte « Poser une question ».
+    question: Option<QuestionDialog>,
     /// Info-bulle « formule en clair » au survol des cellules.
     explain_formulas: bool,
     /// Heure de l'image en cours (secondes).
@@ -243,6 +248,7 @@ impl CalcApp {
             qa_preview: None,
             filter_popup: None,
             wizard: None,
+            question: None,
             explain_formulas: true,
             now: 0.0,
         }
@@ -586,6 +592,7 @@ impl CalcApp {
         self.filter_popup_ui(&ctx);
         self.quick_analysis_ui(&ctx);
         self.wizard_ui(&ctx);
+        self.question_ui(&ctx);
         self.flash_hint_ui(&ctx);
         // Le système n'a rien donné à coller : la copie interne, s'il y en a une.
         if let Some((special, t)) = self.paste_request
@@ -719,6 +726,7 @@ impl CalcApp {
                 A::AutoFilter,
             );
             self.entry(ui, tr("Analyse rapide… (Ctrl+Q)"), A::QuickAnalysis);
+            self.entry(ui, tr("Poser une question… (Ctrl+Maj+Q)"), A::AskQuestion);
             ui.separator();
             self.entry(ui, tr("Somme automatique"), A::AutoSum);
             self.entry(ui, tr("Remplissage instantané (Ctrl+E)"), A::FlashFill);
@@ -837,6 +845,7 @@ impl CalcApp {
             }
             A::AutoFilter => self.toggle_auto_filter(),
             A::FormulaWizard => self.open_wizard(),
+            A::AskQuestion => self.open_question(),
             A::QuickAnalysis => self.open_quick_analysis(ctx, None),
             A::FormatAsTable => {
                 self.snapshot();
@@ -4051,6 +4060,184 @@ impl CalcApp {
     }
 }
 
+// ---------------------------------------------------------------- Poser une question
+
+/// Boîte « Poser une question » : une phrase simple devient des formules.
+struct QuestionDialog {
+    text: String,
+    focus: bool,
+    /// Dernier aperçu, avec ce qui l'a produit (texte, feuille, cellule).
+    cache: Option<(
+        String,
+        usize,
+        CellRef,
+        Result<QuestionPreview, QuestionError>,
+    )>,
+}
+
+/// Réponse prête à insérer, avec l'aperçu des cellules écrites.
+struct QuestionPreview {
+    answer: Answer,
+    target: CellRef,
+    /// Valeurs affichées, ligne par ligne.
+    shown: Vec<Vec<String>>,
+    grouped: bool,
+}
+
+fn operation_label(op: Operation) -> String {
+    match op {
+        Operation::Sum => tr("Total").to_string(),
+        Operation::Average => tr("Moyenne").to_string(),
+        Operation::Count => tr("Nombre").to_string(),
+        Operation::Max => tr("Maximum").to_string(),
+        Operation::Min => tr("Minimum").to_string(),
+        Operation::Median => tr("Médiane").to_string(),
+    }
+}
+
+fn question_error_text(e: &QuestionError) -> String {
+    match e {
+        QuestionError::Empty => {
+            tr("Écrivez une question, par exemple « total des ventes par région ».").to_string()
+        }
+        QuestionError::NoData => tr("La feuille ne contient pas encore de données à interroger.").to_string(),
+        QuestionError::NoOperation => tr(
+            "Je n'ai pas compris ce qu'il faut calculer. Essayez « total », « moyenne », « maximum », « minimum », « médiane » ou « combien ».",
+        ).to_string(),
+        QuestionError::NoColumn { columns } => trf!(
+            "Je n'ai pas trouvé la colonne. Colonnes disponibles : {liste}.",
+            liste = columns.join(", ")
+        ),
+        QuestionError::GroupedUnsupported => {
+            tr("Par groupe, je sais calculer le total, la moyenne et le nombre.").to_string()
+        }
+        QuestionError::TooManyGroups => {
+            tr("Trop de valeurs différentes pour un regroupement lisible.").to_string()
+        }
+    }
+}
+
+impl CalcApp {
+    fn open_question(&mut self) {
+        self.commit();
+        self.question = Some(QuestionDialog {
+            text: String::new(),
+            focus: true,
+            cache: None,
+        });
+    }
+
+    /// Traduit la question et prépare l'aperçu sur une copie du classeur.
+    fn question_preview(&self, text: &str) -> Result<QuestionPreview, QuestionError> {
+        let answer = self.wb.ask(self.sheet, text)?;
+        let (op, total) = (operation_label(answer.operation), tr("Total"));
+        let cells = answer.cells(&op, total);
+        let rows = cells.len() as u32;
+        let cols = cells.iter().map(Vec::len).max().unwrap_or(0) as u32;
+        let target = self.wb.free_spot(self.sheet, self.cur, rows, cols);
+        let mut copy = self.wb.clone();
+        let (rows, cols) = copy.apply_answer(self.sheet, target, &answer, &op, total);
+        let shown = (0..rows)
+            .map(|r| {
+                (0..cols)
+                    .map(|c| copy.display(self.sheet, CellRef::new(target.row + r, target.col + c)))
+                    .collect()
+            })
+            .collect();
+        Ok(QuestionPreview {
+            grouped: answer.formula.is_none(),
+            answer,
+            target,
+            shown,
+        })
+    }
+
+    fn question_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut d) = self.question.take() else {
+            return;
+        };
+        let key = (d.text.clone(), self.sheet, self.cur);
+        if d.cache
+            .as_ref()
+            .is_none_or(|(t, s, c, _)| (t, *s, *c) != (&key.0, key.1, key.2))
+        {
+            let r = self.question_preview(&d.text);
+            d.cache = Some((key.0, key.1, key.2, r));
+        }
+        let mut open = true;
+        let mut insert = false;
+        egui::Window::new(tr("Poser une question"))
+            .id(egui::Id::unique("calc-question"))
+            .open(&mut open)
+            .default_width(460.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label(tr(
+                    "Écrivez votre question en langage simple : Varium la traduit en formules.",
+                ));
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut d.text)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(tr("Ex. : total des ventes par région")),
+                );
+                if d.focus {
+                    resp.request_focus();
+                    d.focus = false;
+                }
+                let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                ui.label(
+                    RichText::new(tr(
+                        "Exemples : « moyenne de B », « combien de clients », « maximum des ventes », « total des ventes par région ».",
+                    ))
+                    .weak(),
+                );
+                ui.separator();
+                match d.cache.as_ref().map(|c| &c.3) {
+                    Some(Ok(p)) => {
+                        ui.label(trf!(
+                            "Résultat, écrit à partir de la cellule {cellule} :",
+                            cellule = p.target.name()
+                        ));
+                        egui::Grid::new("calc-question-preview")
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for (i, row) in p.shown.iter().enumerate() {
+                                    for cell in row {
+                                        let t = RichText::new(cell);
+                                        ui.label(if p.grouped && i == 0 { t.strong() } else { t });
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                        if ui.button(tr("Insérer")).clicked() || enter {
+                            insert = true;
+                        }
+                    }
+                    Some(Err(e)) if !d.text.trim().is_empty() => {
+                        ui.colored_label(Color32::from_rgb(0xD0, 0x30, 0x2A), question_error_text(e));
+                    }
+                    _ => {}
+                }
+            });
+        if insert && let Some((_, _, _, Ok(p))) = d.cache.take() {
+            self.snapshot();
+            let (op, total) = (operation_label(p.answer.operation), tr("Total"));
+            let (rows, cols) = self
+                .wb
+                .apply_answer(self.sheet, p.target, &p.answer, &op, total);
+            self.cur = p.target;
+            self.anchor = CellRef::new(
+                (p.target.row + rows - 1).min(varium_calc::MAX_ROWS - 1),
+                (p.target.col + cols - 1).min(varium_calc::MAX_COLS - 1),
+            );
+            return;
+        }
+        if open {
+            self.question = Some(d);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Mise en forme conditionnelle
 
 /// État de la boîte « Mise en forme conditionnelle ».
@@ -5089,6 +5276,11 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &sep(),
             &b.item(tr("Filtre automatique"), A::AutoFilter, Some("Cmd+Shift+L")),
             &b.item(tr("Analyse rapide…"), A::QuickAnalysis, None),
+            &b.item(
+                tr("Poser une question…"),
+                A::AskQuestion,
+                Some("Cmd+Shift+Q"),
+            ),
             &sep(),
             &b.item(tr("Somme automatique"), A::AutoSum, Some("Cmd+Shift+T")),
         ],
@@ -5378,6 +5570,13 @@ impl CalcApp {
                 n_("Analyse rapide…"),
                 donnees,
                 Some(K::new(M::CTRL, Key::Q)),
+                false,
+            ),
+            (
+                A::AskQuestion,
+                n_("Poser une question…"),
+                donnees,
+                Some(K::new(cmd_shift, Key::Q)),
                 false,
             ),
         ];
