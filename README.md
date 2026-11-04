@@ -18,7 +18,7 @@ version en ligne : vos documents restent sur votre ordinateur.
   mode d'emploi sur la [page Installer](https://maxlestage.github.io/VARIUM/installer/)
 - **Depuis les sources** : `cargo install --git https://github.com/maxlestage/VARIUM varium --locked`, puis `varium`
 
-Une nouvelle version se publie en poussant un tag : `git tag v0.5.0 && git push origin v0.5.0`.
+Une nouvelle version se publie en poussant un tag : `git tag v0.6.0 && git push origin v0.6.0`.
 Le workflow `.github/workflows/release.yml` compile alors les trois binaires et les joint à
 la Release GitHub (il se lance aussi à la main depuis l'onglet Actions).
 
