@@ -60,6 +60,7 @@ mod ods;
 mod ods_read;
 mod parser;
 mod paste;
+mod question;
 mod refs;
 mod rewrite;
 mod sample;
@@ -82,6 +83,7 @@ pub use format::{
 pub use functions::{FunctionCategory, FunctionInfo, function_info, functions};
 pub use parser::check_formula;
 pub use paste::{PasteOptions, PasteSource, PasteWhat, parse_table, smart_input};
+pub use question::{Answer, MAX_GROUPS, Operation, QuestionError};
 pub use refs::{CellRef, MAX_COLS, MAX_ROWS, Range, col_index, col_name, quote_sheet_name};
 pub use rewrite::{shift_formula, translate_to_english};
 pub use value::{CalcError, Value};

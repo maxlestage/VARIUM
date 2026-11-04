@@ -84,7 +84,8 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Présentation : Embellir et Harmoniser, mode plan, présentation depuis un texte ou un e-mail, répétition minutée et avance automatique, pointeur laser, stylo, zoom, grille, polycopiés PDF et export PNG — version 0.6.0
 - [ ] Modèles intelligents qui posent les questions puis remplissent le document
 - [x] Détection automatique des champs dans un document existant (dates, montants, e-mails, téléphones, noms répétés ; `detection.rs`, Outils → Détecter les champs…) — « Détecter les champs »
-- [ ] Classeur : tableau croisé dynamique en glisser-déposer ; « Poser une question » en langage simple sur les données
+- [x] Classeur : « Poser une question » en langage simple (`question.rs`, Données → Poser une question…, Ctrl+Maj+Q ; total, moyenne, nombre, max, min, médiane, par groupe) — « Poser une question »
+- [ ] Classeur : tableau croisé dynamique en glisser-déposer
 - [ ] Signature manuscrite dessinée à la souris ; lecture à voix haute (synthèse vocale du système)
 - [ ] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation
 - [x] Thèmes d'interface (automatique, clair, sombre, sépia, contraste élevé) et zoom de l'interface (`apparence.rs`, bouton 🎨) — « Apparence de l'interface »
@@ -92,3 +93,4 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Idée : « Découper en modèle » — à partir d'un document détecté, enregistrer le modèle (champs vides + questions) dans la galerie de modèles, et proposer d'en refaire un nouveau en répondant aux questions
 - [ ] Idée : « Apparence selon l'heure » — bascule automatique en sépia/sombre le soir, et thème par module mémorisé
 - [ ] Idée : détection des champs à la volée — un petit badge « 3 champs possibles » dans la barre d'état quand on colle un document contenant dates et montants
+- [ ] Idée : « Poser une question » par période (« total par mois », « par trimestre ») à partir d'une colonne de dates, avec proposition d'un graphique du résultat ; et mémoire des questions fréquentes dans la palette de commandes

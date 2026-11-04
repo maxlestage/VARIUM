@@ -41,7 +41,7 @@ pub const TEXTES: Textes = Textes {
             genre: "Tabellenkalkulation",
             texte: "Tabellen mit Zellen, Formeln und Diagrammen.",
             points: [
-                "Zellen, Formeln und mehrere Tabellenblätter pro Arbeitsmappe",
+                "Zellen, Formeln und mehrere Tabellenblätter pro Arbeitsmappe, dazu Fragen in einfachen Worten",
                 "Funktionen auf Französisch oder Englisch: SOMME oder SUM, SI oder IF, RECHERCHEV oder VLOOKUP",
                 "Bedingte Formatierung, Farbskalen, Datenbalken und fixierte Zeilen und Spalten",
                 "Acht Diagramme: Balken, gestapelte Balken, Linien, Flächen, Kreis, Ring, Punkte (XY)",
