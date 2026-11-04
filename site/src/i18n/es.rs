@@ -257,6 +257,10 @@ pub const TEXTES: Textes = Textes {
             effet: "un índice generado a partir de los títulos",
         },
         Ligne {
+            code: "\\note{texte}",
+            effet: "una nota numerada [1], reunida al final del documento",
+        },
+        Ligne {
             code: "$E = mc^2$, $$ \\sum_i x_i $$",
             effet: "fórmulas LaTeX, en línea o centradas",
         },
