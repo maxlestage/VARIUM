@@ -15,6 +15,7 @@
 //! | `---` | ligne horizontale |
 //! | `\newpage` | saut de page |
 //! | `\sommaire` | table des matières (liste des titres, générée) |
+//! | `\note{texte}` | note numérotée `[1]`, rassemblée en fin de document |
 //! | `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |
 
 use crate::render::{Block, Piece, Values, blocks, render_pieces};
@@ -350,6 +351,8 @@ pub fn document(src: &str, values: &Values) -> Vec<Para> {
     let mut out = Vec::new();
     // Positions des `\sommaire`, remplies une fois tous les titres connus.
     let mut sommaires: Vec<usize> = Vec::new();
+    // Notes (`\note{…}`), dans l'ordre d'apparition.
+    let mut notes: Vec<Vec<Item>> = Vec::new();
     let mut lines = lines(src, values).into_iter().peekable();
     while let Some(line) = lines.next() {
         let items = match line {
@@ -357,7 +360,7 @@ pub fn document(src: &str, values: &Values) -> Vec<Para> {
                 out.push(Para::Math { tex: t });
                 continue;
             }
-            Line::Items(items) => items,
+            Line::Items(items) => extraire_notes(items, &mut notes),
         };
 
         // Tableau : lignes consécutives qui commencent et finissent par `|`.
@@ -369,9 +372,9 @@ pub fn document(src: &str, values: &Values) -> Vec<Para> {
                     break;
                 }
                 let Some(Line::Items(next)) = lines.next() else {
-                    unreachable!()
+                    break;
                 };
-                rows.push(next);
+                rows.push(extraire_notes(next, &mut notes));
             }
             for (i, row) in rows.into_iter().enumerate() {
                 if let Some(aligns) = text_only(&row).as_deref().and_then(separator_aligns) {
@@ -404,7 +407,100 @@ pub fn document(src: &str, values: &Values) -> Vec<Para> {
             out.splice(pos..=pos, toc.iter().cloned());
         }
     }
+    ajouter_notes(&mut out, notes);
     out
+}
+
+/// Remplace chaque `\note{…}` de la ligne par son numéro `[n]` et range le
+/// contenu de la note (champs compris) dans `notes`. Une note jamais fermée
+/// reste du texte ordinaire.
+fn extraire_notes(items: Vec<Item>, notes: &mut Vec<Vec<Item>>) -> Vec<Item> {
+    const DEBUT: &str = "\\note{";
+    if !items
+        .iter()
+        .any(|i| matches!(i, Item::Text(t) if t.contains(DEBUT)))
+    {
+        return items;
+    }
+    let mut out: Vec<Item> = Vec::new();
+    // Contenu de la note en cours de lecture, avec la sortie à restaurer si elle n'est pas fermée.
+    let mut cours: Option<Vec<Item>> = None;
+    let fin_cours = |out: &mut Vec<Item>, cours: &mut Option<Vec<Item>>| {
+        if let Some(c) = cours.take() {
+            out.push(Item::Text(DEBUT.to_string()));
+            out.extend(c);
+        }
+    };
+    for item in items {
+        let Item::Text(mut t) = item else {
+            match cours.as_mut() {
+                Some(c) => c.push(item),
+                None => out.push(item),
+            }
+            continue;
+        };
+        loop {
+            match cours.as_mut() {
+                None => match t.find(DEBUT) {
+                    Some(i) => {
+                        if i > 0 {
+                            out.push(Item::Text(t[..i].to_string()));
+                        }
+                        t = t[i + DEBUT.len()..].to_string();
+                        cours = Some(Vec::new());
+                    }
+                    None => {
+                        if !t.is_empty() {
+                            out.push(Item::Text(t));
+                        }
+                        break;
+                    }
+                },
+                Some(c) => match t.find('}') {
+                    Some(i) => {
+                        if i > 0 {
+                            c.push(Item::Text(t[..i].to_string()));
+                        }
+                        let contenu = cours.take().unwrap_or_default();
+                        notes.push(contenu);
+                        out.push(Item::Text(format!("[{}]", notes.len())));
+                        t = t[i + 1..].to_string();
+                    }
+                    None => {
+                        if !t.is_empty() {
+                            c.push(Item::Text(t));
+                        }
+                        break;
+                    }
+                },
+            }
+        }
+    }
+    fin_cours(&mut out, &mut cours);
+    out
+}
+
+/// Ajoute en fin de document la liste des notes : un filet, « Notes » en gras
+/// puis un paragraphe `[n] texte` par note.
+fn ajouter_notes(out: &mut Vec<Para>, notes: Vec<Vec<Item>>) {
+    if notes.is_empty() {
+        return;
+    }
+    out.push(Para::Rule);
+    out.push(Para::Text {
+        align: Align::Left,
+        runs: vec![Run::Text {
+            text: "Notes".to_string(),
+            style: Style {
+                bold: true,
+                ..Style::default()
+            },
+        }],
+    });
+    for (i, mut contenu) in notes.into_iter().enumerate() {
+        contenu.insert(0, Item::Text(format!("[{}] ", i + 1)));
+        out.push(paragraph(contenu));
+    }
 }
 
 /// Table des matières : un titre en gras puis un élément de liste par titre du
@@ -960,5 +1056,60 @@ mod tests {
         let s = stats(&doc("Deux mots\n\n- trois mots ici"));
         assert_eq!(s.words, 5);
         assert_eq!(s.paragraphs, 2);
+    }
+}
+
+#[cfg(test)]
+mod tests_notes {
+    use super::*;
+
+    fn textes(doc: &[Para]) -> Vec<String> {
+        doc.iter().map(Para::plain).collect()
+    }
+
+    #[test]
+    fn note_numerotee_et_rassemblee_en_fin() {
+        let doc = document(
+            "Un mot\\note{première} puis\\note{seconde}.\nFin",
+            &Values::default(),
+        );
+        let t = textes(&doc);
+        assert_eq!(t[0], "Un mot[1] puis[2].");
+        assert_eq!(t[1], "Fin");
+        assert!(t.contains(&"Notes".to_string()));
+        assert_eq!(t[t.len() - 2], "[1] première");
+        assert_eq!(t[t.len() - 1], "[2] seconde");
+    }
+
+    #[test]
+    fn note_avec_champ_et_mise_en_forme() {
+        let mut v = Values::default();
+        v.set("nom", "Zoé");
+        let doc = document("Texte\\note{vu par **{{nom}}**}", &v);
+        let t = textes(&doc);
+        assert_eq!(t[t.len() - 1], "[1] vu par Zoé");
+        let runs = doc[doc.len() - 1].runs();
+        assert!(runs.iter().any(|r| r.style().bold && r.plain() == "Zoé"));
+    }
+
+    #[test]
+    fn note_non_fermee_reste_du_texte() {
+        let doc = document("a \\note{jamais fermée {{x}}", &Values::default());
+        assert_eq!(doc.len(), 1);
+        assert!(doc[0].plain().starts_with("a \\note{jamais fermée"));
+    }
+
+    #[test]
+    fn sans_note_pas_de_section() {
+        let doc = document("rien", &Values::default());
+        assert_eq!(doc.len(), 1);
+    }
+
+    #[test]
+    fn notes_unicode_et_vides() {
+        let doc = document("é\\note{}ü\\note{日本}\\note{", &Values::default());
+        let t = textes(&doc);
+        assert!(t.iter().any(|l| l == "[1] "));
+        assert!(t.iter().any(|l| l == "[2] 日本"));
     }
 }
