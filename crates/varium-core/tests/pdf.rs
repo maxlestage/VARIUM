@@ -370,6 +370,21 @@ fn entrees_aleatoires_sans_panique() {
         " <-",
         "$x^2$",
         "$$\\frac{a}{b}$$",
+        "$\\sqrt[3]{x}_i^{\\sum}$",
+        "{: retrait=2cm interligne=exact:30pt avant=40pt} ",
+        "{: alinéa=-3cm}\n",
+        "{:}\n",
+        "[^1]",
+        "\n[^1]: la note\n",
+        "^[en ligne]",
+        "{couleur:rouge}",
+        "{surlignage:#00f}",
+        "{/}",
+        "==",
+        "\n\\sommaire\n",
+        "{{signature}}",
+        "{{signature:absente}}",
+        "{{qr:x}}",
     ];
     let mut e = 0x1234_5678_9abc_def0u64;
     for _ in 0..300 {
@@ -381,8 +396,16 @@ fn entrees_aleatoires_sans_panique() {
             let r = e.wrapping_mul(0x2545_F491_4F6C_DD1D);
             src.push_str(morceaux[(r % morceaux.len() as u64) as usize]);
         }
-        let o = pdf("t", &[rendu(&src, &page)], &page, &f);
+        let r = rendu(&src, &page);
+        let o = pdf("t", std::slice::from_ref(&r), &page, &f);
         assert!(valider(&o) >= 1, "source : {src:?}");
+        let d = [r];
+        let _ = varium_core::odt::odt("t", &d, &page);
+        let _ = varium_core::docx::docx("t", &d, &page);
+        let _ = varium_core::epub::epub("t", &d, &page);
+        let _ = varium_core::rtf::rtf(&d, &page);
+        let _ = varium_core::export::html("t", &d, &page);
+        let _ = varium_core::export::latex("t", &d, &page);
     }
 }
 

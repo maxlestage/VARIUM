@@ -172,7 +172,7 @@ pub fn rtf(docs: &[Rendered], page: &PageSetup) -> String {
     };
     let para = |f: &ParaFormat, extra: &str, content: &str| {
         format!(
-            "\\pard{}{extra}{}\\f0\\fs{size} {content}\\par\n",
+            "\\pard\\plain{}{extra}{}\\f0\\fs{size} {content}\\par\n",
             interligne(f),
             format_para(f)
         )
@@ -222,7 +222,7 @@ pub fn rtf(docs: &[Rendered], page: &PageSetup) -> String {
                     let hs =
                         (size as f32 * [1.6, 1.35, 1.15][(*level as usize).clamp(1, 3) - 1]) as i32;
                     corps.push_str(&format!(
-                        "\\pard\\sb240\\sa120\\keepn\\outlinelevel{}{}\\f0\\fs{hs}\\b {}\\b0\\par\n",
+                        "\\pard\\plain\\sb240\\sa120\\keepn\\outlinelevel{}{}\\f0\\fs{hs}\\b {}\\b0\\par\n",
                         (*level as i32 - 1).clamp(0, 8),
                         format_para(&f),
                         runs(r, d, &mut c)
@@ -265,7 +265,7 @@ pub fn rtf(docs: &[Rendered], page: &PageSetup) -> String {
                             let cell = row.get(k).map(|r| runs(r, d, &mut c)).unwrap_or_default();
                             let b = if ri == 0 && t.header { "\\b" } else { "" };
                             corps.push_str(&format!(
-                                "\\pard\\intbl{}{b}\\f0\\fs{size} {cell}\\cell ",
+                                "\\pard\\plain\\intbl{}{b}\\f0\\fs{size} {cell}\\cell ",
                                 align(t.align(k))
                             ));
                         }

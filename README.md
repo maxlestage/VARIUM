@@ -85,6 +85,39 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
 - **Rechercher et remplacer**, **annuler et rétablir**, **barre d'état** (pages, mots,
   caractères, champs, zoom).
 
+**Ouvrir Word et LibreOffice, réviser à plusieurs**
+
+- **Ouvrir .docx et .odt** (Fichier → Ouvrir, glisser-déposer, palette, documents récents) :
+  titres, paragraphes, gras, italique, souligné, barré, listes à plusieurs niveaux
+  (puces et numéros), tableaux (en-tête, alignement des colonnes), liens, alignement,
+  sauts de page, notes de bas de page (`[^1]`), table des matières (`\sommaire`), format
+  du papier, orientation, marges, police, langue, en-tête et pied de page (numéros de
+  page). Les images ne sont pas importées : un commentaire marque leur place. Les
+  commentaires et modifications suivies de Word ou de LibreOffice deviennent des marques
+  de révision. Enregistrer crée un document Varium, l'original n'est jamais réécrit ;
+  un fichier abîmé donne un message clair, jamais un plantage.
+- **Commentaires et suivi des modifications** (Outils → Révision, onglet « Modifications »
+  de l'inspecteur) : « Suivre les modifications » marque ce que vous tapez (`{++ajout++}`,
+  `{--suppression--}`, `{~~ancien~>nouveau~~}`), signé de votre nom et de la date ;
+  « Commenter la sélection » (`{==passage==}{>>remarque<<}`) ; Accepter / Refuser chaque
+  marque, Tout accepter / Tout refuser, aller au texte. Les marques sont colorées dans
+  l'éditeur. Les exports montrent la version finale (ou les marques, en option : ajouts
+  soulignés, suppressions barrées, commentaires en notes).
+- **Modèles intelligents** : Fichier → « Créer un modèle à partir de ce document » repère
+  les dates, montants, e-mails et noms (Détecter les champs), vide les champs et prépare
+  une question par champ (« Quel est le nom du client ? »), dans la galerie de vos
+  modèles. « Nouveau à partir d'un modèle » (et l'accueil) pose ensuite les questions une
+  à une — progression, Précédent / Suivant, saisie adaptée (calendrier, montant, liste de
+  choix, oui/non) — puis écrit le document. Six **lettres types** fournies en six
+  langues : résiliation, réclamation, relance de facture, attestation d'emploi, demande
+  de congés, lettre de motivation.
+- **Badge « 3 champs possibles »** dans la barre d'état quand on colle ou ouvre un texte qui
+  contient des dates, montants, e-mails ou noms répétés : un clic ouvre la détection.
+- **Lire à voix haute** (Outils) : la sélection, ou le document depuis le curseur, lue par
+  la synthèse vocale du système (`say` sur macOS avec une voix de la langue du document,
+  `espeak-ng`, `espeak` ou `spd-say` sous Linux, PowerShell sous Windows), phrase par
+  phrase, la phrase lue surlignée ; Pause / Reprendre / Arrêter dans la barre d'état.
+
 **Comme Pages, et natif sur Mac**
 
 - **Inspecteur** à droite, comme dans Pages : onglets Format (styles de paragraphe,
@@ -242,3 +275,6 @@ Déploiement du serveur (Heroku, Docker) : voir
 | `texte[^1]` puis `[^1]: la note`, `^[note en ligne]`, `\note{texte}` | notes de bas de page numérotées, en bas de la page de leur appel (vraies notes en ODT et DOCX, notes de fin en HTML et EPUB) |
 | `{{signature}}`, `{{signature:nom}}` | signature manuscrite (Insertion → Signature…) |
 | `\*`, `\_`, `\~`, `\|`, `\#`, `\>`, `\=`, `\{` | caractère littéral |
+| `{++ajout++}`, `{--retrait--}` | modification suivie (absente des exports : version finale) |
+| `{~~ancien~>nouveau~~}` | remplacement proposé |
+| `{==passage==}{>>remarque<<}`, `{>>remarque<<}` | commentaire (« auteur · date : remarque ») |
