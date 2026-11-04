@@ -348,6 +348,62 @@ impl Suite {
                 .unwrap_or_default()
         };
         let mut out = Vec::new();
+        // Les actions des trois modules : celles du module actif d'abord ; une action
+        // d'un autre module y bascule avant de s'exécuter.
+        let actif = if self.show_accueil {
+            None
+        } else {
+            Some(self.module)
+        };
+        let mut ordre = vec![Module::Documents, Module::Classeur, Module::Presentation];
+        if let Some(m) = actif {
+            ordre.retain(|&x| x != m);
+            ordre.insert(0, m);
+        }
+        for m in ordre {
+            let ici = Some(m) == actif;
+            let mut ajoute =
+                |cmd: Cmd, id: String, fr: &'static str, g: &'static str, k: String| {
+                    let mut e = Entry {
+                        cmd,
+                        id,
+                        label: tr(fr).to_string(),
+                        fr: fr.to_string(),
+                        group: tr(g).to_string(),
+                        group_fr: g.to_string(),
+                        keys: k,
+                    };
+                    if !ici {
+                        let (nom, nom_fr) = match m {
+                            Module::Documents => (tr("Documents"), "Documents"),
+                            Module::Classeur => (tr("Classeur"), "Classeur"),
+                            Module::Presentation => (tr("Présentation"), "Présentation"),
+                        };
+                        e.group = format!("{nom} › {}", e.group);
+                        e.group_fr = format!("{nom_fr} {}", e.group_fr);
+                        // Les raccourcis ne valent que dans leur module.
+                        e.keys.clear();
+                    }
+                    out.push(e);
+                };
+            match m {
+                Module::Documents => {
+                    for (a, fr, g, s) in VariumApp::palette_entries() {
+                        ajoute(Cmd::Doc(a), format!("doc:{a:?}:{fr}"), fr, g, keys(s));
+                    }
+                }
+                Module::Classeur => {
+                    for (a, fr, g, s, _) in CalcApp::palette_entries() {
+                        ajoute(Cmd::Calc(a), format!("calc:{a:?}:{fr}"), fr, g, keys(s));
+                    }
+                }
+                Module::Presentation => {
+                    for (a, fr, g, s, _) in SlidesApp::palette_entries() {
+                        ajoute(Cmd::Slides(a), format!("slides:{a:?}:{fr}"), fr, g, keys(s));
+                    }
+                }
+            }
+        }
         let mut push = |cmd: Cmd, id: String, fr: &'static str, group: &'static str, k: String| {
             out.push(Entry {
                 cmd,
@@ -359,25 +415,6 @@ impl Suite {
                 keys: k,
             });
         };
-        if !self.show_accueil {
-            match self.module {
-                Module::Documents => {
-                    for (a, fr, g, s) in VariumApp::palette_entries() {
-                        push(Cmd::Doc(a), format!("doc:{a:?}:{fr}"), fr, g, keys(s));
-                    }
-                }
-                Module::Classeur => {
-                    for (a, fr, g, s, _) in CalcApp::palette_entries() {
-                        push(Cmd::Calc(a), format!("calc:{a:?}:{fr}"), fr, g, keys(s));
-                    }
-                }
-                Module::Presentation => {
-                    for (a, fr, g, s, _) in SlidesApp::palette_entries() {
-                        push(Cmd::Slides(a), format!("slides:{a:?}:{fr}"), fr, g, keys(s));
-                    }
-                }
-            }
-        }
         let general = n_("Général");
         let modules = [
             (
