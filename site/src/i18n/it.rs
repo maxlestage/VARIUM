@@ -41,7 +41,7 @@ pub const TEXTES: Textes = Textes {
             genre: "Foglio di calcolo",
             texte: "Fogli con celle, formule e grafici.",
             points: [
-                "Celle, formule e più fogli per cartella",
+                "Celle, formule e più fogli per cartella, e domande in linguaggio semplice",
                 "Funzioni in francese o in inglese: SOMME o SUM, SI o IF, RECHERCHEV o VLOOKUP",
                 "Formattazione condizionale, scale di colori, barre dei dati e riquadri bloccati",
                 "Otto grafici: barre, barre in pila, linee, aree, torta, anello, dispersione",

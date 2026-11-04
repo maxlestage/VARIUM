@@ -599,11 +599,19 @@ pub static T: &[(&str, &str)] = &[
     ("Espace", "Spazi"),
     ("Espacement", "Spaziatura"),
     ("Espagnol (Espagne)", "Spagnolo (Spagna)"),
+    (
+        "Ex. : total des ventes par région",
+        "es. totale vendite per regione",
+    ),
     ("Excel (.xlsx)", "Excel (.xlsx)"),
     ("Exemple : prénom;nom;ville", "Esempio: nome;cognome;città"),
     (
         "Exemple : {{montant | money:usd}}, {{nom | trim | upper}}",
         "Esempio: {{importo | money:usd}}, {{nome | trim | upper}}",
+    ),
+    (
+        "Exemples : « moyenne de B », « combien de clients », « maximum des ventes », « total des ventes par région ».",
+        "Esempi: «media di B», «quanti clienti», «massimo delle vendite», «totale vendite per regione».",
     ),
     ("Exporter", "Esporta"),
     ("Exporter en EPUB", "Esporta in EPUB"),
@@ -801,6 +809,14 @@ pub static T: &[(&str, &str)] = &[
     ("Italique", "Corsivo"),
     ("Italique (Ctrl+I)", "Corsivo (Ctrl+I)"),
     ("Jaune", "Giallo"),
+    (
+        "Je n'ai pas compris ce qu'il faut calculer. Essayez « total », « moyenne », « maximum », « minimum », « médiane » ou « combien ».",
+        "Non ho capito cosa calcolare. Provate «totale», «media», «massimo», «minimo», «mediana» o «quanti».",
+    ),
+    (
+        "Je n'ai pas trouvé la colonne. Colonnes disponibles : {liste}.",
+        "Non ho trovato la colonna. Colonne disponibili: {liste}.",
+    ),
     ("Justifier", "Giustifica"),
     ("Justifié", "Giustificato"),
     ("L'aperçu apparaît ici.", "L'anteprima appare qui."),
@@ -817,6 +833,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "La commande « curl » est introuvable sur cet ordinateur : téléchargez le dictionnaire avec un navigateur, puis utilisez « Importer… ».",
         "Il comando «curl» non è disponibile su questo computer: scarica il dizionario con un browser, poi usa «Importa…».",
+    ),
+    (
+        "La feuille ne contient pas encore de données à interroger.",
+        "Il foglio non contiene ancora dati da interrogare.",
     ),
     (
         "La ligne en cours reste au milieu de l'écran",
@@ -952,10 +972,12 @@ pub static T: &[(&str, &str)] = &[
     ("Masquer les autres", "Nascondi altre"),
     ("Mathématiques", "Matematica"),
     ("Max : {v}", "Max: {v}"),
+    ("Maximum", "Massimo"),
     ("Merci !", "Grazie!"),
     ("Message clé", "Messaggio chiave"),
     ("Mettre sous forme de tableau", "Formatta come tabella"),
     ("Min : {v}", "Min: {v}"),
+    ("Minimum", "Minimo"),
     ("Minutage", "Tempo"),
     ("Minutage enregistré", "Tempi salvati"),
     ("Minutage répété", "Tempi provati"),
@@ -1008,6 +1030,7 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Moyenne", "Media"),
     ("Moyenne : {v}", "Media: {v}"),
+    ("Médiane", "Mediana"),
     (
         "Navigateur introuvable ({e}) : ouvrez {path}",
         "Browser non trovato ({e}): apri {path}",
@@ -1138,6 +1161,10 @@ pub static T: &[(&str, &str)] = &[
     ("Panneau des champs", "Pannello dei campi"),
     ("Papier", "Carta"),
     ("Par défaut", "Predefinito"),
+    (
+        "Par groupe, je sais calculer le total, la moyenne et le nombre.",
+        "Per gruppo so calcolare il totale, la media e il numero.",
+    ),
     ("Paragraphes", "Paragrafi"),
     ("Parenthèses", "Parentesi"),
     ("Partout dans Varium", "Ovunque in Varium"),
@@ -1189,6 +1216,12 @@ pub static T: &[(&str, &str)] = &[
     ("Ponctuation", "Punteggiatura"),
     ("Portrait", "Verticale"),
     ("Portugais (Portugal)", "Portoghese (Portogallo)"),
+    ("Poser une question", "Fai una domanda"),
+    ("Poser une question…", "Fai una domanda…"),
+    (
+        "Poser une question… (Ctrl+Maj+Q)",
+        "Fai una domanda… (Ctrl+Maiusc+Q)",
+    ),
     (
         "Postes, total et acompte calculés automatiquement",
         "Voci, totale e acconto calcolati automaticamente",
@@ -1306,6 +1339,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Résultat avec les valeurs actuelles : {v}",
         "Risultato con i valori attuali: {v}",
+    ),
+    (
+        "Résultat, écrit à partir de la cellule {cellule} :",
+        "Risultato, scritto a partire dalla cella {cellule}:",
     ),
     ("Rétablir", "Ripeti"),
     ("Rétablir (Ctrl+Y)", "Ripeti (Ctrl+Y)"),
@@ -1485,6 +1522,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Trier par ordre croissant", "Ordine crescente"),
     ("Trier par ordre décroissant", "Ordine decrescente"),
+    (
+        "Trop de valeurs différentes pour un regroupement lisible.",
+        "Troppi valori diversi per un raggruppamento leggibile.",
+    ),
     ("Très difficile", "Molto difficile"),
     ("Très facile", "Molto facile"),
     ("Type", "Tipo"),
@@ -2156,8 +2197,16 @@ pub static T: &[(&str, &str)] = &[
         "Scrivi qualche frase per stimarla.",
     ),
     (
+        "Écrivez une question, par exemple « total des ventes par région ».",
+        "Scrivete una domanda, ad esempio «totale vendite per regione».",
+    ),
+    (
         "Écrivez votre document. {{prénom}} crée un champ, **gras**, # Titre, - liste…",
         "Scrivi il tuo documento. {{nome}} crea un campo, **grassetto**, # Titolo, - elenco…",
+    ),
+    (
+        "Écrivez votre question en langage simple : Varium la traduit en formules.",
+        "Scrivete la domanda in linguaggio semplice: Varium la traduce in formule.",
     ),
     (
         "Écrivez {{client}} dans un document : le champ se remplit une seule fois, partout où il apparaît.",
