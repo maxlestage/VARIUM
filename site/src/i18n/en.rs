@@ -31,7 +31,7 @@ pub const TEXTES: Textes = Textes {
             texte: "Letters, quotes and contracts that fill themselves in.",
             points: [
                 "Headings, lists, tables and real A4, A5 or Letter pages",
-                "Global, calculated and conditional {{…}} fields, mail merge",
+                "Global, calculated and conditional {{…}} fields, mail merge, automatic field detection",
                 "A Writer-style toolbar and a Pages-style inspector",
                 "Export to PDF, DOCX, ODT, RTF, EPUB, HTML and LaTeX",
                 "Spell checking in six languages, with real Hunspell dictionaries",
