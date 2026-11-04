@@ -186,6 +186,8 @@ struct Prefs {
     recent: Vec<String>,
     /// Souligner les fautes d'orthographe pendant la frappe.
     spell_live: bool,
+    /// Fichier ouvert à la fermeture, rouvert au démarrage.
+    dernier_fichier: Option<String>,
 }
 
 impl Default for Prefs {
@@ -200,6 +202,7 @@ impl Default for Prefs {
             status_bar: true,
             recent: Vec::new(),
             spell_live: true,
+            dernier_fichier: None,
         }
     }
 }
@@ -407,8 +410,29 @@ impl VariumApp {
         };
         app.restore(app.history.current.clone());
         app.saved = app.snapshot();
-        // Document sans fichier interrompu par un plantage ?
-        app.propose_secours(None);
+        // Le document était lié à un fichier : on le retrouve (Ctrl+S le
+        // réécrit) ; s'il diffère de l'état restauré, il est « modifié ».
+        if !first_launch
+            && std::env::args_os().nth(1).is_none()
+            && let Some(chemin) = app
+                .prefs
+                .dernier_fichier
+                .clone()
+                .map(std::path::PathBuf::from)
+            && let Some(sur_disque) = files::lire_projet(&chemin)
+        {
+            let valeurs = sur_disque.values();
+            app.saved = Snapshot {
+                title: sur_disque.title,
+                source: sur_disque.source,
+                values: valeurs,
+                page: sur_disque.page,
+            };
+            app.path = Some(chemin);
+        }
+        // Document interrompu par un plantage ?
+        let lie = app.path.clone();
+        app.propose_secours(lie.as_deref());
         // Un fichier donné au lancement (« Ouvrir avec », glisser sur l'icône, terminal).
         if let Some(path) = std::env::args_os().nth(1).map(std::path::PathBuf::from)
             && path.is_file()
@@ -3568,6 +3592,7 @@ impl eframe::App for VariumApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, STORAGE_KEY, &self.project());
+        self.prefs.dernier_fichier = self.path.as_ref().map(|p| p.display().to_string());
         eframe::set_value(storage, PREFS_KEY, &self.prefs);
     }
 
