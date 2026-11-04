@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cond::{CondFormat, CondFormatter, CondPaint};
 use crate::eval::{Computed, is_formula, recalc, sheet_resolver};
+use crate::filter::AutoFilter;
 use crate::format::{CellFormat, HAlign, NumberFormat, format_value, parse_literal, today_serial};
 use crate::parser::check_formula;
 use crate::refs::{CellRef, MAX_COLS, MAX_ROWS, Range, quote_sheet_name};
@@ -53,6 +54,9 @@ pub struct Sheet {
     /// (voir [`crate::cond`]).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cond_formats: Vec<CondFormat>,
+    /// Filtre automatique (boutons dans la ligne d'en-tête ; voir [`AutoFilter`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_filter: Option<AutoFilter>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -209,6 +213,9 @@ pub struct ClipCell {
     pub format: CellFormat,
     /// Valeur affichée au moment de la copie (pour le presse-papiers du système).
     pub display: String,
+    /// Valeur calculée au moment de la copie (« Collage spécial » des valeurs).
+    #[serde(default, skip_serializing_if = "Value::is_empty")]
+    pub value: Value,
 }
 
 impl Clip {
@@ -256,6 +263,7 @@ impl Clip {
                         input: field.to_string(),
                         format: CellFormat::default(),
                         display: field.to_string(),
+                        value: Value::Empty,
                     });
                 }
             }
@@ -306,7 +314,7 @@ fn collation_key(s: &str) -> String {
 }
 
 /// Ordre de tri croissant : nombres, textes, valeurs logiques, erreurs, vides.
-fn sort_order(a: &Value, b: &Value) -> Ordering {
+pub(crate) fn sort_order(a: &Value, b: &Value) -> Ordering {
     let rank = |v: &Value| match v {
         Value::Number(_) => 0,
         Value::Text(_) => 1,
@@ -373,7 +381,7 @@ impl Workbook {
         *self.cache.lock() = None;
     }
 
-    fn computed(&self) -> Arc<Computed> {
+    pub(crate) fn computed(&self) -> Arc<Computed> {
         let mut guard = self.cache.lock();
         if let Some(c) = guard.as_ref()
             && c.values.len() == self.sheets.len()
@@ -384,6 +392,11 @@ impl Workbook {
         let c = Arc::new(recalc(&self.sheets, today));
         *guard = Some(c.clone());
         c
+    }
+
+    /// Date du jour utilisée pour le calcul (numéro de série).
+    pub(crate) fn today(&self) -> f64 {
+        self.today.unwrap_or_else(today_serial)
     }
 
     /// Recalcule tout de suite (sinon, le calcul a lieu au premier accès à une valeur).
@@ -680,6 +693,33 @@ impl Workbook {
             };
             true
         });
+        // Le filtre automatique aussi (il disparaît avec sa ligne d'en-tête).
+        if let Some(af) = &mut sh.auto_filter {
+            let r = af.range;
+            let keep = if edit.rows {
+                edit.map(r.start.row).and_then(|top| {
+                    let (_, hi) = edit.map_span(r.start.row, r.end.row)?;
+                    af.range =
+                        Range::new(CellRef::new(top, r.start.col), CellRef::new(hi, r.end.col));
+                    Some(())
+                })
+            } else {
+                edit.map_span(r.start.col, r.end.col).map(|(lo, hi)| {
+                    af.range =
+                        Range::new(CellRef::new(r.start.row, lo), CellRef::new(r.end.row, hi));
+                    af.columns.retain_mut(|c| match edit.map(c.col) {
+                        Some(n) => {
+                            c.col = n;
+                            true
+                        }
+                        None => false,
+                    });
+                })
+            };
+            if keep.is_none() {
+                sh.auto_filter = None;
+            }
+        }
         let sizes = if edit.rows {
             &mut sh.row_heights
         } else {
@@ -773,6 +813,7 @@ impl Workbook {
                 input: cell.input.clone(),
                 format: cell.format,
                 display: self.display(sheet, *c),
+                value: self.value(sheet, *c),
             });
         }
         clip

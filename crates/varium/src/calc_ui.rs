@@ -6,10 +6,13 @@ use crate::labels;
 use crate::tr::{n_, tr};
 use std::path::PathBuf;
 
+use std::collections::BTreeMap;
+
 use egui::{Align2, Color32, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use varium_calc::{
-    CellFormat, CellRef, CompareOp, CondFormat, CondRule, CondStyle, HAlign, NumberFormat, Range,
-    Value, Workbook,
+    BinOp, CalcError, CellFormat, CellRef, Clip, ColumnFilter, CompareOp, CondFormat, CondRule,
+    CondStyle, ErrorCause, FilterCondition, FormulaNode, FunctionCategory, FunctionInfo, HAlign,
+    NumberFormat, PasteOptions, PasteWhat, QuickFormat, QuickTotal, Range, Value, Workbook,
 };
 
 use crate::io::{Event, Io, OpenKind};
@@ -19,7 +22,7 @@ const ROW_H: f32 = 24.0;
 const HEAD_W: f32 = 46.0;
 const DEFAULT_W: f32 = 96.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ChartKind {
     Barres,
     BarresH,
@@ -104,6 +107,20 @@ pub enum CalcAction {
     SortAsc,
     SortDesc,
     AutoSum,
+    /// Remplissage instantané (Ctrl+E).
+    FlashFill,
+    /// Collage spécial (Ctrl+Maj+V).
+    PasteSpecial,
+    /// Filtre automatique : pose ou retire (Ctrl+Maj+L).
+    AutoFilter,
+    /// Assistant de formule (Maj+F3).
+    FormulaWizard,
+    /// Analyse rapide de la sélection (Ctrl+Q).
+    QuickAnalysis,
+    /// Mettre sous forme de tableau.
+    FormatAsTable,
+    /// Formules en clair : info-bulle au survol (bascule).
+    ExplainFormulas,
 }
 
 impl CalcAction {
@@ -161,6 +178,32 @@ pub struct CalcApp {
     last_act: Option<(CalcAction, f64)>,
     /// Les menus sont dans la barre native de macOS (pas de barre dans la fenêtre).
     pub native_menu: bool,
+    /// Remplissage instantané proposé (aperçu en gris).
+    flash: Option<FlashPreview>,
+    /// Saisie semi-automatique : longueur du texte à l'image précédente
+    /// (on ne complète pas après un effacement).
+    ac_prev_len: usize,
+    /// Saisie semi-automatique : la valeur proposée (suffixe en gris).
+    completion: Option<String>,
+    /// Liste des fonctions proposées pendant la saisie d'une formule.
+    fx_popup: FxPopup,
+    /// Collage demandé au système (Ctrl+V du menu, Ctrl+Maj+V) : spécial ou
+    /// non, et quand.
+    paste_request: Option<(bool, f64)>,
+    /// Boîte « Collage spécial ».
+    paste_dialog: Option<PasteDialog>,
+    /// Analyse rapide ouverte.
+    qa: Option<QuickAnalysisState>,
+    /// Aperçu de l'analyse rapide : le classeur tel qu'il serait.
+    qa_preview: Option<(QaChoice, Workbook)>,
+    /// Menu d'un bouton de filtre ouvert.
+    filter_popup: Option<FilterPopup>,
+    /// Assistant de formule ouvert.
+    wizard: Option<Wizard>,
+    /// Info-bulle « formule en clair » au survol des cellules.
+    explain_formulas: bool,
+    /// Heure de l'image en cours (secondes).
+    now: f64,
 }
 
 impl CalcApp {
@@ -190,6 +233,18 @@ impl CalcApp {
             cond_dialog: None,
             last_act: None,
             native_menu: false,
+            flash: None,
+            ac_prev_len: 0,
+            completion: None,
+            fx_popup: FxPopup::default(),
+            paste_request: None,
+            paste_dialog: None,
+            qa: None,
+            qa_preview: None,
+            filter_popup: None,
+            wizard: None,
+            explain_formulas: true,
+            now: 0.0,
         }
     }
 
@@ -249,12 +304,29 @@ impl CalcApp {
         {
             self.snapshot();
             self.wb.set_input(self.sheet, self.cur, &text);
+            // Deux exemples tapés à côté d'une colonne : le remplissage
+            // instantané se propose de lui-même.
+            self.flash = None;
+            if !text.starts_with('=') && !text.trim().is_empty() {
+                self.suggest_flash(true);
+            }
         }
     }
 
     fn move_by(&mut self, dr: i64, dc: i64, extend: bool) {
-        let r = (self.cur.row as i64 + dr).clamp(0, 100_000) as u32;
+        let mut r = (self.cur.row as i64 + dr).clamp(0, 100_000) as u32;
         let c = (self.cur.col as i64 + dc).clamp(0, 16_383) as u32;
+        // Les lignes masquées par un filtre sont sautées.
+        if dr != 0 {
+            let hidden = self.wb.filtered_rows(self.sheet);
+            while hidden.contains(&r) {
+                let next = r as i64 + dr.signum();
+                if !(0..=100_000).contains(&next) {
+                    break;
+                }
+                r = next as u32;
+            }
+        }
         self.cur = CellRef::new(r, c);
         if !extend {
             self.anchor = self.cur;
@@ -299,7 +371,7 @@ impl CalcApp {
         ctx.copy_text(tsv);
     }
 
-    fn paste(&mut self) {
+    fn paste_internal(&mut self) {
         if let Some(clip) = &self.clip {
             let clip = clip.clone();
             self.snapshot();
@@ -453,6 +525,7 @@ impl CalcApp {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        self.now = ctx.input(|i| i.time);
         self.handle_io(&ctx);
         // La touche Entrée qui valide une saisie ne doit pas aussi déplacer la sélection.
         let was_editing = self.edit.is_some();
@@ -502,10 +575,35 @@ impl CalcApp {
             .frame(egui::Frame::NONE)
             .show(ui, |ui| self.grid(ui));
 
-        if !was_editing && self.cond_dialog.is_none() {
+        let dialogs = self.cond_dialog.is_some()
+            || self.paste_dialog.is_some()
+            || self.filter_popup.is_some();
+        if !was_editing && !dialogs {
             self.keys(&ctx);
         }
         self.cond_dialog_ui(&ctx);
+        self.paste_dialog_ui(&ctx);
+        self.filter_popup_ui(&ctx);
+        self.quick_analysis_ui(&ctx);
+        self.wizard_ui(&ctx);
+        self.flash_hint_ui(&ctx);
+        // Le système n'a rien donné à coller : la copie interne, s'il y en a une.
+        if let Some((special, t)) = self.paste_request
+            && self.now - t > 0.6
+        {
+            self.paste_request = None;
+            if let Some(clip) = self.clip.clone() {
+                if special {
+                    self.paste_dialog = Some(PasteDialog {
+                        clip,
+                        opts: PasteOptions::default(),
+                        external: false,
+                    });
+                } else {
+                    self.paste_internal();
+                }
+            }
+        }
         self.toast_ui(&ctx);
     }
 
@@ -542,11 +640,13 @@ impl CalcApp {
             ui.separator();
             self.entry(ui, tr("Couper"), A::Cut);
             self.entry(ui, tr("Copier"), A::Copy);
-            self.entry_if(ui, self.clip.is_some(), tr("Coller"), A::Paste);
+            self.entry(ui, tr("Coller"), A::Paste);
+            self.entry(ui, tr("Collage spécial… (Ctrl+Maj+V)"), A::PasteSpecial);
             self.entry(ui, tr("Effacer le contenu"), A::Clear);
             ui.separator();
             self.entry(ui, tr("Recopier vers le bas"), A::FillDown);
             self.entry(ui, tr("Recopier à droite"), A::FillRight);
+            self.entry(ui, tr("Remplissage instantané (Ctrl+E)"), A::FlashFill);
         });
         ui.menu_button(tr("Affichage"), |ui| {
             let (fr, fc) = self.frozen();
@@ -562,6 +662,14 @@ impl CalcApp {
             }
             self.entry_if(ui, fr > 0 || fc > 0, tr("Libérer les volets"), A::Unfreeze);
             ui.separator();
+            if ui
+                .checkbox(&mut self.explain_formulas, tr("Formules en clair (info-bulle)"))
+                .on_hover_text(tr("Au survol d'une formule, son explication en mots simples"))
+                .clicked()
+            {
+                ui.close();
+            }
+            ui.separator();
             crate::tr::menu(ui);
         });
         ui.menu_button(tr("Insertion"), |ui| {
@@ -574,6 +682,7 @@ impl CalcApp {
             self.entry(ui, tr("Feuille"), A::NewSheet);
             self.entry(ui, tr("Graphique de la sélection"), A::Chart);
             self.entry(ui, tr("Fonction…"), A::Functions);
+            self.entry(ui, tr("Assistant de formule… (Maj+F3)"), A::FormulaWizard);
         });
         ui.menu_button(tr("Format"), |ui| {
             for (label, nf) in NUMBER_FORMATS {
@@ -589,12 +698,30 @@ impl CalcApp {
             });
             ui.separator();
             self.entry(ui, tr("Mise en forme conditionnelle…"), A::CondFormat);
+            self.entry(ui, tr("Mettre sous forme de tableau"), A::FormatAsTable);
         });
         ui.menu_button(tr("Données"), |ui| {
             self.entry(ui, tr("Trier par ordre croissant"), A::SortAsc);
             self.entry(ui, tr("Trier par ordre décroissant"), A::SortDesc);
             ui.separator();
+            let filtered = self
+                .wb
+                .sheets
+                .get(self.sheet)
+                .is_some_and(|s| s.auto_filter.is_some());
+            self.entry(
+                ui,
+                if filtered {
+                    tr("Retirer le filtre automatique")
+                } else {
+                    tr("Filtre automatique (Ctrl+Maj+L)")
+                },
+                A::AutoFilter,
+            );
+            self.entry(ui, tr("Analyse rapide… (Ctrl+Q)"), A::QuickAnalysis);
+            ui.separator();
             self.entry(ui, tr("Somme automatique"), A::AutoSum);
+            self.entry(ui, tr("Remplissage instantané (Ctrl+E)"), A::FlashFill);
         });
         ui.menu_button(tr("Aide"), |ui| {
             self.entry(ui, tr("Liste des fonctions"), A::Functions);
@@ -630,7 +757,8 @@ impl CalcApp {
                 self.clear_selection();
             }
             A::Copy => self.copy(ctx),
-            A::Paste => self.paste(),
+            A::Paste => self.request_paste(ctx, false),
+            A::PasteSpecial => self.request_paste(ctx, true),
             A::Clear => self.clear_selection(),
             A::SelectAll => {
                 let (r, c) = self.wb.used_size(self.sheet);
@@ -701,6 +829,22 @@ impl CalcApp {
                     .sort_rows(self.sheet, self.selection(), self.cur.col, a == A::SortAsc);
             }
             A::AutoSum => self.autosum(),
+            A::FlashFill => {
+                self.commit();
+                if self.suggest_flash(false) {
+                    self.accept_flash();
+                }
+            }
+            A::AutoFilter => self.toggle_auto_filter(),
+            A::FormulaWizard => self.open_wizard(),
+            A::QuickAnalysis => self.open_quick_analysis(ctx, None),
+            A::FormatAsTable => {
+                self.snapshot();
+                let r = self.wb.format_as_table(self.sheet, self.selection());
+                self.anchor = r.start;
+                self.cur = r.end;
+            }
+            A::ExplainFormulas => self.explain_formulas = !self.explain_formulas,
         }
     }
 
@@ -910,7 +1054,13 @@ impl CalcApp {
                 [86.0, 22.0],
                 egui::Label::new(RichText::new(name).monospace().strong()),
             );
-            ui.label(RichText::new("ƒx").italics().strong());
+            if ui
+                .add(egui::Button::new(RichText::new("ƒx").italics().strong()).frame(false))
+                .on_hover_text(tr("Assistant de formule (Maj+F3)"))
+                .clicked()
+            {
+                self.open_wizard();
+            }
             let mut text = match &self.edit {
                 Some(t) => t.clone(),
                 None => self.wb.input(self.sheet, self.cur).to_string(),
@@ -1015,6 +1165,17 @@ impl CalcApp {
                 ui.separator();
             }
             ui.label(trf!("Nombre : {filled}", filled));
+            // Cellule en erreur : l'explication en mots simples.
+            if let Some(cause) = self.wb.error_cause(self.sheet, self.cur) {
+                ui.separator();
+                ui.colored_label(Color32::from_rgb(0xD0, 0x30, 0x2A), error_text(&cause));
+            } else if self.flash.is_some() {
+                ui.separator();
+                ui.label(
+                    RichText::new(tr("Remplissage instantané proposé : Entrée pour accepter"))
+                        .weak(),
+                );
+            }
         });
     }
 
@@ -1032,9 +1193,17 @@ impl CalcApp {
     }
 
     /// Dessine une cellule (fond, mise en forme conditionnelle, texte).
-    fn paint_cell(&self, ui: &egui::Ui, p: &egui::Painter, cr: Rect, at: CellRef, g: &GridPaint) {
-        let fmt = self.wb.format(self.sheet, at);
-        let value = self.wb.value(self.sheet, at);
+    fn paint_cell(
+        &self,
+        ui: &egui::Ui,
+        p: &egui::Painter,
+        cr: Rect,
+        at: CellRef,
+        g: &GridPaint,
+        wb: &Workbook,
+    ) {
+        let fmt = wb.format(self.sheet, at);
+        let value = wb.value(self.sheet, at);
         let cond = if g.cond.is_empty() {
             None
         } else {
@@ -1063,10 +1232,30 @@ impl CalcApp {
             [cr.left_bottom(), cr.right_bottom()],
             Stroke::new(1.0, g.line),
         );
-        if (self.edit.is_some() && at == self.cur) || matches!(value, Value::Empty) {
+        if self.edit.is_some() && at == self.cur {
             return;
         }
-        let text = self.wb.display(self.sheet, at);
+        // Remplissage instantané proposé : en gris et en italique.
+        if let Some(text) = self
+            .flash
+            .as_ref()
+            .filter(|f| f.sheet == self.sheet)
+            .and_then(|f| f.cells.get(&at))
+        {
+            let galley = ui.painter().layout_no_wrap(
+                text.clone(),
+                FontId::proportional(14.0),
+                g.ink.gamma_multiply(0.45),
+            );
+            let pos = Pos2::new(cr.left() + 4.0, cr.center().y - galley.size().y / 2.0);
+            p.with_clip_rect(cr.intersect(p.clip_rect()))
+                .galley(pos, galley, g.ink);
+            return;
+        }
+        if matches!(value, Value::Empty) {
+            return;
+        }
+        let text = wb.display(self.sheet, at);
         let align = fmt.align.unwrap_or(match value {
             Value::Number(_) => HAlign::Right,
             Value::Bool(_) | Value::Error(_) => HAlign::Center,
@@ -1111,10 +1300,7 @@ impl CalcApp {
         if matches!(value, Value::Text(_)) && align == HAlign::Left {
             let mut c2 = at.col + 1;
             while c2 < g.cols.min(at.col + 6)
-                && matches!(
-                    self.wb.value(self.sheet, CellRef::new(at.row, c2)),
-                    Value::Empty
-                )
+                && matches!(wb.value(self.sheet, CellRef::new(at.row, c2)), Value::Empty)
             {
                 clip.max.x += g.widths.get(c2 as usize).copied().unwrap_or(0.0);
                 c2 += 1;
@@ -1138,7 +1324,19 @@ impl CalcApp {
         }
         xs.push(x);
         let widths: Vec<f32> = xs.windows(2).map(|w| w[1] - w[0]).collect();
-        let total = Vec2::new(x, ROW_H * (rows as f32 + 1.0));
+        // Lignes masquées par le filtre automatique : hauteur nulle.
+        let hidden = self.wb.filtered_rows(self.sheet);
+        let mut ys = Vec::with_capacity(rows as usize + 1);
+        let mut y = 0.0;
+        for r in 0..rows {
+            ys.push(y);
+            if !hidden.contains(&r) {
+                y += ROW_H;
+            }
+        }
+        ys.push(y);
+        let row_h = |r: u32| if hidden.contains(&r) { 0.0 } else { ROW_H };
+        let total = Vec2::new(x, ROW_H + ys[rows as usize]);
         let dark = ui.visuals().dark_mode;
         let (bg, line, head_bg, ink) = if dark {
             (
@@ -1160,8 +1358,12 @@ impl CalcApp {
         } else {
             Color32::from_rgb(0x1F, 0x5F, 0xBF)
         };
+        let cond = match &self.qa_preview {
+            Some((_, w)) => w.cond_formatter(self.sheet),
+            None => self.wb.cond_formatter(self.sheet),
+        };
         let gp = GridPaint {
-            cond: self.wb.cond_formatter(self.sheet),
+            cond,
             sel: self.selection(),
             accent,
             line,
@@ -1176,6 +1378,11 @@ impl CalcApp {
             .show_viewport(ui, |ui, viewport| {
                 let (rect, resp) = ui.allocate_exact_size(total, Sense::click_and_drag());
                 self.grid_id = Some(resp.id);
+                // Aperçu de l'analyse rapide : la feuille telle qu'elle serait.
+                let view: &Workbook = match &self.qa_preview {
+                    Some((_, w)) => w,
+                    None => &self.wb,
+                };
                 let origin = rect.min;
                 let clip = ui.clip_rect();
                 let painter = ui.painter_at(clip);
@@ -1184,10 +1391,12 @@ impl CalcApp {
                 let left = clip.left();
                 // Hauteur de l'en-tête et des lignes figées ; largeur de l'en-tête
                 // et des colonnes figées.
-                let band_y = ROW_H * (fr as f32 + 1.0);
+                let band_y = ROW_H + ys[fr.min(rows) as usize];
                 let band_x = xs[fc as usize];
-                let first_row = ((viewport.min.y / ROW_H).floor() as i64 - 1).max(0) as u32;
-                let last_row = ((viewport.max.y / ROW_H).ceil() as u32 + 1).min(rows);
+                let row_at =
+                    |local: f32| -> u32 { (ys.partition_point(|&v| v <= local).max(1) - 1) as u32 };
+                let first_row = row_at(viewport.min.y - ROW_H).saturating_sub(1);
+                let last_row = (row_at(viewport.max.y) + 2).min(rows);
                 let first_col = xs
                     .iter()
                     .position(|&cx| cx + 400.0 > viewport.min.x)
@@ -1201,13 +1410,16 @@ impl CalcApp {
 
                 // Position à l'écran : les lignes et colonnes figées restent collées
                 // aux bords, les autres défilent.
-                let row_y =
-                    |r: u32| (if r < fr { top } else { origin.y }) + ROW_H * (r as f32 + 1.0);
+                let row_y = |r: u32| {
+                    (if r < fr { top } else { origin.y })
+                        + ROW_H
+                        + ys[(r as usize).min(ys.len() - 1)]
+                };
                 let col_x = |c: u32| (if c < fc { left } else { origin.x }) + xs[c as usize];
                 let cell_rect = |r: u32, c: u32| {
                     Rect::from_min_size(
                         Pos2::new(col_x(c), row_y(r)),
-                        Vec2::new(widths[c as usize], ROW_H),
+                        Vec2::new(widths[c as usize], row_h(r)),
                     )
                 };
                 // Zones : cœur défilant, bandeau des lignes figées, des colonnes
@@ -1248,8 +1460,11 @@ impl CalcApp {
                     }
                     let p = painter.with_clip_rect(area);
                     for r in rr.clone() {
+                        if hidden.contains(&r) {
+                            continue;
+                        }
                         for c in cc.clone() {
-                            self.paint_cell(ui, &p, cell_rect(r, c), CellRef::new(r, c), &gp);
+                            self.paint_cell(ui, &p, cell_rect(r, c), CellRef::new(r, c), &gp, view);
                         }
                     }
                 }
@@ -1290,6 +1505,77 @@ impl CalcApp {
                         Stroke::new(1.5, accent),
                         egui::StrokeKind::Inside,
                     );
+                }
+
+                // Boutons du filtre automatique, dans la ligne d'en-tête du tableau.
+                let mut filter_buttons: Vec<(Rect, u32)> = Vec::new();
+                if let Some(af) = self
+                    .wb
+                    .sheets
+                    .get(self.sheet)
+                    .and_then(|s| s.auto_filter.as_ref())
+                {
+                    let hr = af.range.start.row;
+                    if hr < rows && !hidden.contains(&hr) {
+                        for c in af.range.start.col..=af.range.end.col.min(cols.saturating_sub(1)) {
+                            let cr = cell_rect(hr, c);
+                            let b = Rect::from_min_size(
+                                Pos2::new(cr.right() - 18.0, cr.top() + 4.0),
+                                Vec2::new(15.0, (cr.height() - 8.0).max(8.0)),
+                            );
+                            let zone = area_of(CellRef::new(hr, c)).intersect(clip);
+                            if !zone.intersects(b) {
+                                continue;
+                            }
+                            let p = painter.with_clip_rect(zone);
+                            let active = af.is_active(c);
+                            p.rect_filled(b, 3.0, if active { accent } else { head_bg });
+                            p.rect_stroke(
+                                b,
+                                3.0,
+                                Stroke::new(1.0, line.gamma_multiply(1.8)),
+                                egui::StrokeKind::Inside,
+                            );
+                            let m = b.center();
+                            let tri = if active { Color32::WHITE } else { ink };
+                            p.add(egui::Shape::convex_polygon(
+                                vec![
+                                    m + Vec2::new(-4.0, -2.0),
+                                    m + Vec2::new(4.0, -2.0),
+                                    m + Vec2::new(0.0, 3.0),
+                                ],
+                                tri,
+                                Stroke::NONE,
+                            ));
+                            filter_buttons.push((b, c));
+                        }
+                    }
+                }
+
+                // Bouton de l'analyse rapide, au coin de la sélection.
+                if sel.start != sel.end
+                    && self.edit.is_none()
+                    && self.qa.is_none()
+                    && !resp.dragged()
+                    && self.dragging_col.is_none()
+                {
+                    let sr = cell_rect(sel.start.row, sel.start.col)
+                        .union(cell_rect(sel.end.row, sel.end.col));
+                    let br = Rect::from_min_size(
+                        sr.right_bottom() + Vec2::new(2.0, 2.0),
+                        Vec2::splat(22.0),
+                    );
+                    if body.intersect(clip).contains_rect(br) {
+                        let b = ui
+                            .put(br, egui::Button::new("⚡").small())
+                            .on_hover_text(tr(
+                                "Analyse rapide (Ctrl+Q) : totaux, graphiques, mises en forme",
+                            ));
+                        if b.clicked() {
+                            let ctx = ui.ctx().clone();
+                            self.open_quick_analysis(&ctx, Some(br.right_bottom()));
+                        }
+                    }
                 }
 
                 // En-têtes (dessinés par-dessus, collés aux bords visibles)
@@ -1333,6 +1619,9 @@ impl CalcApp {
                     );
                 }
                 for r in (0..fr.min(rows)).chain(first_row.max(fr)..last_row) {
+                    if hidden.contains(&r) {
+                        continue;
+                    }
                     let p = if r < fr {
                         painter.clone()
                     } else {
@@ -1355,12 +1644,18 @@ impl CalcApp {
                         [hr.left_bottom(), hr.right_bottom()],
                         Stroke::new(1.0, line),
                     );
+                    // Numéros en bleu sous des lignes masquées, comme dans Calc.
+                    let after_hidden = r > 0 && hidden.contains(&(r - 1));
                     p.text(
                         hr.center(),
                         Align2::CENTER_CENTER,
                         (r + 1).to_string(),
                         head_font.clone(),
-                        ink,
+                        if after_hidden || hidden.contains(&(r + 1)) {
+                            accent
+                        } else {
+                            ink
+                        },
                     );
                 }
                 painter.rect_filled(
@@ -1382,10 +1677,15 @@ impl CalcApp {
                         .map(|c| c as u32)
                 };
                 let to_row = |y: f32| -> i64 {
-                    if y < top + band_y {
-                        ((y - top) / ROW_H).floor() as i64 - 1
+                    let local = if y < top + band_y {
+                        y - top
                     } else {
-                        ((y - origin.y) / ROW_H).floor() as i64 - 1
+                        y - origin.y
+                    } - ROW_H;
+                    if local < 0.0 {
+                        -1
+                    } else {
+                        i64::from(row_at(local))
                     }
                 };
                 let to_cell = |p: Pos2| -> Option<CellRef> {
@@ -1396,7 +1696,43 @@ impl CalcApp {
                     let c = to_col(p.x)?;
                     (r >= 0).then(|| CellRef::new(r as u32, c))
                 };
-                if let Some(p) = resp.interact_pointer_pos() {
+                // Formules en clair : explication au survol.
+                if self.explain_formulas
+                    && self.edit.is_none()
+                    && !resp.dragged()
+                    && let Some(hp) = resp.hover_pos()
+                    && filter_buttons.iter().all(|(b, _)| !b.contains(hp))
+                    && let Some(cell) = to_cell(hp)
+                    && self.wb.input(self.sheet, cell).starts_with('=')
+                {
+                    let input = self.wb.input(self.sheet, cell).to_string();
+                    let tree = self.wb.formula_tree(self.sheet, &input);
+                    let err = self.wb.error_cause(self.sheet, cell);
+                    resp.clone().on_hover_ui_at_pointer(|ui| {
+                        ui.set_max_width(380.0);
+                        ui.label(RichText::new(&input).monospace());
+                        if let Some(t) = &tree {
+                            ui.label(explain_formula(t));
+                        }
+                        if let Some(e) = &err {
+                            ui.colored_label(Color32::from_rgb(0xD0, 0x30, 0x2A), error_text(e));
+                        }
+                    });
+                }
+                // Clic sur un bouton de filtre : son menu, sans changer la sélection.
+                let on_filter_button = resp
+                    .interact_pointer_pos()
+                    .and_then(|p| filter_buttons.iter().find(|(b, _)| b.contains(p)).copied());
+                if let Some((b, c)) = on_filter_button {
+                    if resp.clicked() {
+                        let ctx = ui.ctx().clone();
+                        if self.filter_popup.as_ref().is_some_and(|f| f.col == c) {
+                            self.filter_popup = None;
+                        } else {
+                            self.open_filter_popup(&ctx, c, b.left_bottom() + Vec2::new(0.0, 2.0));
+                        }
+                    }
+                } else if let Some(p) = resp.interact_pointer_pos() {
                     // Redimensionner une colonne : glisser son bord dans l'en-tête.
                     if resp.drag_started() && p.y < top + ROW_H {
                         let border = (1..xs.len()).find(|&k| {
@@ -1442,7 +1778,10 @@ impl CalcApp {
                 if resp.drag_stopped() {
                     self.dragging_col = None;
                 }
-                if resp.double_clicked() && self.dragging_col.is_none() {
+                if resp.double_clicked()
+                    && self.dragging_col.is_none()
+                    && on_filter_button.is_none()
+                {
                     self.anchor = self.cur;
                     self.start_edit(None);
                 }
@@ -1451,50 +1790,8 @@ impl CalcApp {
                 }
 
                 // Éditeur dans la cellule
-                if let Some(text) = &mut self.edit {
-                    let id = egui::Id::unique("calc-cell-edit");
-                    let w = (ar.width()).max(160.0);
-                    let er = Rect::from_min_size(ar.min, Vec2::new(w, ar.height()));
-                    let r = ui.put(
-                        er,
-                        egui::TextEdit::singleline(text)
-                            .id(id)
-                            .margin(Vec2::new(3.0, 3.0))
-                            .font(egui::TextStyle::Body),
-                    );
-                    if self.focus_edit {
-                        r.request_focus();
-                        self.focus_edit = false;
-                        // curseur à la fin
-                        if let Some(mut st) = egui::text_edit::TextEditState::load(ui.ctx(), id) {
-                            let end = egui::text::CCursor::new(egui::text::CharIndex(
-                                text.chars().count(),
-                            ));
-                            st.cursor
-                                .set_char_range(Some(egui::text_selection::CCursorRange::one(end)));
-                            st.store(ui.ctx(), id);
-                        }
-                    }
-                    if r.lost_focus() {
-                        let (enter, tab, esc, shift) = ui.input(|i| {
-                            (
-                                i.key_pressed(Key::Enter),
-                                i.key_pressed(Key::Tab),
-                                i.key_pressed(Key::Escape),
-                                i.modifiers.shift,
-                            )
-                        });
-                        if esc {
-                            self.edit = None;
-                        } else {
-                            self.commit();
-                            if enter {
-                                self.move_by(if shift { -1 } else { 1 }, 0, false);
-                            } else if tab {
-                                self.move_by(0, if shift { -1 } else { 1 }, false);
-                            }
-                        }
-                    }
+                if self.edit.is_some() {
+                    self.cell_editor(ui, ar);
                 }
 
                 // Garder la cellule active visible, à droite et sous les volets figés.
@@ -1531,7 +1828,40 @@ impl CalcApp {
         let mut events = Vec::new();
         ctx.input(|i| events.clone_from(&i.events));
         for ev in events {
+            // Remplissage instantané proposé : Entrée l'accepte, Échap l'annule,
+            // toute autre touche le retire.
+            if self.flash.is_some() {
+                match &ev {
+                    egui::Event::Key {
+                        key: Key::Enter,
+                        pressed: true,
+                        ..
+                    } => {
+                        self.accept_flash();
+                        continue;
+                    }
+                    egui::Event::Key {
+                        key: Key::Escape,
+                        pressed: true,
+                        ..
+                    } => {
+                        self.flash = None;
+                        continue;
+                    }
+                    egui::Event::Key { pressed: true, .. } | egui::Event::Text(_) => {
+                        self.flash = None;
+                    }
+                    _ => {}
+                }
+            }
             match ev {
+                egui::Event::Copy => self.perform_once(ctx, CalcAction::Copy),
+                egui::Event::Cut => self.perform_once(ctx, CalcAction::Cut),
+                egui::Event::Paste(text) => {
+                    let special = self.paste_request.is_some_and(|(s, _)| s);
+                    self.paste_request = None;
+                    self.paste_text(ctx, &text, special);
+                }
                 egui::Event::Key {
                     key,
                     pressed: true,
@@ -1541,6 +1871,7 @@ impl CalcApp {
                     let cmd = modifiers.command;
                     let shift = modifiers.shift;
                     match key {
+                        Key::ArrowDown if modifiers.alt => self.open_filter_at_cursor(ctx),
                         Key::ArrowDown => self.move_by(1, 0, shift),
                         Key::ArrowUp => self.move_by(-1, 0, shift),
                         Key::ArrowLeft => self.move_by(0, -1, shift),
@@ -1556,17 +1887,29 @@ impl CalcApp {
                             }
                         }
                         Key::F2 => self.start_edit(None),
+                        Key::F3 if shift => self.perform_once(ctx, CalcAction::FormulaWizard),
+                        Key::Escape => {
+                            self.qa = None;
+                        }
                         Key::Delete | Key::Backspace => self.clear_selection(),
                         Key::Z if cmd && shift => self.perform_once(ctx, CalcAction::Redo),
                         Key::Z if cmd => self.perform_once(ctx, CalcAction::Undo),
                         Key::Y if cmd => self.perform_once(ctx, CalcAction::Redo),
                         Key::C if cmd => self.perform_once(ctx, CalcAction::Copy),
                         Key::X if cmd => self.perform_once(ctx, CalcAction::Cut),
+                        Key::V if cmd && shift => {
+                            self.perform_once(ctx, CalcAction::PasteSpecial);
+                        }
                         Key::V if cmd => self.perform_once(ctx, CalcAction::Paste),
                         Key::B if cmd => self.perform_once(ctx, CalcAction::Bold),
                         Key::I if cmd => self.perform_once(ctx, CalcAction::Italic),
                         Key::D if cmd => self.perform_once(ctx, CalcAction::FillDown),
                         Key::A if cmd => self.perform_once(ctx, CalcAction::SelectAll),
+                        Key::E if cmd => self.perform_once(ctx, CalcAction::FlashFill),
+                        Key::L if cmd && shift => self.perform_once(ctx, CalcAction::AutoFilter),
+                        Key::Q if modifiers.ctrl && !modifiers.mac_cmd => {
+                            self.perform_once(ctx, CalcAction::QuickAnalysis);
+                        }
                         _ => {}
                     }
                 }
@@ -1578,6 +1921,59 @@ impl CalcApp {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Alt+Bas sur l'en-tête d'un tableau filtré : ouvre le menu du filtre.
+    fn open_filter_at_cursor(&mut self, ctx: &egui::Context) {
+        let Some(af) = self
+            .wb
+            .sheets
+            .get(self.sheet)
+            .and_then(|s| s.auto_filter.as_ref())
+        else {
+            return;
+        };
+        let r = af.range;
+        if self.cur.row == r.start.row && (r.start.col..=r.end.col).contains(&self.cur.col) {
+            let pos = ctx.content_rect().center() - Vec2::new(120.0, 150.0);
+            self.open_filter_popup(ctx, self.cur.col, pos);
+        }
+    }
+
+    /// Bandeau du remplissage instantané proposé.
+    fn flash_hint_ui(&mut self, ctx: &egui::Context) {
+        let Some(f) = &self.flash else { return };
+        if f.sheet != self.sheet {
+            self.flash = None;
+            return;
+        }
+        let n = f.cells.len();
+        let mut accept = false;
+        let mut cancel = false;
+        egui::Area::new(egui::Id::unique("calc-flash-hint"))
+            .anchor(Align2::CENTER_BOTTOM, [0.0, -90.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(trf!(
+                            "⚡ Remplissage instantané : {n} cellules proposées — Entrée pour accepter, Échap pour annuler",
+                            n
+                        ));
+                        if ui.button(tr("Accepter")).clicked() {
+                            accept = true;
+                        }
+                        if ui.button(tr("Annuler")).clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            });
+        if accept {
+            self.accept_flash();
+        } else if cancel {
+            self.flash = None;
         }
     }
 
@@ -1934,6 +2330,1727 @@ impl CalcApp {
     }
 }
 
+// ---------------------------------------------------------------- Pour se simplifier la vie
+
+/// Remplissage instantané proposé : valeurs en gris, Entrée pour accepter.
+struct FlashPreview {
+    sheet: usize,
+    cells: BTreeMap<CellRef, String>,
+}
+
+/// Liste des fonctions proposées pendant la saisie d'une formule.
+#[derive(Default)]
+struct FxPopup {
+    /// Élément choisi (flèches haut et bas).
+    selected: usize,
+    /// Texte pour lequel la liste a été fermée (Échap).
+    dismissed: Option<String>,
+}
+
+/// Boîte « Collage spécial ».
+struct PasteDialog {
+    clip: Clip,
+    opts: PasteOptions,
+    /// Le texte vient d'une autre application.
+    external: bool,
+}
+
+/// Les choix de l'analyse rapide.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum QaChoice {
+    Format(QuickFormat),
+    Total(QuickTotal),
+    Chart(ChartKind),
+    Table,
+}
+
+struct QuickAnalysisState {
+    range: Range,
+    sheet: usize,
+    tab: usize,
+    /// Position du bouton (coin bas droit de la sélection).
+    anchor: Pos2,
+    /// Le menu vient d'être ouvert (le clic qui l'ouvre ne le ferme pas).
+    opened_at: f64,
+}
+
+/// Menu d'un bouton de filtre (en-tête d'un tableau).
+struct FilterPopup {
+    col: u32,
+    pos: Pos2,
+    search: String,
+    /// Valeurs affichées et cochées.
+    values: Vec<(String, usize, bool)>,
+    /// Condition : indice dans `FILTER_KINDS`.
+    kind: usize,
+    value: String,
+    value2: String,
+    opened_at: f64,
+}
+
+/// Conditions proposées dans le menu d'un filtre.
+const FILTER_KINDS: [&str; 15] = [
+    n_("Aucune condition"),
+    n_("égal à"),
+    n_("différent de"),
+    n_("supérieur à"),
+    n_("supérieur ou égal à"),
+    n_("inférieur à"),
+    n_("inférieur ou égal à"),
+    n_("entre"),
+    n_("contient"),
+    n_("ne contient pas"),
+    n_("commence par"),
+    n_("finit par"),
+    n_("les 10 premiers"),
+    n_("au-dessus de la moyenne"),
+    n_("au-dessous de la moyenne"),
+];
+
+fn filter_kind(c: Option<&FilterCondition>) -> (usize, String, String) {
+    use FilterCondition as F;
+    let s = String::new;
+    match c {
+        None => (0, s(), s()),
+        Some(F::Compare { op, value, value2 }) => {
+            let k = match op {
+                CompareOp::Eq => 1,
+                CompareOp::Ne => 2,
+                CompareOp::Gt => 3,
+                CompareOp::Ge => 4,
+                CompareOp::Lt => 5,
+                CompareOp::Le => 6,
+                CompareOp::Between | CompareOp::NotBetween => 7,
+            };
+            (k, value.clone(), value2.clone())
+        }
+        Some(F::Contains { text }) => (8, text.clone(), s()),
+        Some(F::NotContains { text }) => (9, text.clone(), s()),
+        Some(F::BeginsWith { text }) => (10, text.clone(), s()),
+        Some(F::EndsWith { text }) => (11, text.clone(), s()),
+        Some(F::Top { n, .. }) => (12, n.to_string(), s()),
+        Some(F::AboveAverage) => (13, s(), s()),
+        Some(F::BelowAverage) => (14, s(), s()),
+    }
+}
+
+fn filter_condition(kind: usize, value: &str, value2: &str) -> Option<FilterCondition> {
+    use FilterCondition as F;
+    let cmp = |op| {
+        (!value.trim().is_empty()).then(|| F::Compare {
+            op,
+            value: value.trim().to_string(),
+            value2: value2.trim().to_string(),
+        })
+    };
+    let text = || value.to_string();
+    match kind {
+        1 => cmp(CompareOp::Eq),
+        2 => cmp(CompareOp::Ne),
+        3 => cmp(CompareOp::Gt),
+        4 => cmp(CompareOp::Ge),
+        5 => cmp(CompareOp::Lt),
+        6 => cmp(CompareOp::Le),
+        7 => cmp(CompareOp::Between),
+        8 if !value.is_empty() => Some(F::Contains { text: text() }),
+        9 if !value.is_empty() => Some(F::NotContains { text: text() }),
+        10 if !value.is_empty() => Some(F::BeginsWith { text: text() }),
+        11 if !value.is_empty() => Some(F::EndsWith { text: text() }),
+        12 => Some(F::Top {
+            n: value.trim().parse().unwrap_or(10).clamp(1, 1_000_000),
+            bottom: false,
+        }),
+        13 => Some(F::AboveAverage),
+        14 => Some(F::BelowAverage),
+        _ => None,
+    }
+}
+
+/// Assistant de formule.
+struct Wizard {
+    sheet: usize,
+    /// Cellule qui recevra la formule.
+    target: CellRef,
+    category: Option<FunctionCategory>,
+    search: String,
+    func: Option<&'static FunctionInfo>,
+    args: Vec<String>,
+    /// Argument rempli par la sélection de la grille.
+    active: Option<usize>,
+    /// Sélection à l'image précédente.
+    last_sel: Range,
+}
+
+fn category_label(c: FunctionCategory) -> &'static str {
+    match c {
+        FunctionCategory::Math => tr("Mathématiques"),
+        FunctionCategory::Statistics => tr("Statistiques"),
+        FunctionCategory::Logic => tr("Logique"),
+        FunctionCategory::Text => tr("Texte"),
+        FunctionCategory::Date => tr("Date et heure"),
+        FunctionCategory::Lookup => tr("Recherche"),
+        FunctionCategory::Finance => tr("Finances"),
+        FunctionCategory::Information => tr("Information"),
+    }
+}
+
+/// Le nom d'identifiant (fonction) qui finit `text`, s'il suit `=`, un
+/// opérateur, `(` ou `;`.
+fn trailing_ident(text: &str) -> Option<&str> {
+    if !text.starts_with('=') {
+        return None;
+    }
+    let start = text
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_alphanumeric() || *c == '.' || *c == '_')
+        .last()
+        .map(|(i, _)| i)?;
+    let ident = &text[start..];
+    let before = text[..start].chars().next_back()?;
+    // Pas une référence (A1, B12) ni un nombre.
+    let is_ref = varium_calc::CellRef::parse(ident).is_some()
+        || ident.chars().next().is_some_and(|c| c.is_ascii_digit());
+    let in_string = text[..start].matches('"').count() % 2 == 1;
+    (!is_ref && !in_string && "=+-*/^&<>(;: ".contains(before)).then_some(ident)
+}
+
+/// Fonctions dont le nom (français ou anglais) commence par `ident`.
+fn function_matches(ident: &str) -> Vec<&'static FunctionInfo> {
+    let q = varium_core::merge::normalize(ident).to_uppercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let norm = |s: &str| varium_core::merge::normalize(s).to_uppercase();
+    let mut out: Vec<&'static FunctionInfo> = varium_calc::functions()
+        .iter()
+        .filter(|f| norm(f.fr).starts_with(&q))
+        .collect();
+    for f in varium_calc::functions() {
+        if norm(f.en).starts_with(&q) && !out.iter().any(|o| o.fr == f.fr) {
+            out.push(f);
+        }
+    }
+    out.truncate(10);
+    out
+}
+
+/// Fonction dont la parenthèse est ouverte à la fin de `text`, et numéro de
+/// l'argument en cours.
+fn open_call(text: &str) -> Option<(&'static FunctionInfo, usize)> {
+    if !text.starts_with('=') {
+        return None;
+    }
+    let mut stack: Vec<(Option<&'static FunctionInfo>, usize)> = Vec::new();
+    let mut in_str = false;
+    let mut ident_start: Option<usize> = None;
+    for (i, c) in text.char_indices() {
+        if c == '"' {
+            in_str = !in_str;
+            ident_start = None;
+            continue;
+        }
+        if in_str {
+            continue;
+        }
+        if c.is_alphanumeric() || c == '.' || c == '_' {
+            ident_start.get_or_insert(i);
+            continue;
+        }
+        match c {
+            '(' => {
+                let f = ident_start.and_then(|s| varium_calc::function_info(&text[s..i]));
+                stack.push((f, 0));
+            }
+            ')' => {
+                stack.pop();
+            }
+            ';' => {
+                if let Some(top) = stack.last_mut() {
+                    top.1 += 1;
+                }
+            }
+            _ => {}
+        }
+        ident_start = None;
+    }
+    stack.into_iter().rev().find_map(|(f, k)| f.map(|f| (f, k)))
+}
+
+/// Syntaxe d'une fonction, l'argument en cours en gras.
+fn syntax_job(ui: &egui::Ui, f: &FunctionInfo, current: usize) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let font = FontId::monospace(12.5);
+    let normal = ui.visuals().text_color();
+    let strong = ui.visuals().strong_text_color();
+    let fmt = |c: Color32, under: bool| egui::TextFormat {
+        font_id: font.clone(),
+        color: c,
+        underline: if under {
+            Stroke::new(1.0, c)
+        } else {
+            Stroke::NONE
+        },
+        ..Default::default()
+    };
+    job.append(&format!("{}(", f.fr), 0.0, fmt(normal, false));
+    let args = f.arguments();
+    let n = args.len();
+    for (i, a) in args.iter().enumerate() {
+        let on = i == current || (*a == "…" && current >= i) || (i + 1 == n && current >= n);
+        job.append(a, 0.0, fmt(if on { strong } else { normal }, on));
+        if i + 1 < n {
+            job.append("; ", 0.0, fmt(normal, false));
+        }
+    }
+    job.append(")", 0.0, fmt(normal, false));
+    job
+}
+
+// ---------------------------------------------------------------- Formules en clair
+
+fn number_text(n: f64) -> String {
+    varium_calc::format_general(n)
+}
+
+/// Une liste « a, b et c ».
+fn join_and(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [a] => a.clone(),
+        [rest @ .., last] => trf!("{list} et {last}", list = rest.join(", "), last),
+    }
+}
+
+fn is_call(n: &FormulaNode) -> bool {
+    matches!(n, FormulaNode::Call { .. })
+}
+
+/// Une sous-expression, entre parenthèses si sa priorité est plus faible.
+fn operand_phrase(n: &FormulaNode, parent: BinOp, right: bool) -> String {
+    let p = phrase(n);
+    match n {
+        FormulaNode::Binary(op, ..)
+            if op.precedence() < parent.precedence()
+                || (right && op.precedence() == parent.precedence()) =>
+        {
+            format!("({p})")
+        }
+        _ => p,
+    }
+}
+
+/// Explication en clair d'une formule (sans majuscule initiale).
+fn phrase(n: &FormulaNode) -> String {
+    use FormulaNode as N;
+    match n {
+        N::Number(x) => number_text(*x),
+        N::Text(s) => format!("« {s} »"),
+        N::Bool(true) => tr("vrai").to_string(),
+        N::Bool(false) => tr("faux").to_string(),
+        N::Error(e) => e.code().to_string(),
+        N::Missing => tr("(vide)").to_string(),
+        N::Cell { sheet: None, cell } => cell.clone(),
+        N::Cell {
+            sheet: Some(sheet),
+            cell,
+        } => trf!("{cell} (feuille {sheet})", cell, sheet),
+        N::Range {
+            sheet: None,
+            from,
+            to,
+        } => trf!("{from} à {to}", from, to),
+        N::Range {
+            sheet: Some(sheet),
+            from,
+            to,
+        } => trf!("{from} à {to} (feuille {sheet})", from, to, sheet),
+        N::Neg(x) => trf!("moins {x}", x = phrase(x)),
+        N::Percent(x) => trf!("{x} %", x = phrase(x)),
+        N::Binary(op, a, b) => {
+            let fa = is_call(a);
+            let (a, b) = (operand_phrase(a, *op, false), operand_phrase(b, *op, true));
+            match op {
+                BinOp::Add => trf!("{a} plus {b}", a, b),
+                BinOp::Sub => trf!("{a} moins {b}", a, b),
+                BinOp::Mul if fa => trf!("{a}, multipliée par {b}", a, b),
+                BinOp::Mul => trf!("{a} multiplié par {b}", a, b),
+                BinOp::Div if fa => trf!("{a}, divisée par {b}", a, b),
+                BinOp::Div => trf!("{a} divisé par {b}", a, b),
+                BinOp::Pow => trf!("{a} puissance {b}", a, b),
+                BinOp::Concat => trf!("{a} suivi de {b}", a, b),
+                BinOp::Eq => trf!("{a} est égal à {b}", a, b),
+                BinOp::Ne => trf!("{a} est différent de {b}", a, b),
+                BinOp::Lt => trf!("{a} est inférieur à {b}", a, b),
+                BinOp::Gt => trf!("{a} est supérieur à {b}", a, b),
+                BinOp::Le => trf!("{a} est inférieur ou égal à {b}", a, b),
+                BinOp::Ge => trf!("{a} est supérieur ou égal à {b}", a, b),
+            }
+        }
+        N::Call { name, info, args } => call_phrase(name, info.map(|i| i.fr), args),
+    }
+}
+
+fn call_phrase(name: &str, fr: Option<&str>, args: &[FormulaNode]) -> String {
+    let p: Vec<String> = args.iter().map(phrase).collect();
+    let arg = |i: usize| -> String {
+        p.get(i)
+            .filter(|_| !matches!(args.get(i), Some(FormulaNode::Missing)))
+            .cloned()
+            .unwrap_or_default()
+    };
+    let has = |i: usize| !arg(i).is_empty();
+    let all = join_and(&p);
+    let (a, b, c) = (arg(0), arg(1), arg(2));
+    match fr.unwrap_or("") {
+        "SOMME" => trf!("somme de {all}", all),
+        "MOYENNE" => trf!("moyenne de {all}", all),
+        "MIN" => trf!("plus petite valeur de {all}", all),
+        "MAX" => trf!("plus grande valeur de {all}", all),
+        "NB" => trf!("nombre de valeurs numériques dans {all}", all),
+        "NBVAL" => trf!("nombre de cellules non vides dans {all}", all),
+        "NB.VIDE" => trf!("nombre de cellules vides dans {a}", a),
+        "PRODUIT" => trf!("produit de {all}", all),
+        "MEDIANE" => trf!("médiane de {all}", all),
+        "SI" if has(2) => trf!("si {a}, alors {b}, sinon {c}", a, b, c),
+        "SI" => trf!("si {a}, alors {b}", a, b),
+        "SI.ERREUR" => trf!("{a}, ou {b} en cas d'erreur", a, b),
+        "ET" => trf!("vrai si toutes ces conditions sont vraies : {all}", all),
+        "OU" => trf!(
+            "vrai si au moins une de ces conditions est vraie : {all}",
+            all
+        ),
+        "NON" => trf!("le contraire de {a}", a),
+        "ARRONDI" => trf!("{a} arrondi à {b} décimales", a, b),
+        "ARRONDI.SUP" => trf!("{a} arrondi au-dessus à {b} décimales", a, b),
+        "ARRONDI.INF" => trf!("{a} tronqué à {b} décimales", a, b),
+        "ENT" => trf!("partie entière de {a}", a),
+        "ABS" => trf!("valeur absolue de {a}", a),
+        "RACINE" => trf!("racine carrée de {a}", a),
+        "PUISSANCE" => trf!("{a} puissance {b}", a, b),
+        "MOD" => trf!("reste de la division de {a} par {b}", a, b),
+        "SOMME.SI" if has(2) => trf!(
+            "somme des cellules de {c} dont la valeur dans {a} correspond à {b}",
+            a,
+            b,
+            c
+        ),
+        "SOMME.SI" => trf!("somme des cellules de {a} qui correspondent à {b}", a, b),
+        "NB.SI" => trf!("nombre de cellules de {a} qui correspondent à {b}", a, b),
+        "MOYENNE.SI" if has(2) => trf!(
+            "moyenne des cellules de {c} dont la valeur dans {a} correspond à {b}",
+            a,
+            b,
+            c
+        ),
+        "MOYENNE.SI" => trf!("moyenne des cellules de {a} qui correspondent à {b}", a, b),
+        "RECHERCHEV" => {
+            let exact = matches!(
+                args.get(3),
+                Some(FormulaNode::Bool(false)) | Some(FormulaNode::Number(0.0))
+            );
+            let base = trf!(
+                "recherche de {a} dans la première colonne de {b}, et valeur de la colonne {c}",
+                a,
+                b,
+                c
+            );
+            if exact {
+                trf!("{base} (correspondance exacte)", base)
+            } else {
+                base
+            }
+        }
+        "INDEX" if has(2) => trf!("valeur de {a} à la ligne {b} et à la colonne {c}", a, b, c),
+        // INDEX(…; EQUIV(x; plage; 0)) : « à la position de x dans la plage ».
+        "INDEX" => match args.get(1) {
+            Some(FormulaNode::Call {
+                info: Some(i),
+                args: inner,
+                ..
+            }) if i.fr == "EQUIV" && inner.len() >= 2 => trf!(
+                "valeur de {a} à la position de {x} dans {r}",
+                a,
+                x = phrase(&inner[0]),
+                r = phrase(&inner[1])
+            ),
+            _ => trf!("valeur de {a} à la position {b}", a, b),
+        },
+        "EQUIV" => trf!("position de {a} dans {b}", a, b),
+        "CONCAT" | "CONCATENER" => trf!("{all} mis bout à bout", all),
+        "GAUCHE" if has(1) => trf!("les {b} premiers caractères de {a}", a, b),
+        "GAUCHE" => trf!("le premier caractère de {a}", a),
+        "DROITE" if has(1) => trf!("les {b} derniers caractères de {a}", a, b),
+        "DROITE" => trf!("le dernier caractère de {a}", a),
+        "STXT" => trf!(
+            "{c} caractères de {a}, à partir de la position {b}",
+            a,
+            b,
+            c
+        ),
+        "NBCAR" => trf!("nombre de caractères de {a}", a),
+        "MAJUSCULE" => trf!("{a} en majuscules", a),
+        "MINUSCULE" => trf!("{a} en minuscules", a),
+        "SUPPRESPACE" => trf!("{a} sans espaces superflus", a),
+        "TEXTE" => trf!("{a} mis en forme selon {b}", a, b),
+        "AUJOURDHUI" => tr("la date du jour").to_string(),
+        "DATE" => trf!("la date de l'année {a}, mois {b}, jour {c}", a, b, c),
+        "ANNEE" => trf!("l'année de {a}", a),
+        "MOIS" => trf!("le mois de {a}", a),
+        "JOUR" => trf!("le jour de {a}", a),
+        "VPM" => trf!(
+            "remboursement d'un emprunt de {c} au taux {a} sur {b} périodes",
+            a,
+            b,
+            c
+        ),
+        "PI" => tr("le nombre π").to_string(),
+        _ if args.is_empty() => format!("{name}()"),
+        _ => trf!("{name} de {all}", name, all),
+    }
+}
+
+/// Explication en clair d'une formule, phrase complète.
+fn explain_formula(tree: &FormulaNode) -> String {
+    let p = phrase(tree);
+    let mut chars = p.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => p,
+    }
+}
+
+/// Explication d'une erreur en mots simples.
+fn error_text(c: &ErrorCause) -> String {
+    match c {
+        ErrorCause::Syntax(m) => trf!("Formule incorrecte : {m}", m),
+        ErrorCause::DivZero {
+            cell: Some(cell),
+            empty: true,
+        } => trf!(
+            "#DIV/0! : la formule divise par zéro, cellule {cell} vide",
+            cell
+        ),
+        ErrorCause::DivZero {
+            cell: Some(cell),
+            empty: false,
+        } => trf!("#DIV/0! : la formule divise par zéro ({cell} vaut 0)", cell),
+        ErrorCause::DivZero { cell: None, .. } => {
+            tr("#DIV/0! : la formule divise par zéro").to_string()
+        }
+        ErrorCause::EmptyAverage => tr("#DIV/0! : aucune valeur numérique à moyenner").to_string(),
+        ErrorCause::Text {
+            cell: Some(cell),
+            text,
+        } => trf!(
+            "#VALEUR! : {cell} contient du texte (« {text} ») là où un nombre est attendu",
+            cell,
+            text
+        ),
+        ErrorCause::Text { cell: None, text } => {
+            trf!("#VALEUR! : « {text} » est du texte, pas un nombre", text)
+        }
+        ErrorCause::BadRef => {
+            tr("#REF! : la formule cite une cellule ou une feuille supprimée").to_string()
+        }
+        ErrorCause::UnknownName(n) if n.is_empty() => {
+            tr("#NOM? : nom inconnu dans la formule").to_string()
+        }
+        ErrorCause::UnknownName(name) => {
+            trf!("#NOM? : « {name} » n'est pas une fonction connue", name)
+        }
+        ErrorCause::Circular => {
+            tr("#CIRC! : la formule dépend de sa propre valeur (référence circulaire)").to_string()
+        }
+        ErrorCause::NotFound(Some(value)) => trf!("#N/A : « {value} » est introuvable", value),
+        ErrorCause::NotFound(None) => tr("#N/A : valeur introuvable").to_string(),
+        ErrorCause::Num => {
+            tr("#NOMBRE! : calcul impossible (racine d'un nombre négatif, nombre trop grand…)")
+                .to_string()
+        }
+        ErrorCause::FromCell { cell, error } => trf!(
+            "{code} : l'erreur vient de la cellule {cell}",
+            code = error.code(),
+            cell
+        ),
+        ErrorCause::Other(e) => match e {
+            CalcError::Div0 => tr("#DIV/0! : division par zéro").to_string(),
+            CalcError::Value => tr("#VALEUR! : type de valeur incorrect").to_string(),
+            CalcError::Ref => tr("#REF! : référence invalide").to_string(),
+            CalcError::Name => tr("#NOM? : nom inconnu dans la formule").to_string(),
+            CalcError::Circular => {
+                tr("#CIRC! : la formule dépend de sa propre valeur (référence circulaire)")
+                    .to_string()
+            }
+            CalcError::NA => tr("#N/A : valeur non disponible").to_string(),
+            CalcError::Num => tr("#NOMBRE! : nombre invalide ou hors limites").to_string(),
+        },
+    }
+}
+
+/// Le graphique qui convient à la forme des données.
+fn recommend_chart(shape: &varium_calc::DataShape, d: &ChartData) -> ChartKind {
+    let n = d.labels.len();
+    let series = d.series.len();
+    let all_positive = d.series.iter().all(|(_, v)| v.iter().all(|x| *x >= 0.0));
+    if series == 1 && shape.label_col && (2..=6).contains(&n) && all_positive && !shape.temporal {
+        ChartKind::Secteurs
+    } else if shape.temporal || n > 12 {
+        ChartKind::Courbes
+    } else if series >= 2 && !shape.label_col && !shape.header {
+        ChartKind::Nuage
+    } else if d.labels.iter().any(|l| l.chars().count() > 14) {
+        ChartKind::BarresH
+    } else {
+        ChartKind::Barres
+    }
+}
+
+/// Tous les choix de chaque onglet de l'analyse rapide.
+fn qa_choices(tab: usize, recommended: ChartKind) -> Vec<(QaChoice, &'static str)> {
+    match tab {
+        0 => vec![
+            (
+                QaChoice::Format(QuickFormat::DataBars),
+                n_("Barres de données"),
+            ),
+            (
+                QaChoice::Format(QuickFormat::ColorScale),
+                n_("Échelle de couleurs"),
+            ),
+            (
+                QaChoice::Format(QuickFormat::Duplicates),
+                n_("Valeurs en double"),
+            ),
+            (QaChoice::Format(QuickFormat::Top10), n_("10 premiers")),
+            (
+                QaChoice::Format(QuickFormat::Clear),
+                n_("Effacer la mise en forme"),
+            ),
+        ],
+        1 => {
+            let mut v = vec![(QaChoice::Chart(recommended), n_("Recommandé"))];
+            for k in [
+                ChartKind::Barres,
+                ChartKind::Courbes,
+                ChartKind::Secteurs,
+                ChartKind::BarresH,
+                ChartKind::Nuage,
+            ] {
+                if k != recommended {
+                    v.push((QaChoice::Chart(k), ""));
+                }
+            }
+            v
+        }
+        2 => vec![
+            (
+                QaChoice::Total(QuickTotal::SumBelow),
+                n_("Somme (ligne dessous)"),
+            ),
+            (
+                QaChoice::Total(QuickTotal::SumRight),
+                n_("Somme (colonne à droite)"),
+            ),
+            (QaChoice::Total(QuickTotal::AverageBelow), n_("Moyenne")),
+            (QaChoice::Total(QuickTotal::CountBelow), n_("Nombre")),
+            (
+                QaChoice::Total(QuickTotal::PercentOfTotal),
+                n_("% du total"),
+            ),
+        ],
+        _ => vec![(QaChoice::Table, n_("Mettre sous forme de tableau"))],
+    }
+}
+
+impl CalcApp {
+    // ---------------- Saisie dans la cellule ----------------
+
+    /// L'éditeur posé sur la cellule active : saisie semi-automatique (suffixe
+    /// en gris, Tab ou Entrée l'accepte), fonctions proposées après `=` et
+    /// syntaxe de la fonction en cours.
+    fn cell_editor(&mut self, ui: &mut egui::Ui, ar: Rect) {
+        use egui::Modifiers as M;
+        let Some(now_text) = self.edit.clone() else {
+            return;
+        };
+        let id = egui::Id::unique("calc-cell-edit");
+        let w = ar.width().max(160.0);
+        let er = Rect::from_min_size(ar.min, Vec2::new(w, ar.height().max(ROW_H)));
+
+        // Fonctions dont le nom commence par ce qui est tapé.
+        let ident = trailing_ident(&now_text).map(str::to_string);
+        let matches = match &ident {
+            Some(i) if self.fx_popup.dismissed.as_deref() != Some(now_text.as_str()) => {
+                function_matches(i)
+            }
+            _ => Vec::new(),
+        };
+        let mut insert_fn: Option<&'static FunctionInfo> = None;
+        if matches.is_empty() {
+            self.fx_popup.selected = 0;
+        } else {
+            let n = matches.len();
+            let long = ident.as_ref().is_some_and(|i| i.chars().count() >= 2);
+            let (down, up, tab, enter, esc) = ui.input_mut(|i| {
+                (
+                    i.consume_key(M::NONE, Key::ArrowDown),
+                    i.consume_key(M::NONE, Key::ArrowUp),
+                    i.consume_key(M::NONE, Key::Tab),
+                    long && i.consume_key(M::NONE, Key::Enter),
+                    i.consume_key(M::NONE, Key::Escape),
+                )
+            });
+            let mut sel = self.fx_popup.selected.min(n - 1);
+            if down {
+                sel = (sel + 1) % n;
+            }
+            if up {
+                sel = (sel + n - 1) % n;
+            }
+            self.fx_popup.selected = sel;
+            if tab || enter {
+                insert_fn = Some(matches[sel]);
+            }
+            if esc {
+                self.fx_popup.dismissed = Some(now_text.clone());
+            }
+        }
+        if let (Some(f), Some(i)) = (insert_fn, &ident)
+            && let Some(t) = &mut self.edit
+        {
+            let keep = t.len() - i.len();
+            t.truncate(keep);
+            t.push_str(f.fr);
+            t.push('(');
+            self.focus_edit = true;
+            self.fx_popup.selected = 0;
+        }
+
+        let Some(text) = &mut self.edit else { return };
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(er));
+        let out = egui::TextEdit::singleline(text)
+            .id(id)
+            .margin(Vec2::new(3.0, 3.0))
+            .font(egui::TextStyle::Body)
+            .desired_width(er.width() - 6.0)
+            // Tab insère la fonction proposée au lieu de quitter la cellule.
+            .event_filter(egui::EventFilter {
+                tab: !matches.is_empty(),
+                escape: !matches.is_empty(),
+                horizontal_arrows: true,
+                vertical_arrows: true,
+            })
+            .show(&mut child);
+        let r = out.response;
+        let current = text.clone();
+        // Saisie semi-automatique d'après les valeurs de la colonne (pas
+        // après un effacement).
+        if current.len() < self.ac_prev_len || current.starts_with('=') || current.trim().is_empty()
+        {
+            self.completion = None;
+        } else if current.len() > self.ac_prev_len {
+            self.completion = self.column_completion(&current);
+        }
+        self.ac_prev_len = current.len();
+        if current != now_text {
+            // La liste des fonctions suit la frappe dès l'image suivante.
+            ui.ctx().request_repaint();
+        }
+        if let Some(c) = &self.completion {
+            let text = &current;
+            let typed = text.chars().count();
+            let suffix: String = c.chars().skip(typed).collect();
+            let fits = c
+                .chars()
+                .take(typed)
+                .flat_map(char::to_lowercase)
+                .eq(text.chars().flat_map(char::to_lowercase));
+            if fits && !suffix.is_empty() {
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let galley =
+                    ui.painter()
+                        .layout_no_wrap(suffix, font, ui.visuals().weak_text_color());
+                let pos = out.galley_pos + Vec2::new(out.galley.size().x, 0.0);
+                let sel_bg = ui.visuals().selection.bg_fill.gamma_multiply(0.35);
+                let rect = Rect::from_min_size(pos, galley.size());
+                ui.painter().rect_filled(rect, 1.0, sel_bg);
+                ui.painter().galley(pos, galley, Color32::GRAY);
+            }
+        }
+        if self.focus_edit {
+            r.request_focus();
+            self.focus_edit = false;
+            // curseur à la fin
+            if let Some(mut st) = egui::text_edit::TextEditState::load(ui.ctx(), id) {
+                let end = egui::text::CCursor::new(egui::text::CharIndex(current.chars().count()));
+                st.cursor
+                    .set_char_range(Some(egui::text_selection::CCursorRange::one(end)));
+                st.store(ui.ctx(), id);
+            }
+        }
+
+        // Liste des fonctions, ou syntaxe de la fonction en cours.
+        let below = er.left_bottom() + Vec2::new(0.0, 2.0);
+        if !matches.is_empty() {
+            let sel = self.fx_popup.selected.min(matches.len() - 1);
+            egui::Area::new(egui::Id::unique("calc-fx-popup"))
+                .order(egui::Order::Tooltip)
+                .fixed_pos(below)
+                .interactable(false)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_max_width(360.0);
+                        for (i, f) in matches.iter().enumerate() {
+                            let t = RichText::new(f.fr).monospace();
+                            let _ = ui
+                                .selectable_label(i == sel, if i == sel { t.strong() } else { t });
+                        }
+                        ui.separator();
+                        let f = matches[sel];
+                        ui.label(RichText::new(f.syntax).monospace());
+                        ui.label(RichText::new(f.description).small());
+                        ui.label(
+                            RichText::new(tr(
+                                "↑ ↓ pour choisir, Tab pour insérer, Échap pour fermer",
+                            ))
+                            .small()
+                            .weak(),
+                        );
+                    });
+                });
+        } else if let Some((f, k)) = open_call(&current) {
+            egui::Area::new(egui::Id::unique("calc-fx-hint"))
+                .order(egui::Order::Tooltip)
+                .fixed_pos(below)
+                .interactable(false)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_max_width(380.0);
+                        ui.label(syntax_job(ui, f, k));
+                        ui.label(RichText::new(f.description).small().weak());
+                    });
+                });
+        }
+
+        if r.lost_focus() {
+            let (enter, tab, esc, shift) = ui.input(|i| {
+                (
+                    i.key_pressed(Key::Enter),
+                    i.key_pressed(Key::Tab),
+                    i.key_pressed(Key::Escape),
+                    i.modifiers.shift,
+                )
+            });
+            if esc {
+                self.edit = None;
+                self.completion = None;
+            } else {
+                // Entrée ou Tab acceptent la valeur proposée.
+                if (enter || tab)
+                    && let Some(c) = self.completion.take()
+                    && let Some(t) = &mut self.edit
+                    && c.chars().count() > t.chars().count()
+                {
+                    *t = c;
+                }
+                self.completion = None;
+                self.commit();
+                if enter {
+                    self.move_by(if shift { -1 } else { 1 }, 0, false);
+                } else if tab {
+                    self.move_by(0, if shift { -1 } else { 1 }, false);
+                }
+            }
+            self.ac_prev_len = 0;
+        }
+    }
+
+    /// Valeur de la colonne active qui complète le texte tapé.
+    fn column_completion(&self, typed: &str) -> Option<String> {
+        let sheet = self.wb.sheets.get(self.sheet)?;
+        let col = self.cur.col;
+        let values: Vec<String> = sheet
+            .cells()
+            .filter(|(c, cell)| c.col == col && c.row != self.cur.row && !cell.input.is_empty())
+            .take(20_000)
+            .filter_map(|(c, _)| match self.wb.value(self.sheet, c) {
+                Value::Text(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        varium_calc::autocomplete(values.iter().map(String::as_str), typed)
+    }
+
+    // ---------------- Remplissage instantané ----------------
+
+    /// Cherche un remplissage instantané pour la colonne de la cellule active.
+    /// `auto` : proposé de lui-même après une saisie (il faut alors au moins
+    /// deux exemples et une vraie transformation). Renvoie `true` s'il y en a un.
+    fn suggest_flash(&mut self, auto: bool) -> bool {
+        let sheet = self.sheet;
+        let target = self.cur.col;
+        let row0 = self.cur.row;
+        let wb = &self.wb;
+        let filled = |r: u32, c: u32| !wb.input(sheet, CellRef::new(r, c)).is_empty();
+        let (used_r, _) = wb.used_size(sheet);
+        let lo = row0.saturating_sub(2000);
+        let hi = (row0 + 2000).min(used_r.max(row0 + 1));
+        let col_used = |c: u32| (lo..=hi).any(|r| filled(r, c));
+        // Colonnes sources : les colonnes remplies voisines.
+        let mut cols = Vec::new();
+        let mut c = target;
+        while c > 0 && cols.len() < 6 && col_used(c - 1) {
+            c -= 1;
+            cols.push(c);
+        }
+        cols.reverse();
+        let mut c = target + 1;
+        while c < varium_calc::MAX_COLS && cols.len() < 8 && col_used(c) {
+            cols.push(c);
+            c += 1;
+        }
+        if cols.is_empty() {
+            return false;
+        }
+        let any_src = |r: u32| cols.iter().any(|&c| filled(r, c));
+        // Lignes : le bloc de lignes remplies autour de la cellule active.
+        let mut top = row0;
+        while top > 0 && any_src(top - 1) {
+            top -= 1;
+        }
+        let mut bottom = row0;
+        while bottom + 1 < varium_calc::MAX_ROWS && bottom < row0 + 100_000 && any_src(bottom + 1) {
+            bottom += 1;
+        }
+        let row_values = |r: u32| -> Vec<String> {
+            cols.iter()
+                .map(|&c| wb.display(sheet, CellRef::new(r, c)))
+                .collect()
+        };
+        let mut examples = Vec::new();
+        let mut todo = Vec::new();
+        for r in top..=bottom {
+            let out = wb.display(sheet, CellRef::new(r, target));
+            if out.is_empty() {
+                if any_src(r) {
+                    todo.push(r);
+                }
+            } else if any_src(r) && examples.len() < 6 {
+                examples.push((r, row_values(r), out));
+            }
+        }
+        if examples.is_empty() || todo.is_empty() || (auto && examples.len() < 2) {
+            return false;
+        }
+        let as_pairs = |ex: &[(u32, Vec<String>, String)]| -> Vec<(Vec<String>, String)> {
+            ex.iter().map(|(_, r, o)| (r.clone(), o.clone())).collect()
+        };
+        let mut program = varium_calc::FlashProgram::infer(&as_pairs(&examples));
+        // La première ligne est peut-être un en-tête (« Prénom ») : on réessaie sans.
+        if program.is_none() && examples.len() > 1 && examples[0].0 == top {
+            program = varium_calc::FlashProgram::infer(&as_pairs(&examples[1..]));
+            todo.retain(|&r| r != top);
+        }
+        let Some(program) = program else {
+            if !auto {
+                self.toast = Some((
+                    tr("Remplissage instantané : aucune règle trouvée. Tapez un ou deux exemples de plus.")
+                        .to_string(),
+                    self.now,
+                    true,
+                ));
+            }
+            return false;
+        };
+        if auto && (program.is_constant() || program.is_plain_copy()) {
+            return false;
+        }
+        let cells: BTreeMap<CellRef, String> = todo
+            .into_iter()
+            .filter_map(|r| {
+                let v = program.apply(&row_values(r))?;
+                (!v.is_empty()).then(|| (CellRef::new(r, target), v))
+            })
+            .collect();
+        if cells.is_empty() {
+            return false;
+        }
+        self.flash = Some(FlashPreview { sheet, cells });
+        true
+    }
+
+    fn accept_flash(&mut self) {
+        let Some(f) = self.flash.take() else { return };
+        if f.sheet != self.sheet {
+            return;
+        }
+        self.snapshot();
+        let n = f.cells.len();
+        for (at, v) in f.cells {
+            // Gardé tel quel : « 06 12 34 56 78 » ou « 00123 » restent du texte.
+            let input = if v.starts_with('=') || v.starts_with('\'') {
+                format!("'{v}")
+            } else {
+                v
+            };
+            self.wb.set_input(self.sheet, at, &input);
+        }
+        self.toast = Some((
+            trf!("Remplissage instantané : {n} cellules remplies", n),
+            self.now,
+            false,
+        ));
+    }
+
+    // ---------------- Collage ----------------
+
+    /// Colle un texte du presse-papiers : la copie interne s'il vient de Varium
+    /// (formules et formats), sinon un tableau découpé et converti.
+    fn paste_text(&mut self, ctx: &egui::Context, text: &str, special: bool) {
+        let internal = self.clip.as_ref().filter(|c| c.matches_text(text)).cloned();
+        let external = internal.is_none();
+        let clip = internal.unwrap_or_else(|| Clip::from_external(text));
+        if clip.is_empty() {
+            return;
+        }
+        if special {
+            self.paste_dialog = Some(PasteDialog {
+                clip,
+                opts: PasteOptions::default(),
+                external,
+            });
+            return;
+        }
+        self.snapshot();
+        self.wb.paste(self.sheet, self.cur, &clip);
+        self.select_pasted(&clip, false);
+        if external && (clip.rows > 1 || clip.cols > 1) {
+            let (src, _) = varium_calc::parse_table(text);
+            let kind = match src {
+                varium_calc::PasteSource::Html => tr("tableau HTML"),
+                varium_calc::PasteSource::Markdown => tr("tableau Markdown"),
+                varium_calc::PasteSource::Tabs => tr("tabulations"),
+                varium_calc::PasteSource::Delimited(';') => tr("points-virgules"),
+                varium_calc::PasteSource::Delimited(_) => tr("virgules (CSV)"),
+                varium_calc::PasteSource::Lines => tr("une valeur par ligne"),
+            };
+            self.notify(
+                ctx,
+                trf!(
+                    "Collé : {rows} lignes × {cols} colonnes ({kind})",
+                    rows = clip.rows,
+                    cols = clip.cols,
+                    kind
+                ),
+                false,
+            );
+        }
+    }
+
+    /// Sélectionne la zone qui vient d'être collée.
+    fn select_pasted(&mut self, clip: &Clip, transpose: bool) {
+        let (rows, cols) = if transpose {
+            (clip.cols, clip.rows)
+        } else {
+            (clip.rows, clip.cols)
+        };
+        self.anchor = self.cur;
+        self.cur = self
+            .anchor
+            .offset(i64::from(rows) - 1, i64::from(cols) - 1)
+            .unwrap_or(self.anchor);
+        std::mem::swap(&mut self.anchor, &mut self.cur);
+    }
+
+    /// Demande le texte du presse-papiers du système (il arrive à l'image
+    /// suivante, par un événement de collage).
+    fn request_paste(&mut self, ctx: &egui::Context, special: bool) {
+        self.paste_request = Some((special, ctx.input(|i| i.time)));
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+    }
+
+    fn paste_dialog_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut dlg) = self.paste_dialog.take() else {
+            return;
+        };
+        let mut open = true;
+        let mut apply = false;
+        egui::Window::new(tr("Collage spécial"))
+            .id(egui::Id::unique("calc-paste-special"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new(trf!(
+                        "{rows} lignes × {cols} colonnes, collées à partir de {cell}",
+                        rows = dlg.clip.rows,
+                        cols = dlg.clip.cols,
+                        cell = self.cur.name()
+                    ))
+                    .weak(),
+                );
+                if dlg.external {
+                    ui.label(
+                        RichText::new(tr("Texte venu d'une autre application"))
+                            .small()
+                            .weak(),
+                    );
+                }
+                ui.add_space(4.0);
+                for (what, label) in [
+                    (PasteWhat::All, tr("Tout (contenu et mise en forme)")),
+                    (
+                        PasteWhat::Values,
+                        tr("Valeurs seules (résultats des formules)"),
+                    ),
+                    (PasteWhat::Formulas, tr("Formules, sans la mise en forme")),
+                    (PasteWhat::Formats, tr("Mise en forme seule")),
+                ] {
+                    ui.radio_value(&mut dlg.opts.what, what, label);
+                }
+                ui.separator();
+                ui.checkbox(
+                    &mut dlg.opts.transpose,
+                    tr("Transposer (lignes ↔ colonnes)"),
+                );
+                ui.checkbox(&mut dlg.opts.skip_blanks, tr("Ignorer les cellules vides"));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr("Coller")).clicked() {
+                        apply = true;
+                    }
+                    if ui.button(tr("Annuler")).clicked() {
+                        dlg.clip = Clip::default();
+                    }
+                });
+            });
+        if apply {
+            self.snapshot();
+            self.wb
+                .paste_special(self.sheet, self.cur, &dlg.clip, dlg.opts);
+            let transpose = dlg.opts.transpose;
+            let clip = dlg.clip.clone();
+            self.select_pasted(&clip, transpose);
+            return;
+        }
+        if open && !dlg.clip.is_empty() {
+            self.paste_dialog = Some(dlg);
+        }
+    }
+
+    // ---------------- Analyse rapide ----------------
+
+    fn open_quick_analysis(&mut self, ctx: &egui::Context, anchor: Option<Pos2>) {
+        let range = self.selection();
+        let anchor = anchor.unwrap_or_else(|| ctx.content_rect().center());
+        self.qa = Some(QuickAnalysisState {
+            range,
+            sheet: self.sheet,
+            tab: 0,
+            anchor,
+            opened_at: ctx.input(|i| i.time),
+        });
+        self.qa_preview = None;
+    }
+
+    /// Applique un choix de l'analyse rapide au classeur donné.
+    fn apply_qa(wb: &mut Workbook, sheet: usize, range: Range, c: QaChoice) {
+        match c {
+            QaChoice::Format(f) => wb.quick_format(sheet, range, f),
+            QaChoice::Total(t) => {
+                let label = match t {
+                    QuickTotal::AverageBelow => tr("Moyenne"),
+                    QuickTotal::CountBelow => tr("Nombre"),
+                    QuickTotal::PercentOfTotal => tr("% du total"),
+                    _ => tr("Total"),
+                };
+                wb.quick_total(sheet, range, t, label);
+            }
+            QaChoice::Table => {
+                wb.format_as_table(sheet, range);
+            }
+            QaChoice::Chart(_) => {}
+        }
+    }
+
+    fn quick_analysis_ui(&mut self, ctx: &egui::Context) {
+        let Some(qa) = &self.qa else {
+            self.qa_preview = None;
+            return;
+        };
+        if qa.sheet != self.sheet {
+            self.qa = None;
+            return;
+        }
+        let (range, sheet, mut tab, anchor, opened_at) =
+            (qa.range, qa.sheet, qa.tab, qa.anchor, qa.opened_at);
+        let shape = self.wb.data_shape(sheet, range);
+        let data = chart_data(&self.wb, sheet, range);
+        let recommended = recommend_chart(&shape, &data);
+        let mut hovered: Option<QaChoice> = None;
+        let mut chosen: Option<QaChoice> = None;
+        let mut close = false;
+        let area = egui::Area::new(egui::Id::unique("calc-quick-analysis"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(anchor + Vec2::new(4.0, 4.0))
+            .constrain(true)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(330.0);
+                    ui.horizontal(|ui| {
+                        ui.strong(tr("Analyse rapide"));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✕").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+                    ui.horizontal(|ui| {
+                        for (i, t) in [
+                            tr("Mise en forme"),
+                            tr("Graphiques"),
+                            tr("Totaux"),
+                            tr("Tableau"),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            ui.selectable_value(&mut tab, i, t);
+                        }
+                    });
+                    ui.separator();
+                    ui.horizontal_wrapped(|ui| {
+                        for (choice, label) in qa_choices(tab, recommended) {
+                            let text = match choice {
+                                QaChoice::Chart(k) if label.is_empty() => k.label().to_string(),
+                                QaChoice::Chart(k) => format!("★ {} ({})", tr(label), k.label()),
+                                _ => tr(label).to_string(),
+                            };
+                            let disabled = matches!(choice, QaChoice::Total(_) | QaChoice::Chart(_))
+                                && shape.numeric_cols.is_empty();
+                            let r = ui.add_enabled(!disabled, egui::Button::new(text));
+                            if r.hovered() {
+                                hovered = Some(choice);
+                            }
+                            if r.clicked() {
+                                chosen = Some(choice);
+                            }
+                        }
+                    });
+                    ui.add_space(4.0);
+                    let chart = match hovered {
+                        Some(QaChoice::Chart(k)) => Some(k),
+                        _ if tab == 1 => Some(recommended),
+                        _ => None,
+                    };
+                    if let Some(k) = chart {
+                        let (r, _) = ui.allocate_exact_size(Vec2::new(320.0, 170.0), Sense::hover());
+                        draw_chart(ui, r, k, &data);
+                    } else {
+                        ui.label(
+                            RichText::new(tr("Survolez un choix pour l'aperçu dans la feuille ; cliquez pour l'appliquer."))
+                                .small()
+                                .weak(),
+                        );
+                    }
+                });
+            });
+        if let Some(q) = &mut self.qa {
+            q.tab = tab;
+        }
+        // Un clic ailleurs ferme le menu.
+        let now = ctx.input(|i| i.time);
+        if ctx.input(|i| i.pointer.any_pressed())
+            && now - opened_at > 0.2
+            && !ctx
+                .pointer_interact_pos()
+                .is_some_and(|p| area.response.rect.contains(p))
+        {
+            close = true;
+        }
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            close = true;
+        }
+        // Aperçu en direct dans la grille.
+        match hovered {
+            Some(c) if !matches!(c, QaChoice::Chart(_)) => {
+                if self.qa_preview.as_ref().map(|(k, _)| *k) != Some(c) {
+                    let mut w = self.wb.clone();
+                    Self::apply_qa(&mut w, sheet, range, c);
+                    self.qa_preview = Some((c, w));
+                }
+            }
+            _ => self.qa_preview = None,
+        }
+        if let Some(c) = chosen {
+            match c {
+                QaChoice::Chart(kind) => {
+                    self.chart = Some(Chart { kind, sheet, range });
+                }
+                c => {
+                    self.snapshot();
+                    Self::apply_qa(&mut self.wb, sheet, range, c);
+                }
+            }
+            close = true;
+        }
+        if close {
+            self.qa = None;
+            self.qa_preview = None;
+        }
+    }
+
+    // ---------------- Filtres ----------------
+
+    fn toggle_auto_filter(&mut self) {
+        self.snapshot();
+        let has = self
+            .wb
+            .sheets
+            .get(self.sheet)
+            .is_some_and(|s| s.auto_filter.is_some());
+        if has {
+            self.wb.set_auto_filter(self.sheet, None);
+        } else {
+            let r = self.selection();
+            self.wb.set_auto_filter(self.sheet, Some(r));
+        }
+        self.filter_popup = None;
+    }
+
+    fn open_filter_popup(&mut self, ctx: &egui::Context, col: u32, pos: Pos2) {
+        let Some(af) = self
+            .wb
+            .sheets
+            .get(self.sheet)
+            .and_then(|s| s.auto_filter.clone())
+        else {
+            return;
+        };
+        let current = af.column(col);
+        let values = self
+            .wb
+            .filter_values(self.sheet, col)
+            .into_iter()
+            .take(5000)
+            .map(|(v, n)| {
+                let on = !current.hidden.contains(&v);
+                (v, n, on)
+            })
+            .collect();
+        let (kind, value, value2) = filter_kind(current.condition.as_ref());
+        self.filter_popup = Some(FilterPopup {
+            col,
+            pos,
+            search: String::new(),
+            values,
+            kind,
+            value,
+            value2,
+            opened_at: ctx.input(|i| i.time),
+        });
+    }
+
+    fn filter_popup_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut fp) = self.filter_popup.take() else {
+            return;
+        };
+        enum Act {
+            Apply,
+            Clear,
+            Sort(bool),
+            Close,
+        }
+        let mut act = None;
+        let area = egui::Area::new(egui::Id::unique("calc-filter-popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(fp.pos)
+            .constrain(true)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(250.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr("Trier de A à Z")).clicked() {
+                            act = Some(Act::Sort(true));
+                        }
+                        if ui.button(tr("Trier de Z à A")).clicked() {
+                            act = Some(Act::Sort(false));
+                        }
+                    });
+                    ui.separator();
+                    ui.add(
+                        egui::TextEdit::singleline(&mut fp.search)
+                            .hint_text(tr("Rechercher…"))
+                            .desired_width(f32::INFINITY),
+                    );
+                    let q = varium_core::merge::normalize(&fp.search);
+                    let visible =
+                        |v: &str| q.is_empty() || varium_core::merge::normalize(v).contains(&q);
+                    let mut all = fp
+                        .values
+                        .iter()
+                        .filter(|(v, ..)| visible(v))
+                        .all(|(.., on)| *on);
+                    if ui
+                        .checkbox(&mut all, RichText::new(tr("(Tout sélectionner)")).italics())
+                        .changed()
+                    {
+                        for (v, _, on) in &mut fp.values {
+                            if visible(v) {
+                                *on = all;
+                            }
+                        }
+                    }
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .id_salt("calc-filter-values")
+                        .show(ui, |ui| {
+                            for (v, n, on) in &mut fp.values {
+                                if !visible(v) {
+                                    continue;
+                                }
+                                let label = if v.is_empty() {
+                                    tr("(vides)").to_string()
+                                } else {
+                                    v.clone()
+                                };
+                                ui.checkbox(on, format!("{label}  ({n})"));
+                            }
+                        });
+                    if !q.is_empty() && ui.small_button(tr("Ne garder que les résultats")).clicked()
+                    {
+                        for (v, _, on) in &mut fp.values {
+                            *on = visible(v);
+                        }
+                        act = Some(Act::Apply);
+                    }
+                    ui.separator();
+                    egui::ComboBox::from_id_salt("calc-filter-kind")
+                        .width(230.0)
+                        .selected_text(tr(FILTER_KINDS[fp.kind.min(FILTER_KINDS.len() - 1)]))
+                        .show_ui(ui, |ui| {
+                            for (k, label) in FILTER_KINDS.iter().enumerate() {
+                                ui.selectable_value(&mut fp.kind, k, tr(label));
+                            }
+                        });
+                    if (1..=12).contains(&fp.kind) {
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut fp.value)
+                                    .desired_width(if fp.kind == 7 { 100.0 } else { 230.0 })
+                                    .hint_text(if fp.kind == 12 { "10" } else { "" }),
+                            );
+                            if fp.kind == 7 {
+                                ui.label(tr("et"));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut fp.value2).desired_width(100.0),
+                                );
+                            }
+                        });
+                    }
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr("OK")).clicked() {
+                            act = Some(Act::Apply);
+                        }
+                        if ui.button(tr("Effacer le filtre")).clicked() {
+                            act = Some(Act::Clear);
+                        }
+                        if ui.button(tr("Annuler")).clicked() {
+                            act = Some(Act::Close);
+                        }
+                    });
+                });
+            });
+        let now = ctx.input(|i| i.time);
+        if act.is_none()
+            && ((ctx.input(|i| i.pointer.any_pressed())
+                && now - fp.opened_at > 0.2
+                && !ctx
+                    .pointer_interact_pos()
+                    .is_some_and(|p| area.response.rect.contains(p))
+                && !ctx.any_popup_open())
+                || ctx.input(|i| i.key_pressed(Key::Escape)))
+        {
+            act = Some(Act::Close);
+        }
+        match act {
+            None => self.filter_popup = Some(fp),
+            Some(Act::Close) => {}
+            Some(Act::Apply) => {
+                self.snapshot();
+                let hidden = fp
+                    .values
+                    .iter()
+                    .filter(|(.., on)| !*on)
+                    .map(|(v, ..)| v.clone())
+                    .collect();
+                self.wb.set_column_filter(
+                    self.sheet,
+                    ColumnFilter {
+                        col: fp.col,
+                        hidden,
+                        condition: filter_condition(fp.kind, &fp.value, &fp.value2),
+                    },
+                );
+            }
+            Some(Act::Clear) => {
+                self.snapshot();
+                self.wb.set_column_filter(
+                    self.sheet,
+                    ColumnFilter {
+                        col: fp.col,
+                        ..ColumnFilter::default()
+                    },
+                );
+            }
+            Some(Act::Sort(asc)) => {
+                self.snapshot();
+                self.wb.sort_filter(self.sheet, fp.col, asc);
+            }
+        }
+    }
+
+    // ---------------- Assistant de formule ----------------
+
+    fn open_wizard(&mut self) {
+        self.commit();
+        let input = self.wb.input(self.sheet, self.cur).to_string();
+        // Une formule « =FONCTION(a;b) » existante est reprise.
+        let mut func = None;
+        let mut args = Vec::new();
+        if let Some(rest) = input.strip_prefix('=')
+            && let Some(open) = rest.find('(')
+            && rest.ends_with(')')
+            && let Some(f) = varium_calc::function_info(rest[..open].trim())
+        {
+            func = Some(f);
+            let inner = &rest[open + 1..rest.len() - 1];
+            let mut depth = 0i32;
+            let mut cur = String::new();
+            let mut in_str = false;
+            for c in inner.chars() {
+                match c {
+                    '"' => in_str = !in_str,
+                    '(' if !in_str => depth += 1,
+                    ')' if !in_str => depth -= 1,
+                    ';' if !in_str && depth == 0 => {
+                        args.push(std::mem::take(&mut cur).trim().to_string());
+                        continue;
+                    }
+                    _ => {}
+                }
+                cur.push(c);
+            }
+            if !cur.trim().is_empty() || !args.is_empty() {
+                args.push(cur.trim().to_string());
+            }
+        }
+        self.wizard = Some(Wizard {
+            sheet: self.sheet,
+            target: self.cur,
+            category: None,
+            search: String::new(),
+            func,
+            args,
+            active: None,
+            last_sel: self.selection(),
+        });
+    }
+
+    fn wizard_formula(w: &Wizard) -> Option<String> {
+        let f = w.func?;
+        let mut args: Vec<&str> = w.args.iter().map(|a| a.trim()).collect();
+        while args.last().is_some_and(|a| a.is_empty()) {
+            args.pop();
+        }
+        Some(format!("={}({})", f.fr, args.join(";")))
+    }
+
+    fn wizard_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut w) = self.wizard.take() else {
+            return;
+        };
+        // La sélection de la grille remplit l'argument actif.
+        let sel = self.selection();
+        if sel != w.last_sel {
+            if let Some(i) = w.active
+                && let Some(slot) = w.args.get_mut(i)
+                && self.sheet == w.sheet
+            {
+                *slot = if sel.start == sel.end {
+                    sel.start.name()
+                } else {
+                    sel.name()
+                };
+            }
+            w.last_sel = sel;
+        }
+        let mut open = true;
+        let mut insert = false;
+        let mut cancel = false;
+        egui::Window::new(tr("Assistant de formule"))
+            .id(egui::Id::unique("calc-formula-wizard"))
+            .open(&mut open)
+            .default_width(560.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(trf!("Formule pour la cellule {cell}", cell = w.target.name())).weak());
+                });
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("calc-wizard-cat")
+                        .width(160.0)
+                        .selected_text(w.category.map_or(tr("Toutes les catégories"), category_label))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut w.category, None, tr("Toutes les catégories"));
+                            for c in FunctionCategory::ALL {
+                                ui.selectable_value(&mut w.category, Some(c), category_label(c));
+                            }
+                        });
+                    ui.add(
+                        egui::TextEdit::singleline(&mut w.search)
+                            .hint_text(tr("Chercher : somme, date, texte…"))
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.columns(2, |cols| {
+                    let q = varium_core::merge::normalize(&w.search);
+                    egui::ScrollArea::vertical()
+                        .id_salt("calc-wizard-list")
+                        .max_height(260.0)
+                        .show(&mut cols[0], |ui| {
+                            for f in varium_calc::functions() {
+                                if w.category.is_some_and(|c| f.category() != c) {
+                                    continue;
+                                }
+                                let hay = varium_core::merge::normalize(&format!(
+                                    "{} {} {}",
+                                    f.fr, f.en, f.description
+                                ));
+                                if !q.is_empty() && !hay.contains(&q) {
+                                    continue;
+                                }
+                                let on = w.func.is_some_and(|g| g.fr == f.fr);
+                                if ui
+                                    .selectable_label(on, RichText::new(f.fr).monospace())
+                                    .on_hover_text(f.description)
+                                    .clicked()
+                                    && !on
+                                {
+                                    w.func = Some(f);
+                                    w.args.clear();
+                                    w.active = Some(0);
+                                }
+                            }
+                        });
+                    let ui = &mut cols[1];
+                    let Some(f) = w.func else {
+                        ui.label(RichText::new(tr("Choisissez une fonction dans la liste.")).italics());
+                        return;
+                    };
+                    let names = f.arguments();
+                    let variadic = names.last() == Some(&"…");
+                    let fixed: Vec<&str> = names.iter().copied().filter(|a| *a != "…").collect();
+                    let wanted = if variadic {
+                        (w.args.iter().rposition(|a| !a.trim().is_empty()).map_or(0, |i| i + 1) + 1)
+                            .max(fixed.len())
+                            .min(30)
+                    } else {
+                        fixed.len()
+                    };
+                    w.args.resize(wanted.max(w.args.len().min(wanted)), String::new());
+                    ui.label(RichText::new(f.syntax).monospace().strong());
+                    ui.label(RichText::new(f.description).small());
+                    ui.add_space(4.0);
+                    egui::Grid::new("calc-wizard-args")
+                        .num_columns(3)
+                        .spacing([6.0, 4.0])
+                        .show(ui, |ui| {
+                            for i in 0..w.args.len() {
+                                let name = fixed.get(i).map_or_else(
+                                    || {
+                                        let base = fixed.last().copied().unwrap_or("valeur");
+                                        let stem = base.trim_end_matches(|c: char| c.is_ascii_digit());
+                                        format!("{stem}{}", i + 1)
+                                    },
+                                    |s| s.to_string(),
+                                );
+                                ui.label(RichText::new(name).monospace());
+                                let r = ui.add(
+                                    egui::TextEdit::singleline(&mut w.args[i])
+                                        .desired_width(150.0)
+                                        .font(egui::TextStyle::Monospace),
+                                );
+                                if r.gained_focus() || r.clicked() {
+                                    w.active = Some(i);
+                                }
+                                let on = w.active == Some(i);
+                                if ui
+                                    .selectable_label(on, "⊞")
+                                    .on_hover_text(tr("Sélectionner sur la feuille : cliquez ou faites glisser dans la grille"))
+                                    .clicked()
+                                {
+                                    w.active = if on { None } else { Some(i) };
+                                }
+                                ui.end_row();
+                            }
+                        });
+                });
+                ui.separator();
+                if let Some(formula) = Self::wizard_formula(&w) {
+                    ui.label(RichText::new(&formula).monospace());
+                    let v = self.wb.evaluate(w.sheet, w.target, &formula);
+                    match &v {
+                        Value::Error(_) => {
+                            let why = self
+                                .wb
+                                .formula_error_cause(w.sheet, w.target, &formula)
+                                .map(|c| error_text(&c))
+                                .unwrap_or_default();
+                            ui.colored_label(Color32::from_rgb(0xD0, 0x30, 0x2A), why);
+                        }
+                        v => {
+                            let fmt = self.wb.format(w.sheet, w.target).number;
+                            ui.label(trf!(
+                                "Résultat : {v}",
+                                v = varium_calc::format_value(v, fmt)
+                            ));
+                        }
+                    }
+                    if let Some(tree) = self.wb.formula_tree(w.sheet, &formula) {
+                        ui.label(RichText::new(explain_formula(&tree)).italics().weak());
+                    }
+                }
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(w.func.is_some(), egui::Button::new(tr("Insérer")))
+                        .clicked()
+                    {
+                        insert = true;
+                    }
+                    if ui.button(tr("Annuler")).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if insert && let Some(formula) = Self::wizard_formula(&w) {
+            self.snapshot();
+            self.wb.set_input(w.sheet, w.target, &formula);
+            self.sheet = w.sheet;
+            self.cur = w.target;
+            self.anchor = w.target;
+            return;
+        }
+        if open && !cancel {
+            self.wizard = Some(w);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Mise en forme conditionnelle
 
 /// État de la boîte « Mise en forme conditionnelle ».
@@ -1990,7 +4107,7 @@ fn ranges_meet(a: Range, b: Range) -> bool {
         && b.start.col <= a.end.col
 }
 
-const RULE_KINDS: [&str; 14] = [
+const RULE_KINDS: [&str; 16] = [
     n_("La valeur de la cellule est…"),
     n_("Le texte contient…"),
     n_("Le texte commence par…"),
@@ -2005,6 +4122,8 @@ const RULE_KINDS: [&str; 14] = [
     n_("Échelle de deux couleurs"),
     n_("Échelle de trois couleurs"),
     n_("Barre de données"),
+    n_("Valeurs en double"),
+    n_("Valeurs uniques"),
 ];
 
 fn rule_kind(r: &CondRule) -> usize {
@@ -2023,6 +4142,8 @@ fn rule_kind(r: &CondRule) -> usize {
         CondRule::ColorScale { mid: None, .. } => 11,
         CondRule::ColorScale { mid: Some(_), .. } => 12,
         CondRule::DataBar { .. } => 13,
+        CondRule::Duplicate { unique: false } => 14,
+        CondRule::Duplicate { unique: true } => 15,
     }
 }
 
@@ -2067,6 +4188,7 @@ fn rule_for_kind(k: usize, old: &CondRule) -> CondRule {
             mid: Some([0xFF, 0xEB, 0x84]),
             max: [0x63, 0xBE, 0x7B],
         },
+        14 | 15 => CondRule::Duplicate { unique: k == 15 },
         _ => CondRule::DataBar {
             color: [0x63, 0x8E, 0xC6],
         },
@@ -2884,6 +5006,8 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &b.item(tr("Effacer le contenu"), A::Clear, None),
             &b.item(tr("Recopier vers le bas"), A::FillDown, Some("Cmd+D")),
             &b.item(tr("Recopier à droite"), A::FillRight, None),
+            &b.item(tr("Remplissage instantané"), A::FlashFill, Some("Cmd+E")),
+            &b.item(tr("Collage spécial…"), A::PasteSpecial, Some("Cmd+Shift+V")),
         ],
     )?;
     let insert = Submenu::with_items(
@@ -2899,6 +5023,11 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &b.item(tr("Feuille"), A::NewSheet, None),
             &b.item(tr("Graphique de la sélection"), A::Chart, None),
             &b.item(tr("Fonction…"), A::Functions, None),
+            &b.item(
+                tr("Assistant de formule…"),
+                A::FormulaWizard,
+                Some("Shift+F3"),
+            ),
         ],
     )?;
     let numbers: Vec<_> = NUMBER_FORMATS
@@ -2933,6 +5062,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         &fill,
         &sep(),
         &b.item(tr("Mise en forme conditionnelle…"), A::CondFormat, None),
+        &b.item(tr("Mettre sous forme de tableau"), A::FormatAsTable, None),
     ])?;
     let view = Submenu::with_items(
         tr("Affichage"),
@@ -2942,6 +5072,12 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &b.item(tr("Figer la première colonne"), A::FreezeCol, None),
             &b.item(tr("Figer jusqu'à la cellule active"), A::FreezeHere, None),
             &b.item(tr("Libérer les volets"), A::Unfreeze, None),
+            &sep(),
+            &b.item(
+                tr("Formules en clair (info-bulle)"),
+                A::ExplainFormulas,
+                None,
+            ),
         ],
     )?;
     let data = Submenu::with_items(
@@ -2950,6 +5086,9 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         &[
             &b.item(tr("Trier par ordre croissant"), A::SortAsc, None),
             &b.item(tr("Trier par ordre décroissant"), A::SortDesc, None),
+            &sep(),
+            &b.item(tr("Filtre automatique"), A::AutoFilter, Some("Cmd+Shift+L")),
+            &b.item(tr("Analyse rapide…"), A::QuickAnalysis, None),
             &sep(),
             &b.item(tr("Somme automatique"), A::AutoSum, Some("Cmd+Shift+T")),
         ],
@@ -2964,4 +5103,406 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         ],
     )?;
     Ok(vec![file, edit, insert, format, view, data, help])
+}
+
+// ---------------------------------------------------------------------------------
+// Pour la suite : palette de commandes, aide-mémoire, accueil et conversions
+// ---------------------------------------------------------------------------------
+
+impl CalcApp {
+    /// Les commandes du Classeur : (action, libellé en français, groupe en français,
+    /// raccourci, `true` si c'est la suite qui doit traiter ce raccourci). Les
+    /// libellés passent par `tr` à l'affichage.
+    #[allow(clippy::type_complexity)]
+    pub fn palette_entries() -> Vec<(
+        CalcAction,
+        &'static str,
+        &'static str,
+        Option<egui::KeyboardShortcut>,
+        bool,
+    )> {
+        use CalcAction as A;
+        use egui::{KeyboardShortcut as K, Modifiers as M};
+        let cmd = M::COMMAND;
+        let cmd_shift = M::COMMAND.plus(M::SHIFT);
+        let fichier = n_("Fichier");
+        let edition = n_("Édition");
+        let insertion = n_("Insertion");
+        let format = n_("Format");
+        let fond = n_("Couleur de fond");
+        let affichage = n_("Affichage");
+        let donnees = n_("Données");
+        let aide = n_("Aide");
+        let mut v = vec![
+            (
+                A::New,
+                n_("Nouveau classeur"),
+                fichier,
+                Some(K::new(cmd, Key::N)),
+                true,
+            ),
+            (A::Sample, n_("Classeur d'exemple"), fichier, None, false),
+            (
+                A::Open,
+                n_("Ouvrir… (classeur, Excel, ODS, CSV)"),
+                fichier,
+                Some(K::new(cmd, Key::O)),
+                true,
+            ),
+            (
+                A::Save,
+                n_("Enregistrer"),
+                fichier,
+                Some(K::new(cmd, Key::S)),
+                true,
+            ),
+            (
+                A::SaveAs,
+                n_("Enregistrer sous…"),
+                fichier,
+                Some(K::new(cmd_shift, Key::S)),
+                true,
+            ),
+            (A::ExportXlsx, n_("Excel (.xlsx)"), fichier, None, false),
+            (
+                A::ExportOds,
+                n_("LibreOffice Calc (.ods)"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::ExportCsv,
+                n_("CSV de la feuille (.csv)"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::Undo,
+                n_("Annuler"),
+                edition,
+                Some(K::new(cmd, Key::Z)),
+                false,
+            ),
+            (
+                A::Redo,
+                n_("Rétablir"),
+                edition,
+                Some(K::new(cmd, Key::Y)),
+                false,
+            ),
+            (
+                A::Cut,
+                n_("Couper"),
+                edition,
+                Some(K::new(cmd, Key::X)),
+                false,
+            ),
+            (
+                A::Copy,
+                n_("Copier"),
+                edition,
+                Some(K::new(cmd, Key::C)),
+                false,
+            ),
+            (
+                A::Paste,
+                n_("Coller"),
+                edition,
+                Some(K::new(cmd, Key::V)),
+                false,
+            ),
+            (
+                A::Clear,
+                n_("Effacer le contenu"),
+                edition,
+                Some(K::new(M::NONE, Key::Delete)),
+                false,
+            ),
+            (
+                A::SelectAll,
+                n_("Tout sélectionner"),
+                edition,
+                Some(K::new(cmd, Key::A)),
+                false,
+            ),
+            (
+                A::FillDown,
+                n_("Recopier vers le bas"),
+                edition,
+                Some(K::new(cmd, Key::D)),
+                false,
+            ),
+            (A::FillRight, n_("Recopier à droite"), edition, None, false),
+            (
+                A::FreezeRow,
+                n_("Figer la première ligne"),
+                affichage,
+                None,
+                false,
+            ),
+            (
+                A::FreezeCol,
+                n_("Figer la première colonne"),
+                affichage,
+                None,
+                false,
+            ),
+            (
+                A::FreezeHere,
+                n_("Figer jusqu'à la cellule active"),
+                affichage,
+                None,
+                false,
+            ),
+            (
+                A::Unfreeze,
+                n_("Libérer les volets"),
+                affichage,
+                None,
+                false,
+            ),
+            (A::InsertRow, n_("Ligne au-dessus"), insertion, None, false),
+            (A::InsertCol, n_("Colonne à gauche"), insertion, None, false),
+            (
+                A::DeleteRow,
+                n_("Supprimer la ligne"),
+                insertion,
+                None,
+                false,
+            ),
+            (
+                A::DeleteCol,
+                n_("Supprimer la colonne"),
+                insertion,
+                None,
+                false,
+            ),
+            (A::NewSheet, n_("Feuille"), insertion, None, false),
+            (
+                A::Chart,
+                n_("Graphique de la sélection"),
+                insertion,
+                None,
+                false,
+            ),
+            (A::Functions, n_("Fonction…"), insertion, None, false),
+            (
+                A::Bold,
+                n_("Gras"),
+                format,
+                Some(K::new(cmd, Key::B)),
+                false,
+            ),
+            (
+                A::Italic,
+                n_("Italique"),
+                format,
+                Some(K::new(cmd, Key::I)),
+                false,
+            ),
+            (
+                A::CondFormat,
+                n_("Mise en forme conditionnelle…"),
+                format,
+                None,
+                false,
+            ),
+            (
+                A::SortAsc,
+                n_("Trier par ordre croissant"),
+                donnees,
+                None,
+                false,
+            ),
+            (
+                A::SortDesc,
+                n_("Trier par ordre décroissant"),
+                donnees,
+                None,
+                false,
+            ),
+            (
+                A::AutoSum,
+                n_("Somme automatique"),
+                donnees,
+                Some(K::new(cmd_shift, Key::T)),
+                true,
+            ),
+            (A::Functions, n_("Liste des fonctions"), aide, None, false),
+            (
+                A::FlashFill,
+                n_("Remplissage instantané"),
+                edition,
+                Some(K::new(cmd, Key::E)),
+                false,
+            ),
+            (
+                A::PasteSpecial,
+                n_("Collage spécial…"),
+                edition,
+                Some(K::new(cmd_shift, Key::V)),
+                false,
+            ),
+            (
+                A::FormulaWizard,
+                n_("Assistant de formule…"),
+                insertion,
+                Some(K::new(M::SHIFT, Key::F3)),
+                false,
+            ),
+            (
+                A::FormatAsTable,
+                n_("Mettre sous forme de tableau"),
+                format,
+                None,
+                false,
+            ),
+            (
+                A::ExplainFormulas,
+                n_("Formules en clair (info-bulle)"),
+                affichage,
+                None,
+                false,
+            ),
+            (
+                A::AutoFilter,
+                n_("Filtre automatique"),
+                donnees,
+                Some(K::new(cmd_shift, Key::L)),
+                false,
+            ),
+            (
+                A::QuickAnalysis,
+                n_("Analyse rapide…"),
+                donnees,
+                Some(K::new(M::CTRL, Key::Q)),
+                false,
+            ),
+        ];
+        for (label, nf) in NUMBER_FORMATS {
+            v.push((A::Number(nf), label, format, None, false));
+        }
+        for (i, (name, _)) in FILLS.iter().enumerate() {
+            v.push((A::Fill(i), *name, fond, None, false));
+        }
+        v
+    }
+
+    /// Le fichier du classeur ouvert.
+    pub fn file_path(&self) -> Option<PathBuf> {
+        self.path.clone()
+    }
+
+    /// Ouvre un classeur (Varium, Excel, OpenDocument, CSV) : glisser-déposer, récents.
+    pub fn open_file(&mut self, ctx: &egui::Context, path: &std::path::Path) {
+        self.io.open_path(ctx, OpenKind::Workbook, path);
+    }
+
+    /// Les valeurs affichées (formatées) de la sélection, ou de la zone utilisée de la
+    /// feuille si une seule cellule est sélectionnée ; ligne par ligne.
+    pub fn selection_values(&self) -> Vec<Vec<String>> {
+        let mut r = self.selection();
+        if r.start == r.end {
+            let (rows, cols) = self.wb.used_size(self.sheet);
+            if rows == 0 || cols == 0 {
+                return Vec::new();
+            }
+            r = Range::new(CellRef::new(0, 0), CellRef::new(rows - 1, cols - 1));
+        }
+        let rows = (r.end.row - r.start.row + 1).min(2000);
+        let cols = (r.end.col - r.start.col + 1).min(100);
+        (0..rows)
+            .map(|dr| {
+                (0..cols)
+                    .map(|dc| {
+                        self.wb
+                            .display(self.sheet, CellRef::new(r.start.row + dr, r.start.col + dc))
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Le classeur affiché (vignette de l'accueil).
+    pub fn workbook(&self) -> &Workbook {
+        &self.wb
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn explain(wb: &Workbook, f: &str) -> String {
+        explain_formula(&wb.formula_tree(0, f).unwrap())
+    }
+
+    #[test]
+    fn formules_en_clair() {
+        let wb = Workbook::new();
+        assert_eq!(
+            explain(&wb, "=SOMME(B4:B8)*2"),
+            "Somme de B4 à B8, multipliée par 2"
+        );
+        assert_eq!(explain(&wb, "=(A1+B1)*2"), "(A1 plus B1) multiplié par 2");
+        assert_eq!(explain(&wb, "=A1-(B1-C1)"), "A1 moins (B1 moins C1)");
+        assert_eq!(
+            explain(&wb, "=SI(A1>10;\"oui\";\"non\")"),
+            "Si A1 est supérieur à 10, alors « oui », sinon « non »"
+        );
+        assert_eq!(
+            explain(&wb, "=MOYENNE(A1;A2;A3)"),
+            "Moyenne de A1, A2 et A3"
+        );
+        assert_eq!(
+            explain(&wb, "=RECHERCHEV(A1;B1:C9;2;FAUX)"),
+            "Recherche de A1 dans la première colonne de B1 à C9, et valeur de la colonne 2 (correspondance exacte)"
+        );
+        assert_eq!(
+            explain(&wb, "=GAUCHE(A1;3)"),
+            "Les 3 premiers caractères de A1"
+        );
+        assert_eq!(explain(&wb, "=-A1%"), "Moins A1 %");
+        assert_eq!(explain(&wb, "=TRUC(1;2)"), "TRUC de 1 et 2");
+        assert_eq!(explain(&wb, "=AUJOURDHUI()"), "La date du jour");
+        assert_eq!(explain(&wb, "=1,5+A1"), "1,5 plus A1");
+    }
+
+    #[test]
+    fn erreurs_en_clair() {
+        let mut wb = Workbook::new();
+        wb.set_input(0, CellRef::new(0, 0), "=10/B4");
+        let c = wb.error_cause(0, CellRef::new(0, 0)).unwrap();
+        assert_eq!(
+            error_text(&c),
+            "#DIV/0! : la formule divise par zéro, cellule B4 vide"
+        );
+    }
+
+    #[test]
+    fn aide_a_la_saisie() {
+        assert_eq!(trailing_ident("=SOM"), Some("SOM"));
+        assert_eq!(trailing_ident("=A1+moy"), Some("moy"));
+        assert_eq!(trailing_ident("=A1"), None);
+        assert_eq!(trailing_ident("=\"so"), None);
+        assert_eq!(trailing_ident("SOM"), None);
+        assert_eq!(function_matches("som")[0].fr, "SOMME");
+        assert!(function_matches("vlo").iter().any(|f| f.fr == "RECHERCHEV"));
+        let (f, k) = open_call("=SI(A1>0;SOMME(B1;").unwrap();
+        assert_eq!((f.fr, k), ("SOMME", 1));
+        assert_eq!(open_call("=SI(A1;2)"), None);
+    }
+
+    #[test]
+    fn filtres_du_menu() {
+        for k in 0..FILTER_KINDS.len() {
+            let c = filter_condition(k, "5", "9");
+            if let Some(c) = &c {
+                assert_eq!(filter_kind(Some(c)).0, k);
+            }
+        }
+        assert!(filter_condition(0, "x", "").is_none());
+    }
 }

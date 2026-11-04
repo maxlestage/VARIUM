@@ -15,7 +15,9 @@ use egui::text::LayoutJob;
 use egui::{Align2, Color32, CursorIcon, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use varium_core::{DocFont, Para, Run, Values};
 use varium_slides::{
-    Aspect, Deck, Frame, Layout, Object, ObjectKind, Theme, Transition, arrow_head,
+    Aspect, Closing, Deck, Design, Frame, HandoutNotes, HandoutOptions, HandoutPaper, Layout,
+    Object, ObjectKind, RasterFonts, Slide, Suggestion, Theme, Transition, arrow_head,
+    format_duration,
 };
 
 use crate::io::{Event, Io, OpenKind};
@@ -51,6 +53,22 @@ pub enum SlideAction {
     StartFirst,
     StartCurrent,
     Presenter,
+    /// « Embellir » : propositions de mise en page pour la diapositive.
+    Beautify,
+    /// « Harmoniser » : toute la présentation rendue cohérente.
+    Harmonize,
+    /// Passe du mode diapositives au mode plan, et inversement.
+    OutlineView,
+    /// « Nouvelle présentation depuis un texte… ».
+    FromText,
+    /// « Répéter le minutage ».
+    Rehearse,
+    /// Avance automatique selon le minutage (bascule).
+    AutoAdvance,
+    /// « Document de présentation » (PDF à imprimer).
+    ExportHandout,
+    /// Une image PNG par diapositive.
+    ExportImages,
 }
 
 pub struct SlidesApp {
@@ -81,6 +99,71 @@ pub struct SlidesApp {
     last_act: Option<(SlideAction, f64)>,
     /// Les menus sont dans la barre native de macOS (pas de barre dans la fenêtre).
     pub native_menu: bool,
+    /// Mode plan (sinon : la diapositive et son formulaire).
+    outline_view: bool,
+    /// Texte du plan, et la présentation qu'il décrit (pour le resynchroniser
+    /// quand elle change ailleurs).
+    outline_text: String,
+    outline_deck: Option<Deck>,
+    /// Dernière position du curseur dans le plan.
+    outline_cursor: Option<usize>,
+    /// Fenêtre « Embellir » ouverte.
+    beautify: bool,
+    /// Propositions calculées : (diapositive, son contenu, propositions, aperçu).
+    suggestions: Option<(usize, Slide, Vec<Suggestion>, Deck)>,
+    /// Fenêtre « Nouvelle présentation depuis un texte… » : texte et aperçu.
+    from_text: Option<(String, Deck)>,
+    /// Répétition du minutage en cours.
+    rehearsal: Option<Rehearsal>,
+    /// Minutage répété, en attente de confirmation : durées par diapositive.
+    rehearsed: Option<Vec<f64>>,
+    /// Outils du diaporama (laser, stylo, zoom, aller à…).
+    tools: ShowTools,
+    /// Fenêtre « Document de présentation » ouverte.
+    handout: Option<HandoutOptions>,
+    /// Messages des tâches de fond (export en images) : (texte, erreur).
+    notices: Arc<Mutex<Vec<(String, bool)>>>,
+}
+
+/// Répétition du minutage : temps passé sur chaque diapositive.
+struct Rehearsal {
+    times: Vec<f64>,
+    slide: usize,
+    since: f64,
+    started: f64,
+}
+
+/// Couleurs du stylo (touches 1 à 4).
+const INK: [Color32; 4] = [
+    Color32::from_rgb(0xE5, 0x2B, 0x2B),
+    Color32::from_rgb(0xF5, 0xC5, 0x18),
+    Color32::from_rgb(0x2B, 0xB6, 0x4C),
+    Color32::from_rgb(0x2F, 0x74, 0xD6),
+];
+
+/// Un trait d'encre : (diapositive, couleur, points en fractions).
+type InkStroke = (usize, usize, Vec<(f32, f32)>);
+
+/// Outils du diaporama. Les positions sont en fractions de la diapositive.
+#[derive(Default)]
+struct ShowTools {
+    /// Stylo actif (P).
+    pen: bool,
+    color: usize,
+    /// Traits d'encre : (diapositive, couleur, points).
+    ink: Vec<InkStroke>,
+    /// Un trait est en cours.
+    drawing: bool,
+    /// Pointeur laser (L maintenue ou bouton droit).
+    laser: Option<(f32, f32)>,
+    /// Z appuyée : le prochain clic choisit la zone à agrandir.
+    zoom_pick: bool,
+    /// Zoom 2× : (diapositive, centre).
+    zoom: Option<(usize, (f32, f32))>,
+    /// Numéro tapé pour « Aller à la diapositive ».
+    goto: String,
+    /// Grille de toutes les diapositives (G).
+    grid: bool,
 }
 
 /// Fichiers choisis dans un dialogue : (nom, octets).
@@ -130,6 +213,8 @@ enum Nav {
     Last,
     Black,
     Stop,
+    /// Aller à la diapositive (position à partir de 0).
+    Goto(usize),
 }
 
 /// Textures des images de la présentation, par identifiant de média.
@@ -216,6 +301,18 @@ impl SlidesApp {
             picked: Arc::default(),
             last_act: None,
             native_menu: false,
+            outline_view: false,
+            outline_text: String::new(),
+            outline_deck: None,
+            outline_cursor: None,
+            beautify: false,
+            suggestions: None,
+            from_text: None,
+            rehearsal: None,
+            rehearsed: None,
+            tools: ShowTools::default(),
+            handout: None,
+            notices: Arc::default(),
         }
     }
 
@@ -502,6 +599,7 @@ impl SlidesApp {
         self.presenting = Some((from.min(self.deck.slides.len().saturating_sub(1)), now));
         self.black = false;
         self.drag = None;
+        self.tools = ShowTools::default();
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
     }
 
@@ -520,6 +618,14 @@ impl SlidesApp {
     }
 
     fn stop(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        if let Some(mut r) = self.rehearsal.take() {
+            if let Some(t) = r.times.get_mut(r.slide) {
+                *t += now - r.since;
+            }
+            self.rehearsed = Some(r.times);
+        }
+        self.tools = ShowTools::default();
         if let Some((i, _)) = self.presenting.take() {
             self.current = i;
         }
@@ -609,9 +715,18 @@ impl SlidesApp {
             .size_range(230.0..=420.0)
             .show(ui, |ui| self.inspector(ui));
         let canvas = egui::CentralPanel::default()
-            .show(ui, |ui| self.editor(ui))
+            .show(ui, |ui| {
+                if self.outline_view {
+                    self.outline_ui(ui);
+                    None
+                } else {
+                    Some(self.editor(ui))
+                }
+            })
             .inner;
-        self.dropped_files(&ctx, Some(canvas));
+        self.dialogs(&ctx);
+        self.dropped_files(&ctx, canvas);
+        let canvas = canvas.unwrap_or_else(|| ui.max_rect());
         if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
             ui.painter().rect_filled(
                 canvas,
@@ -688,6 +803,13 @@ impl SlidesApp {
         use SlideAction as A;
         ui.menu_button(tr("Fichier"), |ui| {
             self.entry(ui, true, tr("Nouvelle présentation"), "", A::New);
+            self.entry(
+                ui,
+                true,
+                tr("Nouvelle présentation depuis un texte…"),
+                "",
+                A::FromText,
+            );
             self.entry(ui, true, tr("Présentation d'exemple"), "", A::Sample);
             if ui
                 .button(tr("Ouvrir…"))
@@ -712,6 +834,21 @@ impl SlidesApp {
                 );
                 self.entry(ui, true, tr("LibreOffice Impress (.odp)"), "", A::ExportOdp);
                 self.entry(ui, true, tr("Diaporama web (.html)"), "", A::ExportHtml);
+                ui.separator();
+                self.entry(
+                    ui,
+                    true,
+                    tr("Document de présentation (PDF)…"),
+                    "",
+                    A::ExportHandout,
+                );
+                self.entry(
+                    ui,
+                    true,
+                    tr("Images PNG (une par diapositive)…"),
+                    "",
+                    A::ExportImages,
+                );
             });
         });
         ui.menu_button(tr("Édition"), |ui| {
@@ -769,6 +906,16 @@ impl SlidesApp {
             self.entry(ui, self.current > 0, tr("Monter"), "", A::MoveUp);
             let last = self.current + 1 >= self.deck.slides.len();
             self.entry(ui, !last, tr("Descendre"), "", A::MoveDown);
+            ui.separator();
+            self.entry(ui, true, tr("✨ Embellir…"), "", A::Beautify);
+            self.entry(ui, true, tr("Harmoniser la présentation"), "", A::Harmonize);
+            ui.separator();
+            let plan = if self.outline_view {
+                tr("Mode diapositives")
+            } else {
+                tr("Mode plan")
+            };
+            self.entry(ui, true, plan, "", A::OutlineView);
         });
         ui.menu_button(tr("Diaporama"), |ui| {
             self.entry(ui, true, tr("Depuis la première diapositive"), "F5", A::StartFirst);
@@ -785,6 +932,24 @@ impl SlidesApp {
                 let ctx = ui.ctx().clone();
                 self.perform(&ctx, A::Presenter);
             }
+            ui.separator();
+            self.entry(ui, true, tr("Répéter le minutage"), "", A::Rehearse);
+            let mut auto = self.deck.auto_advance;
+            if ui
+                .checkbox(&mut auto, tr("Avancer automatiquement selon le minutage"))
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.perform(&ctx, A::AutoAdvance);
+            }
+            ui.separator();
+            ui.label(
+                RichText::new(tr(
+                    "Pendant le diaporama : L ou clic droit maintenu = laser, P = stylo (1 à 4 couleurs, E efface), Z = zoom, G = toutes les diapositives, numéro + Entrée = aller à",
+                ))
+                .small()
+                .weak(),
+            );
         });
         ui.menu_button(tr("Aide"), |ui| {
             crate::tr::menu(ui);
@@ -862,6 +1027,51 @@ impl SlidesApp {
             A::StartFirst => self.start(ctx, 0),
             A::StartCurrent => self.start(ctx, self.current),
             A::Presenter => self.start_presenter(ctx, self.current),
+            A::Beautify => self.beautify = !self.beautify,
+            A::Harmonize => {
+                let before = self.deck.clone();
+                let n = self.deck.harmonize();
+                if n > 0 {
+                    self.undo.push(before);
+                    self.redo.clear();
+                    self.last_change = now;
+                }
+                self.notify(
+                    ctx,
+                    if n == 0 {
+                        tr("La présentation est déjà harmonieuse").to_string()
+                    } else {
+                        trf!("{n} diapositive(s) harmonisée(s)", n)
+                    },
+                    false,
+                );
+            }
+            A::OutlineView => {
+                self.outline_view = !self.outline_view;
+                self.outline_deck = None;
+                self.selected = None;
+            }
+            A::FromText => {
+                if self.from_text.is_none() {
+                    self.from_text = Some((String::new(), Deck::from_text("", closing())));
+                }
+            }
+            A::Rehearse => self.rehearse(ctx),
+            A::AutoAdvance => {
+                self.snapshot(now, false);
+                self.deck.auto_advance = !self.deck.auto_advance;
+                if self.deck.auto_advance && self.deck.total_duration().is_none() {
+                    self.notify(
+                        ctx,
+                        tr("Aucun minutage : lancez d'abord « Répéter le minutage »"),
+                        false,
+                    );
+                }
+            }
+            A::ExportHandout => {
+                self.handout = Some(self.handout.unwrap_or_default());
+            }
+            A::ExportImages => self.export_images(ctx),
         }
     }
 
@@ -948,6 +1158,25 @@ impl SlidesApp {
                     }
                 });
             ui.separator();
+            if ui
+                .selectable_label(self.beautify, tr("✨ Embellir"))
+                .on_hover_text(tr(
+                    "Des mises en page pour cette diapositive, choisies d'après son contenu",
+                ))
+                .clicked()
+            {
+                self.beautify = !self.beautify;
+            }
+            if ui
+                .selectable_label(self.outline_view, tr("☰ Plan"))
+                .on_hover_text(tr(
+                    "Toute la présentation en texte : une ligne par diapositive, Tab pour les puces",
+                ))
+                .clicked()
+            {
+                self.perform(&ctx, SlideAction::OutlineView);
+            }
+            ui.separator();
             ui.add(
                 egui::TextEdit::singleline(&mut self.deck.title)
                     .hint_text(tr("Titre de la présentation"))
@@ -1003,6 +1232,21 @@ impl SlidesApp {
                             .rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Outside);
                         if resp.clicked() {
                             select = Some(i);
+                        }
+                        if let Some(d) = self.deck.slides[i].duration {
+                            let g = ui.painter().layout_no_wrap(
+                                format!("⏱ {}", format_duration(d)),
+                                FontId::proportional(11.0),
+                                Color32::WHITE,
+                            );
+                            let r = Rect::from_min_size(
+                                rect.right_bottom() - g.size() - Vec2::new(9.0, 7.0),
+                                g.size() + Vec2::new(6.0, 3.0),
+                            );
+                            ui.painter()
+                                .rect_filled(r, 3.0, Color32::from_black_alpha(170));
+                            ui.painter()
+                                .galley(r.min + Vec2::new(3.0, 1.5), g, Color32::WHITE);
                         }
                         resp.context_menu(|ui| {
                             if ui.button(tr("Présenter à partir d'ici")).clicked() {
@@ -1239,6 +1483,30 @@ impl SlidesApp {
                     self.snapshot(now, false);
                     self.deck.slides[i].transition = trans;
                 }
+                ui.horizontal(|ui| {
+                    let mut d = self.deck.slides[i].duration;
+                    let mut on = d.is_some();
+                    ui.checkbox(&mut on, tr("Minutage"))
+                        .on_hover_text(tr(
+                            "Durée d'affichage pour l'avance automatique (voir « Répéter le minutage »)",
+                        ));
+                    if on {
+                        let mut v = d.unwrap_or(10.0);
+                        ui.add(
+                            egui::DragValue::new(&mut v)
+                                .range(0.5..=3600.0)
+                                .speed(0.5)
+                                .suffix(" s"),
+                        );
+                        d = Some(v);
+                    } else {
+                        d = None;
+                    }
+                    if d != self.deck.slides[i].duration {
+                        self.snapshot(now, true);
+                        self.deck.slides[i].duration = d;
+                    }
+                });
                 ui.label(tr("Fond"));
                 ui.horizontal_wrapped(|ui| {
                     let theme_bg = self.deck.theme.palette().background;
@@ -1302,6 +1570,22 @@ impl SlidesApp {
                         .hint_text(tr("Pied de page (ex. {{entreprise}})")),
                 );
                 ui.checkbox(&mut self.deck.slide_numbers, tr("Numéros de diapositive"));
+                let mut auto = self.deck.auto_advance;
+                ui.checkbox(&mut auto, tr("Avancer automatiquement selon le minutage"));
+                if auto != self.deck.auto_advance {
+                    self.snapshot(now, false);
+                    self.deck.auto_advance = auto;
+                }
+                if let Some(t) = self.deck.total_duration() {
+                    ui.label(
+                        RichText::new(trf!(
+                            "Minutage total : {t}",
+                            t = format_duration(t)
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                }
 
                 ui.separator();
                 ui.label(RichText::new(tr("Champs")).strong());
@@ -1564,29 +1848,47 @@ impl SlidesApp {
             Nav::Prev => i.saturating_sub(1),
             Nav::First => 0,
             Nav::Last => n - 1,
+            Nav::Goto(t) => {
+                self.tools.grid = false;
+                t.min(n - 1)
+            }
         };
         if target != i {
             self.black = false;
             self.presenting = Some((target, now));
+            self.tools.zoom = None;
+            self.tools.drawing = false;
         }
         true
     }
 
     fn present(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        let now = ctx.input(|i| i.time);
         if ctx.input(|i| i.key_pressed(Key::N)) {
             self.show_notes = !self.show_notes;
         }
-        for nav in Self::read_nav(&ctx, true) {
+        let Some((i0, _)) = self.presenting else {
+            return;
+        };
+        let screen = ui.max_rect();
+        let base = fit_rect(screen, self.deck.aspect.ratio());
+        let mut navs = self.tools_keys(&ctx);
+        let used = self.tools_pointer(&ctx, base, i0);
+        navs.extend(Self::read_nav(&ctx, !used));
+        navs.extend(self.auto_nav(&ctx));
+        for nav in navs {
             if !self.apply_nav(&ctx, nav, true) {
                 return;
             }
         }
+        self.track_rehearsal(now);
         let Some((i, since)) = self.presenting else {
             return;
         };
         let n = self.deck.slides.len();
-        let screen = ui.max_rect();
+        let zoom = self.zoom_for(i);
+        let mut goto = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(Color32::BLACK))
             .show(ui, |ui| {
@@ -1598,7 +1900,11 @@ impl SlidesApp {
                     since,
                     self.black,
                     &mut self.textures,
+                    zoom,
                 );
+                if !self.black {
+                    self.tools_paint(ui, display_rect(base, zoom), i);
+                }
                 if self.show_notes {
                     let notes = self.deck.slides[i].notes.clone();
                     let text = if notes.trim().is_empty() {
@@ -1624,7 +1930,14 @@ impl SlidesApp {
                     ui.painter()
                         .galley(r.min + Vec2::splat(10.0), galley, Color32::WHITE);
                 }
+                self.rehearsal_overlay(ui, screen, now);
+                if self.tools.grid {
+                    goto = self.grid_ui(ui, screen, i);
+                }
             });
+        if let Some(k) = goto {
+            self.apply_nav(&ctx, Nav::Goto(k), true);
+        }
     }
 
     // ---------------- Mode présentateur ----------------
@@ -1641,7 +1954,9 @@ impl SlidesApp {
         let mut navs = if ctx.egui_wants_keyboard_input() {
             Vec::new()
         } else {
-            Self::read_nav(&ctx, false)
+            let mut v = self.tools_keys(&ctx);
+            v.extend(Self::read_nav(&ctx, false));
+            v
         };
 
         // Fenêtre du public.
@@ -1655,6 +1970,7 @@ impl SlidesApp {
             |ui, _class| self.audience_ui(ui),
         );
         navs.extend(audience);
+        navs.extend(self.auto_nav(&ctx));
 
         for nav in navs {
             if !self.apply_nav(&ctx, nav, false) {
@@ -1804,7 +2120,23 @@ impl SlidesApp {
                     (area.width(), area.width() / ratio)
                 };
                 let r = Rect::from_center_size(area.center(), Vec2::new(w, h));
-                render_slide(ui, r, &self.deck, i, &values, &mut self.textures);
+                if self.tools.grid {
+                    if let Some(k) = self.grid_ui(ui, ui.max_rect(), i) {
+                        self.apply_nav(&ctx, Nav::Goto(k), false);
+                    }
+                    return;
+                }
+                self.tools_pointer(&ctx, r, i);
+                let zoom = self.zoom_for(i);
+                let shown = display_rect(r, zoom);
+                ui.painter()
+                    .rect_filled(r, 0.0, rgb(self.deck.slide_palette(i).background));
+                {
+                    let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(r));
+                    ui.set_clip_rect(r);
+                    render_slide(ui, shown, &self.deck, i, &values, &mut self.textures);
+                    self.tools_paint(ui, shown, i);
+                }
                 if self.black {
                     ui.painter()
                         .rect_filled(r, 2.0, Color32::from_black_alpha(190));
@@ -1822,7 +2154,15 @@ impl SlidesApp {
     /// La fenêtre du public : la diapositive seule, avec ses transitions.
     fn audience_ui(&mut self, ui: &mut egui::Ui) -> Vec<Nav> {
         let ctx = ui.ctx().clone();
-        let mut navs = Self::read_nav(&ctx, true);
+        let mut navs = self.tools_keys(&ctx);
+        let used = match self.presenting {
+            Some((i, _)) => {
+                let base = fit_rect(ui.max_rect(), self.deck.aspect.ratio());
+                self.tools_pointer(&ctx, base, i)
+            }
+            None => false,
+        };
+        navs.extend(Self::read_nav(&ctx, !used));
         if ctx.input(|i| i.viewport().close_requested()) {
             navs.push(Nav::Stop);
         }
@@ -1845,6 +2185,7 @@ impl SlidesApp {
             .frame(egui::Frame::NONE.fill(Color32::BLACK))
             .show(ui, |ui| {
                 let screen = ui.max_rect();
+                let zoom = self.zoom_for(i);
                 show_slide(
                     ui,
                     screen,
@@ -1853,7 +2194,12 @@ impl SlidesApp {
                     since,
                     self.black,
                     &mut self.textures,
+                    zoom,
                 );
+                if !self.black {
+                    let base = fit_rect(screen, self.deck.aspect.ratio());
+                    self.tools_paint(ui, display_rect(base, zoom), i);
+                }
             });
         navs
     }
@@ -1881,6 +2227,1082 @@ impl SlidesApp {
                 });
             });
     }
+}
+
+// ---------------------------------------------------------------------------------
+// Outils du diaporama, minutage, plan, Embellir, création depuis un texte, exports
+// ---------------------------------------------------------------------------------
+
+impl SlidesApp {
+    /// Touches des outils du diaporama : G grille, P stylo, E effacer, 1 à 4
+    /// couleurs, Z zoom, chiffres puis Entrée pour aller à une diapositive.
+    /// Les touches employées sont retirées de l'entrée.
+    fn tools_keys(&mut self, ctx: &egui::Context) -> Vec<Nav> {
+        let current = self.presenting.map_or(0, |p| p.0);
+        let mut navs = Vec::new();
+        let t = &mut self.tools;
+        let none = egui::Modifiers::NONE;
+        ctx.input_mut(|i| {
+            if i.consume_key(none, Key::G) {
+                t.grid = !t.grid;
+            }
+            if t.grid && i.consume_key(none, Key::Escape) {
+                t.grid = false;
+            }
+            if i.consume_key(none, Key::P) {
+                t.pen = !t.pen;
+                t.drawing = false;
+                t.zoom_pick = false;
+            }
+            if i.consume_key(none, Key::E) {
+                t.ink.retain(|(s, _, _)| *s != current);
+            }
+            if i.consume_key(none, Key::Z) {
+                if t.zoom.is_some() || t.zoom_pick {
+                    t.zoom = None;
+                    t.zoom_pick = false;
+                } else {
+                    t.zoom_pick = true;
+                    t.pen = false;
+                }
+            }
+            let chiffres = [
+                Key::Num0,
+                Key::Num1,
+                Key::Num2,
+                Key::Num3,
+                Key::Num4,
+                Key::Num5,
+                Key::Num6,
+                Key::Num7,
+                Key::Num8,
+                Key::Num9,
+            ];
+            for (d, k) in chiffres.into_iter().enumerate() {
+                if i.consume_key(none, k) {
+                    if t.pen && (1..=4).contains(&d) {
+                        t.color = d - 1;
+                    } else if t.goto.len() < 4 {
+                        t.goto.push(char::from(b'0' + d as u8));
+                    }
+                }
+            }
+            if !t.goto.is_empty() {
+                if i.consume_key(none, Key::Backspace) {
+                    t.goto.pop();
+                }
+                if i.consume_key(none, Key::Escape) {
+                    t.goto.clear();
+                }
+                if i.consume_key(none, Key::Enter) {
+                    if let Ok(k) = t.goto.parse::<usize>()
+                        && k >= 1
+                    {
+                        navs.push(Nav::Goto(k - 1));
+                    }
+                    t.goto.clear();
+                }
+            }
+            if (t.zoom.is_some() || t.zoom_pick) && i.consume_key(none, Key::Escape) {
+                t.zoom = None;
+                t.zoom_pick = false;
+            }
+            if t.pen && i.consume_key(none, Key::Escape) {
+                t.pen = false;
+                t.drawing = false;
+            }
+        });
+        navs
+    }
+
+    /// La souris sur la diapositive affichée dans `base` (sans zoom) : laser,
+    /// stylo, choix de la zone à agrandir. Renvoie `true` si le clic sert à un
+    /// outil (il ne fait alors pas avancer le diaporama).
+    fn tools_pointer(&mut self, ctx: &egui::Context, base: Rect, slide: usize) -> bool {
+        let zoom = self.zoom_for(slide);
+        let shown = display_rect(base, zoom);
+        let (pos, pressed, down, secondary, l, clicked) = ctx.input(|i| {
+            (
+                i.pointer.hover_pos(),
+                i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
+                i.pointer.secondary_down(),
+                i.key_down(Key::L),
+                i.pointer.primary_clicked(),
+            )
+        });
+        let t = &mut self.tools;
+        let frac = pos.filter(|p| base.contains(*p)).map(|p| {
+            (
+                ((p.x - shown.left()) / shown.width()).clamp(0.0, 1.0),
+                ((p.y - shown.top()) / shown.height()).clamp(0.0, 1.0),
+            )
+        });
+        // Une fenêtre sans la souris ne touche pas au laser de l'autre.
+        if pos.is_some() {
+            t.laser = if l || secondary { frac } else { None };
+        }
+        if t.laser.is_some() || t.drawing {
+            ctx.request_repaint();
+        }
+        if t.grid {
+            return true;
+        }
+        if t.zoom_pick {
+            if clicked && let Some(f) = frac {
+                t.zoom = Some((slide, f));
+                t.zoom_pick = false;
+            }
+            return true;
+        }
+        if t.pen {
+            let total: usize = t.ink.iter().map(|(_, _, p)| p.len()).sum();
+            match frac {
+                Some(f) if pressed => {
+                    t.ink.push((slide, t.color, vec![f]));
+                    t.drawing = true;
+                }
+                Some(f) if down && t.drawing && total < 50_000 => {
+                    if let Some((_, _, pts)) = t.ink.last_mut()
+                        && pts
+                            .last()
+                            .is_none_or(|q| (q.0 - f.0).abs() + (q.1 - f.1).abs() > 0.001)
+                    {
+                        pts.push(f);
+                    }
+                }
+                _ if !down => t.drawing = false,
+                _ => {}
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Centre du zoom de la diapositive `i`, s'il est actif.
+    fn zoom_for(&self, i: usize) -> Option<(f32, f32)> {
+        self.tools.zoom.filter(|(s, _)| *s == i).map(|(_, c)| c)
+    }
+
+    /// Encre, laser et aide des outils, par-dessus la diapositive affichée dans
+    /// `shown`.
+    fn tools_paint(&self, ui: &egui::Ui, shown: Rect, slide: usize) {
+        let painter = ui.painter();
+        let h = shown.height();
+        let at =
+            |(x, y): (f32, f32)| Pos2::new(shown.left() + x * shown.width(), shown.top() + y * h);
+        for (s, c, pts) in &self.tools.ink {
+            if *s != slide {
+                continue;
+            }
+            let stroke = Stroke::new((h * 0.006).max(2.0), INK[*c % INK.len()]);
+            if pts.len() == 1 {
+                painter.circle_filled(at(pts[0]), stroke.width / 2.0, stroke.color);
+            } else {
+                painter.add(egui::Shape::line(
+                    pts.iter().copied().map(at).collect(),
+                    stroke,
+                ));
+            }
+        }
+        if let Some(p) = self.tools.laser {
+            let c = at(p);
+            let r = (h * 0.011).max(5.0);
+            for k in (1..=5).rev() {
+                let a = (70 / k) as u8;
+                painter.circle_filled(
+                    c,
+                    r * (1.0 + k as f32 * 0.55),
+                    Color32::from_rgba_unmultiplied(255, 30, 30, a),
+                );
+            }
+            painter.circle_filled(c, r, Color32::from_rgb(255, 40, 40));
+            painter.circle_filled(c, r * 0.45, Color32::from_rgb(255, 200, 200));
+        }
+        // Bulle d'aide en bas à gauche.
+        let t = &self.tools;
+        let message = if !t.goto.is_empty() {
+            Some(trf!("Aller à la diapositive {n} (Entrée)", n = t.goto))
+        } else if t.zoom_pick {
+            Some(tr("🔍 Cliquez sur la zone à agrandir (Z ou Échap pour annuler)").to_string())
+        } else if t.zoom.is_some() {
+            Some(tr("🔍 Zoom ×2 — Z ou Échap pour revenir").to_string())
+        } else if t.pen {
+            Some(tr("✏ Stylo — 1 à 4 : couleur, E : effacer, P : terminer").to_string())
+        } else {
+            None
+        };
+        if let Some(m) = message {
+            let screen = ui.clip_rect();
+            let g = painter.layout_no_wrap(m, FontId::proportional(16.0), Color32::WHITE);
+            let r = Rect::from_min_size(
+                Pos2::new(screen.left() + 20.0, screen.bottom() - g.size().y - 36.0),
+                g.size() + Vec2::new(20.0, 12.0),
+            );
+            painter.rect_filled(r, 6.0, Color32::from_black_alpha(190));
+            if t.pen {
+                painter.circle_filled(
+                    Pos2::new(r.right() + 14.0, r.center().y),
+                    7.0,
+                    INK[t.color % INK.len()],
+                );
+            }
+            painter.galley(r.min + Vec2::new(10.0, 6.0), g, Color32::WHITE);
+        }
+    }
+
+    /// Grille de toutes les diapositives ; renvoie celle que l'on clique.
+    fn grid_ui(&mut self, ui: &mut egui::Ui, screen: Rect, current: usize) -> Option<usize> {
+        let n = self.deck.slides.len();
+        let ratio = self.deck.aspect.ratio();
+        ui.painter()
+            .rect_filled(screen, 0.0, Color32::from_gray(12));
+        let area = screen.shrink(40.0);
+        // Le plus grand nombre de colonnes qui fait tout tenir.
+        let mut cols = 1;
+        let mut w = area.width();
+        for c in 1..=n.max(1) {
+            let cw = (area.width() - 16.0 * (c as f32 - 1.0)) / c as f32;
+            let rows = n.div_ceil(c);
+            let hh = rows as f32 * (cw / ratio + 26.0);
+            cols = c;
+            w = cw;
+            if hh <= area.height() {
+                break;
+            }
+        }
+        let values = self.deck.values();
+        let mut choix = None;
+        for k in 0..n {
+            let (cx, cy) = (k % cols, k / cols);
+            let r = Rect::from_min_size(
+                Pos2::new(
+                    area.left() + cx as f32 * (w + 16.0),
+                    area.top() + cy as f32 * (w / ratio + 26.0),
+                ),
+                Vec2::new(w, w / ratio),
+            );
+            render_slide(ui, r, &self.deck, k, &values, &mut self.textures);
+            let resp = ui.interact(r, ui.make_persistent_id(("slides-grid", k)), Sense::click());
+            let stroke = if k == current {
+                Stroke::new(3.0, Color32::from_rgb(0x2F, 0x74, 0xD6))
+            } else if resp.hovered() {
+                Stroke::new(2.0, Color32::WHITE)
+            } else {
+                Stroke::new(1.0, Color32::from_gray(90))
+            };
+            ui.painter()
+                .rect_stroke(r, 2.0, stroke, egui::StrokeKind::Outside);
+            ui.painter().text(
+                Pos2::new(r.left(), r.bottom() + 4.0),
+                Align2::LEFT_TOP,
+                format!("{}", k + 1),
+                FontId::proportional(14.0),
+                Color32::from_gray(200),
+            );
+            if resp.clicked() {
+                choix = Some(k);
+            }
+        }
+        choix
+    }
+
+    /// Avance automatique selon le minutage (hors répétition, hors écran noir).
+    fn auto_nav(&self, ctx: &egui::Context) -> Vec<Nav> {
+        let Some((i, since)) = self.presenting else {
+            return Vec::new();
+        };
+        let paused = self.presenter.as_ref().is_some_and(|p| p.paused.is_some());
+        if self.rehearsal.is_some() || self.black || paused || i + 1 >= self.deck.slides.len() {
+            return Vec::new();
+        }
+        let Some(d) = self.deck.auto_advance_after(i) else {
+            return Vec::new();
+        };
+        let reste = d as f64 - (ctx.input(|inp| inp.time) - since);
+        if reste <= 0.0 {
+            vec![Nav::Next]
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(reste.min(3600.0)));
+            Vec::new()
+        }
+    }
+
+    /// Compte le temps passé sur chaque diapositive pendant une répétition.
+    fn track_rehearsal(&mut self, now: f64) {
+        let Some((i, _)) = self.presenting else {
+            return;
+        };
+        if let Some(r) = &mut self.rehearsal
+            && r.slide != i
+        {
+            if let Some(t) = r.times.get_mut(r.slide) {
+                *t += now - r.since;
+            }
+            r.slide = i;
+            r.since = now;
+        }
+    }
+
+    /// Chronomètres de la répétition, en haut à gauche.
+    fn rehearsal_overlay(&self, ui: &egui::Ui, screen: Rect, now: f64) {
+        let Some(r) = &self.rehearsal else {
+            return;
+        };
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(250));
+        let diapo = format_duration((now - r.since) as f32);
+        let total = format_duration((now - r.started) as f32);
+        let texte = trf!(
+            "⏱ Diapositive : {diapo}   Total : {total}   (Échap pour terminer)",
+            diapo,
+            total
+        );
+        let g = ui
+            .painter()
+            .layout_no_wrap(texte, FontId::proportional(18.0), Color32::WHITE);
+        let rect = Rect::from_min_size(
+            screen.left_top() + Vec2::splat(16.0),
+            g.size() + Vec2::new(24.0, 14.0),
+        );
+        ui.painter()
+            .rect_filled(rect, 8.0, Color32::from_black_alpha(200));
+        ui.painter()
+            .galley(rect.min + Vec2::new(12.0, 7.0), g, Color32::WHITE);
+    }
+
+    /// « Répéter le minutage » : le diaporama depuis le début, chronométré.
+    fn rehearse(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        self.start(ctx, 0);
+        self.rehearsal = Some(Rehearsal {
+            times: vec![0.0; self.deck.slides.len()],
+            slide: 0,
+            since: now,
+            started: now,
+        });
+    }
+
+    /// Fenêtres et messages du mode normal (hors diaporama).
+    fn dialogs(&mut self, ctx: &egui::Context) {
+        let notices = std::mem::take(&mut *self.notices.lock().unwrap_or_else(|e| e.into_inner()));
+        for (m, err) in notices {
+            self.notify(ctx, m, err);
+        }
+        self.rehearsed_dialog(ctx);
+        self.beautify_window(ctx);
+        self.text_deck_window(ctx);
+        self.handout_window(ctx);
+    }
+
+    /// Après une répétition : garder le minutage ?
+    fn rehearsed_dialog(&mut self, ctx: &egui::Context) {
+        let Some(times) = self.rehearsed.clone() else {
+            return;
+        };
+        let total: f64 = times.iter().sum();
+        let mut garder = false;
+        let mut fermer = false;
+        egui::Window::new(tr("Minutage répété"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(trf!(
+                    "Durée totale : {total}. Enregistrer ce minutage dans la présentation ?",
+                    total = format_duration(total as f32)
+                ));
+                ui.add_space(4.0);
+                egui::Grid::new("minutage-repete")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (k, t) in times.iter().enumerate().take(40) {
+                            ui.label(format!("{}", k + 1));
+                            ui.label(
+                                self.deck
+                                    .slides
+                                    .get(k)
+                                    .map(|s| s.label())
+                                    .unwrap_or_default(),
+                            );
+                            ui.label(RichText::new(format_duration(*t as f32)).monospace());
+                            ui.end_row();
+                        }
+                    });
+                ui.checkbox(
+                    &mut self.deck.auto_advance,
+                    tr("Avancer automatiquement selon le minutage"),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button(tr("Enregistrer le minutage")).clicked() {
+                        garder = true;
+                    }
+                    if ui.button(tr("Ignorer")).clicked() {
+                        fermer = true;
+                    }
+                });
+            });
+        if garder {
+            let now = ctx.input(|i| i.time);
+            let auto = self.deck.auto_advance;
+            self.snapshot(now, false);
+            self.deck.set_timings(&times);
+            self.deck.auto_advance = auto;
+            self.rehearsed = None;
+            self.notify(ctx, tr("Minutage enregistré"), false);
+        } else if fermer {
+            self.rehearsed = None;
+        }
+    }
+
+    /// Fenêtre « Embellir » : des mises en page pour la diapositive courante.
+    fn beautify_window(&mut self, ctx: &egui::Context) {
+        if !self.beautify {
+            self.suggestions = None;
+            return;
+        }
+        let i = self.current;
+        let Some(slide) = self.deck.slides.get(i).cloned() else {
+            return;
+        };
+        let a_jour = self
+            .suggestions
+            .as_ref()
+            .is_some_and(|(k, s, _, d)| *k == i && *s == slide && d.theme == self.deck.theme);
+        if !a_jour {
+            let props = self.deck.design_suggestions(i);
+            let mut apercu = self.deck.clone();
+            apercu.slides = props.iter().map(|p| p.slide.clone()).collect();
+            self.suggestions = Some((i, slide, props, apercu));
+        }
+        let mut ouvert = true;
+        let mut choisi = None;
+        let ratio = self.deck.aspect.ratio();
+        egui::Window::new(tr("✨ Embellir"))
+            .open(&mut ouvert)
+            .default_width(620.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new(tr(
+                        "Des mises en page pour cette diapositive, choisies d'après son contenu. Cliquez pour appliquer (Ctrl+Z pour revenir).",
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(4.0);
+                let Some((_, _, props, apercu)) = &self.suggestions else {
+                    return;
+                };
+                let values = apercu.values();
+                let w = ((ui.available_width() - 24.0) / 3.0).clamp(120.0, 260.0);
+                egui::Grid::new("embellir").spacing([12.0, 12.0]).show(ui, |ui| {
+                    for (k, p) in props.iter().enumerate() {
+                        ui.vertical(|ui| {
+                            let (r, resp) =
+                                ui.allocate_exact_size(Vec2::new(w, w / ratio), Sense::click());
+                            render_slide(ui, r, apercu, k, &values, &mut self.textures);
+                            let stroke = if resp.hovered() {
+                                Stroke::new(3.0, Color32::from_rgb(0x2F, 0x74, 0xD6))
+                            } else {
+                                Stroke::new(1.0, Color32::GRAY)
+                            };
+                            ui.painter()
+                                .rect_stroke(r, 3.0, stroke, egui::StrokeKind::Outside);
+                            if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                                choisi = Some(k);
+                            }
+                            ui.label(design_label(p.design));
+                        });
+                        if k % 3 == 2 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            });
+        if let Some(k) = choisi
+            && let Some((_, _, props, _)) = &self.suggestions
+            && let Some(p) = props.get(k)
+        {
+            let nouvelle = p.slide.clone();
+            let now = ctx.input(|inp| inp.time);
+            self.snapshot(now, false);
+            self.deck.slides[i] = nouvelle;
+            self.selected = None;
+        }
+        self.beautify = ouvert;
+    }
+
+    /// Fenêtre « Nouvelle présentation depuis un texte… ».
+    fn text_deck_window(&mut self, ctx: &egui::Context) {
+        let Some((mut texte, mut apercu)) = self.from_text.take() else {
+            return;
+        };
+        let mut ouvert = true;
+        let mut creer = false;
+        let ratio = apercu.aspect.ratio();
+        egui::Window::new(tr("Nouvelle présentation depuis un texte"))
+            .open(&mut ouvert)
+            .default_size([860.0, 560.0])
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new(tr(
+                        "Collez des notes de réunion, un courriel ou tout autre texte : les paragraphes deviennent des diapositives, les longs paragraphes des puces.",
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.columns(2, |cols| {
+                    let changed = egui::ScrollArea::vertical()
+                        .id_salt("texte-source")
+                        .max_height(440.0)
+                        .show(&mut cols[0], |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut texte)
+                                    .desired_width(f32::INFINITY)
+                                    .desired_rows(22)
+                                    .hint_text(tr(
+                                        "Réunion du 3 novembre\n\nBudget\nLe budget est validé. Il augmente de 12 %.\n\nÀ faire :\n- recruter deux personnes\n- préparer le salon",
+                                    )),
+                            )
+                            .changed()
+                        })
+                        .inner;
+                    if changed {
+                        apercu = Deck::from_text(&texte, closing());
+                    }
+                    let ui = &mut cols[1];
+                    ui.label(trf!(
+                        "Aperçu : {n} diapositive(s), thème {theme}",
+                        n = apercu.slides.len(),
+                        theme = labels::theme(apercu.theme)
+                    ));
+                    let values = apercu.values();
+                    egui::ScrollArea::vertical()
+                        .id_salt("texte-apercu")
+                        .max_height(420.0)
+                        .show(ui, |ui| {
+                            let w = (ui.available_width() - 8.0) / 2.0;
+                            egui::Grid::new("texte-apercu-grille").show(ui, |ui| {
+                                for k in 0..apercu.slides.len() {
+                                    let (r, _) = ui.allocate_exact_size(
+                                        Vec2::new(w, w / ratio),
+                                        Sense::hover(),
+                                    );
+                                    if ui.is_rect_visible(r) {
+                                        render_slide(ui, r, &apercu, k, &values, &mut self.textures);
+                                    }
+                                    if k % 2 == 1 {
+                                        ui.end_row();
+                                    }
+                                }
+                            });
+                        });
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let ok = !texte.trim().is_empty();
+                    if ui
+                        .add_enabled(
+                            ok,
+                            egui::Button::new(RichText::new(tr("Créer la présentation")).strong()),
+                        )
+                        .clicked()
+                    {
+                        creer = true;
+                    }
+                });
+            });
+        if creer {
+            let now = ctx.input(|i| i.time);
+            self.snapshot(now, false);
+            self.deck = apercu;
+            self.path = None;
+            self.current = 0;
+            self.selected = None;
+            let n = self.deck.slides.len();
+            self.notify(
+                ctx,
+                trf!("Présentation créée : {n} diapositive(s)", n),
+                false,
+            );
+        } else if ouvert {
+            self.from_text = Some((texte, apercu));
+        }
+    }
+
+    /// Fenêtre « Document de présentation ».
+    fn handout_window(&mut self, ctx: &egui::Context) {
+        let Some(mut o) = self.handout else {
+            return;
+        };
+        let mut ouvert = true;
+        let mut exporter = false;
+        egui::Window::new(tr("Document de présentation"))
+            .open(&mut ouvert)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(tr("Diapositives par page"));
+                ui.horizontal(|ui| {
+                    for n in HandoutOptions::PER_PAGE {
+                        ui.selectable_value(&mut o.per_page, n, n.to_string());
+                    }
+                });
+                ui.add_space(4.0);
+                ui.label(tr("À côté de chaque diapositive"));
+                ui.radio_value(
+                    &mut o.notes,
+                    HandoutNotes::Lines,
+                    tr("Des lignes pour prendre des notes"),
+                );
+                ui.radio_value(
+                    &mut o.notes,
+                    HandoutNotes::Speaker,
+                    tr("Les notes de l'orateur"),
+                );
+                ui.radio_value(&mut o.notes, HandoutNotes::None, tr("Rien"));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(tr("Papier"));
+                    ui.selectable_value(&mut o.paper, HandoutPaper::A4, "A4");
+                    ui.selectable_value(&mut o.paper, HandoutPaper::Letter, tr("Lettre US"));
+                });
+                ui.separator();
+                if ui
+                    .button(RichText::new(tr("Exporter le PDF…")).strong())
+                    .clicked()
+                {
+                    exporter = true;
+                }
+            });
+        if exporter {
+            let name = format!("{}-document.pdf", self.stem());
+            let bytes = self.deck.to_handout_pdf(o);
+            self.io.save(ctx, name, "application/pdf", bytes, false);
+            self.handout = None;
+        } else {
+            self.handout = ouvert.then_some(o);
+        }
+    }
+
+    /// « Exporter en images » : une image PNG par diapositive (1920 × 1080 en
+    /// 16:9) dans le dossier choisi.
+    fn export_images(&mut self, ctx: &egui::Context) {
+        let polices: Vec<Option<Arc<egui::FontData>>> = ctx.fonts(|f| {
+            [
+                "liberation-sans",
+                "liberation-sans-b",
+                "liberation-serif",
+                "liberation-serif-b",
+                "liberation-serif-i",
+                "liberation-serif-bi",
+            ]
+            .iter()
+            .map(|n| f.definitions().font_data.get(*n).cloned())
+            .collect()
+        });
+        let mut deck = self.deck.clone();
+        deck.prune_media();
+        let stem = self.stem();
+        let notices = self.notices.clone();
+        let ctx = ctx.clone();
+        let dialog = rfd::AsyncFileDialog::new().set_title(tr("Dossier des images"));
+        std::thread::spawn(move || {
+            block_on(async move {
+                let Some(dossier) = dialog.pick_folder().await else {
+                    return;
+                };
+                let octets = |k: usize| -> &[u8] {
+                    polices
+                        .get(k)
+                        .and_then(|p| p.as_ref())
+                        .map_or(&[][..], |p| (*p.font).as_ref())
+                };
+                let fonts = RasterFonts {
+                    sans: octets(0),
+                    sans_bold: octets(1),
+                    serif: octets(2),
+                    serif_bold: octets(3),
+                    serif_italic: octets(4),
+                    serif_bold_italic: octets(5),
+                };
+                let images = deck.to_png_images(&fonts, varium_slides::PNG_HEIGHT);
+                let mut erreur = None;
+                for (i, png) in images.iter().enumerate() {
+                    let chemin = dossier.path().join(format!("{stem}-{:02}.png", i + 1));
+                    if let Err(e) = crate::io::write_atomic(&chemin, png) {
+                        erreur = Some(e.to_string());
+                        break;
+                    }
+                }
+                let n = images.len();
+                let msg = match erreur {
+                    Some(e) => (trf!("Écriture impossible : {e}", e), true),
+                    None => (
+                        trf!(
+                            "{n} image(s) enregistrée(s) dans {dossier}",
+                            n,
+                            dossier = dossier.path().display()
+                        ),
+                        false,
+                    ),
+                };
+                notices.lock().unwrap_or_else(|e| e.into_inner()).push(msg);
+                ctx.request_repaint();
+            })
+        });
+    }
+
+    // ---------------- Mode plan ----------------
+
+    /// Le plan de la présentation, modifiable : chaque ligne sans retrait est
+    /// une diapositive. Tab / Maj+Tab changent le niveau, Alt+↑ / Alt+↓
+    /// déplacent la ligne (ou la diapositive entière depuis son titre).
+    fn outline_ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let now = ctx.input(|i| i.time);
+        if self.outline_deck.as_ref() != Some(&self.deck) {
+            self.outline_text = self.deck.to_outline();
+            self.outline_deck = Some(self.deck.clone());
+        }
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(tr("Plan")).strong());
+            ui.label(
+                RichText::new(tr(
+                    "Une ligne par diapositive ; Tab pour une puce, Maj+Tab pour en faire une diapositive, Alt+↑ / Alt+↓ pour déplacer, || pour la seconde colonne.",
+                ))
+                .small()
+                .weak(),
+            );
+        });
+        ui.add_space(4.0);
+        let id = ui.make_persistent_id("slides-outline");
+        let focused = ui.memory(|m| m.has_focus(id));
+        let mut texte = self.outline_text.clone();
+        let mut curseur: Option<(usize, usize)> = None;
+        // Touches lues avant la zone de texte (qui ne doit pas les recevoir),
+        // appliquées après elle, sur le texte et le curseur à jour.
+        let (maj_tab, tab, haut, bas, entree) = if focused {
+            ctx.input_mut(|i| {
+                (
+                    i.consume_key(egui::Modifiers::SHIFT, Key::Tab),
+                    i.consume_key(egui::Modifiers::NONE, Key::Tab),
+                    i.consume_key(egui::Modifiers::ALT, Key::ArrowUp),
+                    i.consume_key(egui::Modifiers::ALT, Key::ArrowDown),
+                    i.key_pressed(Key::Enter),
+                )
+            })
+        } else {
+            (false, false, false, false, false)
+        };
+        let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
+            let mut job = outline_job(buf.as_str(), ui.visuals().text_color());
+            job.wrap.max_width = wrap;
+            ui.fonts_mut(|f| f.layout_job(job))
+        };
+        let out = egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                egui::TextEdit::multiline(&mut texte)
+                    .id(id)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(24)
+                    .lock_focus(true)
+                    .layouter(&mut layouter)
+                    .show(ui)
+            })
+            .inner;
+        let mut sel = out
+            .cursor_range
+            .map(|r| {
+                let r = r.as_sorted_char_range();
+                (r.start.0, r.end.0)
+            })
+            .unwrap_or((0, 0));
+        // Entrée sur une puce : la nouvelle ligne garde le même retrait.
+        if entree && out.response.changed() && sel.0 == sel.1 {
+            let (t, c2) = continue_indent(&texte, sel.0);
+            if c2 != sel.0 {
+                texte = t;
+                sel = (c2, c2);
+                curseur = Some(sel);
+            }
+        }
+        let resultat = if maj_tab {
+            Some(indent_lines(&texte, sel, -1))
+        } else if tab {
+            Some(indent_lines(&texte, sel, 1))
+        } else if haut || bas {
+            move_lines(&texte, sel, haut)
+        } else {
+            None
+        };
+        if let Some((t, c)) = resultat {
+            texte = t;
+            curseur = Some(c);
+        }
+        if let Some((a, b)) = curseur
+            && let Some(mut st) = egui::text_edit::TextEditState::load(&ctx, id)
+        {
+            st.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                egui::text::CCursor::new(a),
+                egui::text::CCursor::new(b),
+            )));
+            st.store(&ctx, id);
+        }
+        if texte != self.outline_text {
+            self.outline_text = texte;
+            let nouveau = self.deck.apply_outline(&self.outline_text);
+            if nouveau != self.deck {
+                self.snapshot(now, true);
+                self.deck = nouveau;
+                self.selected = None;
+            }
+            self.outline_deck = Some(self.deck.clone());
+        }
+        // La diapositive du curseur devient la diapositive courante.
+        let pos = egui::text_edit::TextEditState::load(&ctx, id)
+            .and_then(|st| st.cursor.char_range())
+            .map(|r| r.primary.index.0);
+        if let Some(p) = pos
+            && self.outline_cursor != Some(p)
+        {
+            self.outline_cursor = Some(p);
+            self.current = slide_at(&self.outline_text, p).min(self.deck.slides.len() - 1);
+        }
+    }
+}
+
+/// La « Merci ! / Questions ? » de clôture, dans la langue de l'interface.
+fn closing() -> Closing<'static> {
+    Closing {
+        thanks: tr("Merci !"),
+        questions: tr("Questions ?"),
+    }
+}
+
+/// Libellé traduit d'une proposition d'« Embellir ».
+fn design_label(d: Design) -> &'static str {
+    match d {
+        Design::DeuxColonnes => tr("Deux colonnes"),
+        Design::GrandChiffre => tr("Grand chiffre"),
+        Design::ChiffrePastille => tr("Chiffre en pastille"),
+        Design::Citation => tr("Citation"),
+        Design::CitationFond => tr("Citation sur fond"),
+        Design::ImageGauche => tr("Image à gauche"),
+        Design::ImageDroite => tr("Image à droite"),
+        Design::ImagePleinCadre => tr("Image plein cadre"),
+        Design::Comparaison => tr("Comparaison"),
+        Design::ComparaisonCadres => tr("Comparaison en cadres"),
+        Design::Message => tr("Message clé"),
+        Design::Section => tr("Intercalaire"),
+        Design::TitreCentre => tr("Titre centré"),
+        Design::BarreAccent => tr("Barre d'accent"),
+        Design::FondContraste => tr("Fond contrasté"),
+        Design::CoinDecoratif => tr("Coin décoratif"),
+        Design::Bandeau => tr("Bandeau"),
+    }
+}
+
+/// La plus grande diapositive de proportions `ratio` centrée dans `screen`.
+fn fit_rect(screen: Rect, ratio: f32) -> Rect {
+    let (w, h) = if screen.width() / screen.height().max(1.0) > ratio {
+        (screen.height() * ratio, screen.height())
+    } else {
+        (screen.width(), screen.width() / ratio)
+    };
+    Rect::from_center_size(screen.center(), Vec2::new(w, h))
+}
+
+/// La diapositive affichée dans `base`, agrandie deux fois autour de `zoom`
+/// (en fractions), sans laisser de vide sur les bords.
+fn display_rect(base: Rect, zoom: Option<(f32, f32)>) -> Rect {
+    let Some((fx, fy)) = zoom else {
+        return base;
+    };
+    let size = base.size() * 2.0;
+    let mut min = base.center() - Vec2::new(fx * size.x, fy * size.y);
+    min.x = min.x.clamp(base.right() - size.x, base.left());
+    min.y = min.y.clamp(base.bottom() - size.y, base.top());
+    Rect::from_min_size(min, size)
+}
+
+/// Mise en forme du plan : titres de diapositive en gras et plus grands.
+fn outline_job(text: &str, color: Color32) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    let lignes: Vec<&str> = text.split('\n').collect();
+    let n = lignes.len();
+    for (k, l) in lignes.into_iter().enumerate() {
+        let titre = !l.starts_with('\t') && !l.starts_with("    ");
+        let font = if titre {
+            FontId::new(17.0, crate::fonts::family(DocFont::Sans, true, false))
+        } else {
+            FontId::proportional(15.0)
+        };
+        let fmt = egui::TextFormat {
+            font_id: font,
+            color: if titre {
+                color
+            } else {
+                color.gamma_multiply(0.9)
+            },
+            ..Default::default()
+        };
+        let mut l = l.to_string();
+        if k + 1 < n {
+            l.push('\n');
+        }
+        job.append(&l, 0.0, fmt);
+    }
+    job
+}
+
+/// Position (en octets) du début de la ligne `k` et de chaque ligne.
+fn line_starts(text: &str) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect()
+}
+
+/// Numéro de la ligne qui contient le caractère `c`.
+fn line_of_char(text: &str, c: usize) -> usize {
+    text.chars().take(c).filter(|&ch| ch == '\n').count()
+}
+
+/// Indice de caractère d'une position en octets.
+fn char_index(text: &str, byte: usize) -> usize {
+    text[..byte.min(text.len())].chars().count()
+}
+
+/// Ajoute (`delta` = 1) ou retire (-1) une tabulation au début des lignes de la
+/// sélection `(début, fin)` (en caractères). Renvoie le texte et la sélection.
+fn indent_lines(text: &str, sel: (usize, usize), delta: i32) -> (String, (usize, usize)) {
+    let (l0, l1) = (line_of_char(text, sel.0), line_of_char(text, sel.1));
+    let mut lignes: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let (mut d0, mut d1) = (0i64, 0i64);
+    for (k, l) in lignes.iter_mut().enumerate().take(l1 + 1).skip(l0) {
+        let d = if delta > 0 {
+            l.insert(0, '\t');
+            1
+        } else if l.starts_with('\t') {
+            l.remove(0);
+            -1
+        } else if l.starts_with("    ") {
+            l.replace_range(..4, "");
+            -4
+        } else {
+            0
+        };
+        if k == l0 {
+            d0 = d;
+        }
+        if k <= l1 {
+            d1 += d;
+        }
+    }
+    let a = (sel.0 as i64 + d0).max(0) as usize;
+    let b = (sel.1 as i64 + d1).max(a as i64) as usize;
+    (lignes.join("\n"), (a, b))
+}
+
+/// Une ligne de titre (sans retrait) ?
+fn is_title_line(l: &str) -> bool {
+    !l.starts_with('\t') && !l.starts_with("    ")
+}
+
+/// Déplace les lignes de la sélection d'un cran (`haut`) : une ligne de titre
+/// emporte toute sa diapositive et passe par-dessus la diapositive voisine.
+/// `None` si rien ne bouge.
+fn move_lines(text: &str, sel: (usize, usize), haut: bool) -> Option<(String, (usize, usize))> {
+    let lignes: Vec<&str> = text.split('\n').collect();
+    let n = lignes.len();
+    let (a, mut b) = (
+        line_of_char(text, sel.0),
+        line_of_char(text, sel.1).min(n - 1),
+    );
+    let bloc_de = |k: usize| {
+        // La diapositive qui commence à la ligne `k` : jusqu'au titre suivant.
+        let mut f = k + 1;
+        while f < n && !is_title_line(lignes[f]) {
+            f += 1;
+        }
+        f - 1
+    };
+    if is_title_line(lignes[a]) {
+        b = bloc_de(b.max(a)).max(b);
+    }
+    let titre = is_title_line(lignes[a]);
+    // Bloc voisin à enjamber.
+    let (v0, v1) = if haut {
+        if a == 0 {
+            return None;
+        }
+        let mut v0 = a - 1;
+        if titre {
+            while v0 > 0 && !is_title_line(lignes[v0]) {
+                v0 -= 1;
+            }
+        }
+        (v0, a - 1)
+    } else {
+        if b + 1 >= n {
+            return None;
+        }
+        let v1 = if titre { bloc_de(b + 1) } else { b + 1 };
+        (b + 1, v1)
+    };
+    let bloc: Vec<&str> = lignes[a..=b].to_vec();
+    let voisin: Vec<&str> = lignes[v0..=v1].to_vec();
+    let mut res: Vec<&str> = Vec::with_capacity(n);
+    let decalage: i64 = if haut {
+        res.extend(&lignes[..v0]);
+        res.extend(&bloc);
+        res.extend(&voisin);
+        res.extend(&lignes[b + 1..]);
+        -(voisin.iter().map(|l| l.chars().count() + 1).sum::<usize>() as i64)
+    } else {
+        res.extend(&lignes[..a]);
+        res.extend(&voisin);
+        res.extend(&bloc);
+        res.extend(&lignes[v1 + 1..]);
+        voisin.iter().map(|l| l.chars().count() + 1).sum::<usize>() as i64
+    };
+    let texte = res.join("\n");
+    let s0 = (sel.0 as i64 + decalage).max(0) as usize;
+    let s1 = (sel.1 as i64 + decalage).max(s0 as i64) as usize;
+    Some((texte, (s0, s1)))
+}
+
+/// Après Entrée au caractère `c` : la nouvelle ligne reprend le retrait de la
+/// précédente. Renvoie le texte et le curseur.
+fn continue_indent(text: &str, c: usize) -> (String, usize) {
+    let l = line_of_char(text, c);
+    if l == 0 {
+        return (text.to_string(), c);
+    }
+    let starts = line_starts(text);
+    let prec = &text[starts[l - 1]..starts[l].saturating_sub(1)];
+    let retrait: String = prec.chars().take_while(|&ch| ch == '\t').collect();
+    let debut = starts[l];
+    if retrait.is_empty() || char_index(text, debut) != c {
+        return (text.to_string(), c);
+    }
+    let mut t = text.to_string();
+    t.insert_str(debut, &retrait);
+    (t, c + retrait.chars().count())
+}
+
+/// La diapositive (à partir de 0) de la ligne qui contient le caractère `c`.
+fn slide_at(text: &str, c: usize) -> usize {
+    let l = line_of_char(text, c);
+    let titres = text
+        .split('\n')
+        .take(l + 1)
+        .filter(|x| is_title_line(x))
+        .count();
+    titres.saturating_sub(1)
 }
 
 fn shape_label(kind: ObjectKind) -> String {
@@ -1960,6 +3382,7 @@ fn notes_ui(ui: &mut egui::Ui, notes: &str, values: &Values, size: f32) {
 
 /// La diapositive `i` plein cadre dans `screen`, avec la transition qui la fait
 /// apparaître depuis `since`, ou un écran noir.
+#[allow(clippy::too_many_arguments)]
 fn show_slide(
     ui: &egui::Ui,
     screen: Rect,
@@ -1968,6 +3391,7 @@ fn show_slide(
     since: f64,
     black: bool,
     textures: &mut Textures,
+    zoom: Option<(f32, f32)>,
 ) {
     ui.painter().rect_filled(screen, 0.0, Color32::BLACK);
     if black {
@@ -1992,6 +3416,7 @@ fn show_slide(
         }
         _ => {}
     }
+    let rect = display_rect(rect, zoom);
     render_slide(ui, rect, deck, i, &values, textures);
     if tr != Transition::Aucune && t < 1.0 {
         ui.painter().rect_filled(
@@ -2646,6 +4071,17 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &b.item(tr("PDF (une page par diapositive)"), A::ExportPdf, None),
             &b.item(tr("LibreOffice Impress (.odp)"), A::ExportOdp, None),
             &b.item(tr("Diaporama web (.html)"), A::ExportHtml, None),
+            &sep(),
+            &b.item(
+                tr("Document de présentation (PDF)…"),
+                A::ExportHandout,
+                None,
+            ),
+            &b.item(
+                tr("Images PNG (une par diapositive)…"),
+                A::ExportImages,
+                None,
+            ),
         ],
     )?;
     let file = Submenu::with_items(
@@ -2653,6 +4089,11 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
         true,
         &[
             &b.item(tr("Nouvelle présentation"), A::New, Some("Cmd+N")),
+            &b.item(
+                tr("Nouvelle présentation depuis un texte…"),
+                A::FromText,
+                None,
+            ),
             &b.item(tr("Présentation d'exemple"), A::Sample, None),
             &b.item(tr("Ouvrir…"), A::Open, Some("Cmd+O")),
             &sep(),
@@ -2707,6 +4148,11 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &sep(),
             &b.item(tr("Monter"), A::MoveUp, None),
             &b.item(tr("Descendre"), A::MoveDown, None),
+            &sep(),
+            &b.item(tr("✨ Embellir…"), A::Beautify, None),
+            &b.item(tr("Harmoniser la présentation"), A::Harmonize, None),
+            &sep(),
+            &b.item(tr("Mode plan"), A::OutlineView, None),
         ],
     )?;
     let show = Submenu::with_items(
@@ -2725,6 +4171,13 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             ),
             &sep(),
             &b.item(tr("Mode présentateur"), A::Presenter, Some("Cmd+Alt+Enter")),
+            &sep(),
+            &b.item(tr("Répéter le minutage"), A::Rehearse, None),
+            &b.item(
+                tr("Avancer automatiquement selon le minutage"),
+                A::AutoAdvance,
+                None,
+            ),
         ],
     )?;
     let help = Submenu::with_items(
@@ -2735,10 +4188,297 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
     Ok(vec![file, edit, insert, slide, show, help])
 }
 
+// ---------------------------------------------------------------------------------
+// Pour la suite : palette de commandes, aide-mémoire, accueil et conversions
+// ---------------------------------------------------------------------------------
+
+impl SlidesApp {
+    /// Les commandes de la Présentation : (action, libellé en français, groupe en
+    /// français, raccourci, `true` si c'est la suite qui doit traiter ce raccourci).
+    /// Les libellés passent par `tr` à l'affichage.
+    #[allow(clippy::type_complexity)]
+    pub fn palette_entries() -> Vec<(
+        SlideAction,
+        &'static str,
+        &'static str,
+        Option<egui::KeyboardShortcut>,
+        bool,
+    )> {
+        use crate::tr::n_;
+        use SlideAction as A;
+        use egui::{KeyboardShortcut as K, Modifiers as M};
+        let cmd = M::COMMAND;
+        let cmd_shift = M::COMMAND.plus(M::SHIFT);
+        let fichier = n_("Fichier");
+        let edition = n_("Édition");
+        let insertion = n_("Insertion");
+        let diapositive = n_("Diapositive");
+        let diaporama = n_("Diaporama");
+        vec![
+            (
+                A::New,
+                n_("Nouvelle présentation"),
+                fichier,
+                Some(K::new(cmd, Key::N)),
+                true,
+            ),
+            (
+                A::Sample,
+                n_("Présentation d'exemple"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::Open,
+                n_("Ouvrir…"),
+                fichier,
+                Some(K::new(cmd, Key::O)),
+                true,
+            ),
+            (
+                A::Save,
+                n_("Enregistrer"),
+                fichier,
+                Some(K::new(cmd, Key::S)),
+                true,
+            ),
+            (
+                A::SaveAs,
+                n_("Enregistrer sous…"),
+                fichier,
+                Some(K::new(cmd_shift, Key::S)),
+                true,
+            ),
+            (
+                A::ExportPdf,
+                n_("PDF (une page par diapositive)"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::ExportOdp,
+                n_("LibreOffice Impress (.odp)"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::ExportHtml,
+                n_("Diaporama web (.html)"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::Undo,
+                n_("Annuler"),
+                edition,
+                Some(K::new(cmd, Key::Z)),
+                false,
+            ),
+            (
+                A::Redo,
+                n_("Rétablir"),
+                edition,
+                Some(K::new(cmd, Key::Y)),
+                false,
+            ),
+            (
+                A::DuplicateObject,
+                n_("Dupliquer l'objet"),
+                edition,
+                Some(K::new(cmd, Key::D)),
+                false,
+            ),
+            (
+                A::DeleteObject,
+                n_("Supprimer l'objet"),
+                edition,
+                Some(K::new(M::NONE, Key::Delete)),
+                false,
+            ),
+            (
+                A::InsertImage,
+                crate::palette::LIBELLE_IMAGE,
+                insertion,
+                Some(K::new(cmd_shift, Key::I)),
+                true,
+            ),
+            (
+                A::InsertShape(ObjectKind::Rect),
+                n_("Rectangle"),
+                insertion,
+                None,
+                false,
+            ),
+            (
+                A::InsertShape(ObjectKind::RoundRect),
+                n_("Rectangle arrondi"),
+                insertion,
+                None,
+                false,
+            ),
+            (
+                A::InsertShape(ObjectKind::Ellipse),
+                n_("Ellipse"),
+                insertion,
+                None,
+                false,
+            ),
+            (
+                A::InsertShape(ObjectKind::Line),
+                n_("Ligne"),
+                insertion,
+                None,
+                false,
+            ),
+            (
+                A::InsertShape(ObjectKind::Arrow),
+                n_("Flèche"),
+                insertion,
+                None,
+                false,
+            ),
+            (
+                A::NewSlide,
+                n_("Nouvelle diapositive"),
+                diapositive,
+                Some(K::new(cmd, Key::M)),
+                false,
+            ),
+            (
+                A::DuplicateSlide,
+                crate::palette::LIBELLE_DUPLIQUER_DIAPO,
+                diapositive,
+                None,
+                false,
+            ),
+            (
+                A::DeleteSlide,
+                crate::palette::LIBELLE_SUPPRIMER_DIAPO,
+                diapositive,
+                None,
+                false,
+            ),
+            (A::MoveUp, n_("Monter"), diapositive, None, false),
+            (A::MoveDown, n_("Descendre"), diapositive, None, false),
+            (
+                A::StartFirst,
+                n_("Depuis la première diapositive"),
+                diaporama,
+                Some(K::new(M::NONE, Key::F5)),
+                false,
+            ),
+            (
+                A::StartCurrent,
+                n_("Depuis la diapositive actuelle"),
+                diaporama,
+                Some(K::new(M::SHIFT, Key::F5)),
+                false,
+            ),
+            (
+                A::Presenter,
+                n_("Mode présentateur"),
+                diaporama,
+                Some(K::new(M::ALT, Key::F5)),
+                true,
+            ),
+            (
+                A::Rehearse,
+                n_("Répéter le minutage"),
+                diaporama,
+                None,
+                false,
+            ),
+            (
+                A::AutoAdvance,
+                n_("Avancer automatiquement selon le minutage"),
+                diaporama,
+                None,
+                false,
+            ),
+            (
+                A::FromText,
+                n_("Nouvelle présentation depuis un texte…"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::ExportHandout,
+                n_("Document de présentation (PDF)…"),
+                fichier,
+                None,
+                false,
+            ),
+            (
+                A::ExportImages,
+                n_("Images PNG (une par diapositive)…"),
+                fichier,
+                None,
+                false,
+            ),
+            (A::Beautify, n_("✨ Embellir…"), diapositive, None, false),
+            (
+                A::Harmonize,
+                n_("Harmoniser la présentation"),
+                diapositive,
+                None,
+                false,
+            ),
+            (
+                A::OutlineView,
+                n_("Mode plan"),
+                n_("Affichage"),
+                None,
+                false,
+            ),
+        ]
+    }
+
+    /// Le fichier de la présentation ouverte.
+    pub fn file_path(&self) -> Option<PathBuf> {
+        self.path.clone()
+    }
+
+    /// Ouvre une présentation (Varium, ODP, PPTX) : glisser-déposer, récents.
+    pub fn open_file(&mut self, ctx: &egui::Context, path: &std::path::Path) {
+        self.io.open_path(ctx, OpenKind::Deck, path);
+    }
+
+    /// Remplace la présentation (conversion depuis un document) ; l'ancienne reste
+    /// dans l'historique d'annulation. Renvoie le fichier de l'ancienne.
+    pub fn replace_deck(&mut self, ctx: &egui::Context, deck: Deck) -> Option<PathBuf> {
+        let now = ctx.input(|i| i.time);
+        self.snapshot(now, false);
+        self.deck = deck;
+        self.current = 0;
+        self.selected = None;
+        self.textures = Textures::default();
+        self.path.take()
+    }
+
+    /// Annule une conversion : l'ancienne présentation et son fichier reviennent.
+    pub fn undo_replace(&mut self, path: Option<PathBuf>) {
+        self.undo();
+        self.current = 0;
+        self.selected = None;
+        self.textures = Textures::default();
+        self.path = path;
+    }
+
+    /// Dessine la première diapositive d'une présentation (vignettes de l'accueil).
+    pub fn draw_thumbnail(&mut self, ui: &egui::Ui, rect: Rect, deck: &Deck) {
+        let values = deck.values();
+        render_slide(ui, rect, deck, 0, &values, &mut self.textures);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use varium_slides::Slide;
 
     #[test]
     fn les_cadres_restent_dans_la_diapositive() {
@@ -2819,6 +4559,57 @@ mod tests {
             grip_at(r, &objets[0], Pos2::new(400.0, 300.0)),
             Some(Grip::Handle(4))
         );
+    }
+
+    #[test]
+    fn plan_retrait_et_deplacement() {
+        // Tab sur la deuxième ligne : elle devient une puce.
+        let (t, sel) = indent_lines("A\nB\nC", (3, 3), 1);
+        assert_eq!(t, "A\n\tB\nC");
+        assert_eq!(sel, (4, 4));
+        let (t, _) = indent_lines(&t, (4, 4), -1);
+        assert_eq!(t, "A\nB\nC");
+        // Sélection sur plusieurs lignes.
+        let (t, sel) = indent_lines("A\n\tx\n\ty", (3, 8), 1);
+        assert_eq!(t, "A\n\t\tx\n\t\ty");
+        assert_eq!(sel, (4, 10));
+        // Alt+↑ sur un titre : toute la diapositive passe au-dessus de la précédente.
+        let plan = "A\n\ta1\nB\n\tb1\n\tb2";
+        let (t, sel) = move_lines(plan, (6, 6), true).unwrap();
+        assert_eq!(t, "B\n\tb1\n\tb2\nA\n\ta1");
+        assert_eq!(sel, (0, 0));
+        // Alt+↓ sur une puce : elle passe sous la suivante (même hors de sa diapositive).
+        let (t, _) = move_lines(plan, (9, 9), false).unwrap();
+        assert_eq!(t, "A\n\ta1\nB\n\tb2\n\tb1");
+        assert!(move_lines(plan, (0, 0), true).is_none());
+        assert!(move_lines(plan, (plan.chars().count(), plan.chars().count()), false).is_none());
+        // Entrée sur une puce : la nouvelle ligne garde le retrait.
+        assert_eq!(
+            continue_indent("A\n\tx\n", 5),
+            ("A\n\tx\n\t".to_string(), 6)
+        );
+        assert_eq!(continue_indent("A\n", 2), ("A\n".to_string(), 2));
+        assert_eq!(slide_at("A\n\tx\nB\n\ty", 9), 1);
+        assert_eq!(slide_at("A\n\tx", 0), 0);
+    }
+
+    #[test]
+    fn zoom_sans_vide() {
+        let base = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(160.0, 90.0));
+        assert_eq!(display_rect(base, None), base);
+        let z = display_rect(base, Some((0.5, 0.5)));
+        assert_eq!(z.size(), base.size() * 2.0);
+        assert_eq!(z.center(), base.center());
+        // Un coin : le zoom reste collé au bord, sans laisser de vide.
+        let z = display_rect(base, Some((0.0, 1.0)));
+        assert_eq!(z.left(), base.left());
+        assert_eq!(z.bottom(), base.bottom());
+        let f = fit_rect(
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 1000.0)),
+            16.0 / 9.0,
+        );
+        assert_eq!(f.width(), 1000.0);
+        assert!((f.height() - 562.5).abs() < 0.01);
     }
 
     #[test]

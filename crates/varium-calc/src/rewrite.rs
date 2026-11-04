@@ -100,6 +100,46 @@ pub fn shift_formula(input: &str, drow: i32, dcol: i32) -> String {
     })
 }
 
+/// Formule déplacée de `from` à `to` par un collage transposé : les décalages
+/// relatifs (lignes et colonnes) sont échangés, comme dans Excel. Les parties
+/// absolues (`$`) ne bougent pas ; une référence à moitié absolue est
+/// simplement décalée.
+pub(crate) fn transpose_formula(
+    input: &str,
+    from: crate::refs::CellRef,
+    to: crate::refs::CellRef,
+) -> String {
+    if !input.starts_with('=') {
+        return input.to_string();
+    }
+    let dr = i64::from(to.row) - i64::from(from.row);
+    let dc = i64::from(to.col) - i64::from(from.col);
+    let map = |a: Addr| -> Option<Addr> {
+        if a.abs_row || a.abs_col {
+            return shift_addr(a, dr, dc);
+        }
+        let row = i64::from(to.row) + i64::from(a.col) - i64::from(from.col);
+        let col = i64::from(to.col) + i64::from(a.row) - i64::from(from.row);
+        if !(0..i64::from(MAX_ROWS)).contains(&row) || !(0..i64::from(MAX_COLS)).contains(&col) {
+            return None;
+        }
+        Some(Addr {
+            row: row as u32,
+            col: col as u32,
+            ..a
+        })
+    };
+    rewrite_refs(input, |r, prefix| {
+        let start = map(r.start);
+        let end = r.end.map(map);
+        Some(match (start, end) {
+            (Some(s), None) => ref_text(prefix, s, None),
+            (Some(s), Some(Some(e))) => ref_text(prefix, s, Some(e)),
+            _ => REF_ERROR.to_string(),
+        })
+    })
+}
+
 /// Insertion ou suppression de lignes ou de colonnes.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Structural {

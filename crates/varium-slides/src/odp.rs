@@ -350,8 +350,28 @@ impl Styles {
     }
 
     /// Style de page : fond et transition.
-    fn page(&mut self, fond: [u8; 3], transition: Transition) -> String {
-        self.style("dp", format!("{fond:?}{transition:?}"), |nom| {
+    fn page(&mut self, fond: [u8; 3], transition: Transition, duree: Option<f32>) -> String {
+        let cle = format!("{fond:?}{transition:?}{duree:?}");
+        self.style("dp", cle, |nom| {
+            // Avance automatique : la page reste affichée `duree` secondes.
+            let auto = match duree {
+                Some(d) => {
+                    let t = (d.max(0.0) * 10.0).round() / 10.0;
+                    let s = t % 60.0;
+                    let m = (t / 60.0).floor() as u64;
+                    format!(
+                        " presentation:transition-type=\"automatic\" presentation:duration=\"PT{:02}H{:02}M{}S\"",
+                        m / 60,
+                        m % 60,
+                        if s.fract() == 0.0 {
+                            format!("{:02}", s as u64)
+                        } else {
+                            format!("{s:04.1}")
+                        }
+                    )
+                }
+                None => String::new(),
+            };
             let effet = match transition {
                 Transition::Aucune => "",
                 Transition::Fondu => {
@@ -365,7 +385,7 @@ impl Styles {
                 }
             };
             format!(
-                "<style:style style:name=\"{nom}\" style:family=\"drawing-page\"><style:drawing-page-properties draw:background-size=\"full\" draw:fill=\"solid\" draw:fill-color=\"{}\" presentation:background-visible=\"true\" presentation:background-objects-visible=\"true\" presentation:display-footer=\"false\" presentation:display-page-number=\"false\" presentation:display-date-time=\"false\"{effet}/></style:style>",
+                "<style:style style:name=\"{nom}\" style:family=\"drawing-page\"><style:drawing-page-properties draw:background-size=\"full\" draw:fill=\"solid\" draw:fill-color=\"{}\" presentation:background-visible=\"true\" presentation:background-objects-visible=\"true\" presentation:display-footer=\"false\" presentation:display-page-number=\"false\" presentation:display-date-time=\"false\"{effet}{auto}/></style:style>",
                 hex_color(fond)
             )
         })
@@ -807,7 +827,7 @@ fn page_xml(
     let pal = r.palette;
     let b = &r.boxes;
     let mut out = String::new();
-    let dp = styles.page(pal.background, s.transition);
+    let dp = styles.page(pal.background, s.transition, deck.auto_advance_after(i));
     let _ = write!(
         out,
         "<draw:page draw:name=\"page{}\" draw:style-name=\"{dp}\" draw:master-page-name=\"Varium\">",
