@@ -17,6 +17,7 @@ pub mod calc;
 pub mod check;
 pub mod collage;
 pub mod conditions;
+pub mod detection;
 pub mod diff;
 pub mod doc;
 pub mod docx;

@@ -83,9 +83,11 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Documents : historique des versions avec différences, mode concentration et objectif de mots, lisibilité par langue, collage intelligent (HTML, Markdown, tableaux), liens `[texte](url)`, codes QR `{{qr:…}}`, remplir comme un formulaire, correction automatique — version 0.6.0
 - [x] Présentation : Embellir et Harmoniser, mode plan, présentation depuis un texte ou un e-mail, répétition minutée et avance automatique, pointeur laser, stylo, zoom, grille, polycopiés PDF et export PNG — version 0.6.0
 - [ ] Modèles intelligents qui posent les questions puis remplissent le document
-- [ ] Détection automatique des champs dans un document existant (dates, montants, noms répétés)
+- [x] Détection automatique des champs dans un document existant (dates, montants, e-mails, téléphones, noms répétés ; `detection.rs`, Outils → Détecter les champs…) — « Détecter les champs »
 - [ ] Classeur : tableau croisé dynamique en glisser-déposer ; « Poser une question » en langage simple sur les données
 - [ ] Signature manuscrite dessinée à la souris ; lecture à voix haute (synthèse vocale du système)
 - [ ] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation
 - [ ] Thèmes d'interface (sépia, contraste élevé) et zoom de l'interface
 - [ ] Ouvrir .docx/.odt dans Documents (le glisser-déposer l'annonce déjà)
+- [ ] Idée : « Découper en modèle » — à partir d'un document détecté, enregistrer le modèle (champs vides + questions) dans la galerie de modèles, et proposer d'en refaire un nouveau en répondant aux questions
+- [ ] Idée : détection des champs à la volée — un petit badge « 3 champs possibles » dans la barre d'état quand on colle un document contenant dates et montants

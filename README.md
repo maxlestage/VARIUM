@@ -106,6 +106,11 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
 - **Remplir comme un formulaire** (Outils) : les champs du document deviennent des
   questions (libellés lisibles, calendrier pour les dates, listes de choix tirées des
   `{{si champ = valeur}}`, cases à cocher), avec validation et l'aperçu de la page à côté.
+- **Détecter les champs** (Outils, Ctrl+K) : dans un document déjà écrit, Varium repère
+  les dates, montants (`1 250,50 €`), adresses e-mail, numéros de téléphone et noms qui
+  reviennent, et propose d'en faire des `{{champs}}` en un clic (noms modifiables, cases à
+  cocher). Chaque champ garde la valeur d'origine : le document ne change pas, mais il
+  devient un modèle réutilisable (publipostage compris). Annulable avec Ctrl+Z.
 - **Typographie française automatique** : « guillemets », apostrophe ’, …, espaces fines
   avant ; : ! ? (désactivable dans Document).
 - **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur) : polices Times/Helvetica, texte justifié, titres, listes, tableaux coupés entre pages, en-tête, pied de page et « Page X sur N », et un plan de signets (un par titre) dans le lecteur PDF, et des liens cliquables (adresses `http`, `https`, `mailto`). Les caractères hors latin-1/WinAnsi (formules exotiques, émojis) sont remplacés par `?` ; l'incorporation des polices est prévue.

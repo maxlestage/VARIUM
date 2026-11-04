@@ -21,6 +21,8 @@ use crate::secours;
 use crate::templates;
 
 // Outils d'écriture du module Documents (sous-modules de `app`, fichiers voisins).
+#[path = "doc_detection.rs"]
+mod detection;
 #[path = "doc_ecriture.rs"]
 mod ecriture;
 #[path = "doc_formulaire.rs"]
@@ -95,6 +97,8 @@ pub enum Act {
     InsertQr,
     /// « Remplir comme un formulaire ».
     FillForm,
+    /// « Détecter les champs… » dans un document déjà écrit.
+    DetectFields,
     ToggleAutocorrect,
     /// Défilement « machine à écrire » du mode concentration.
     ToggleTypewriter,
@@ -280,6 +284,8 @@ enum Dialog {
     /// « Marquer cette version… » (nom en cours).
     Marquer(String),
     Qr(formulaire::QrSaisie),
+    /// « Détecter les champs… » (propositions cochées).
+    Detection(detection::DetectionSaisie),
     /// Modifications non enregistrées : que faire avant de continuer ?
     Confirm(Pending),
     /// Une sauvegarde de secours existe (arrêt brutal ?) : la restaurer ?
@@ -1000,6 +1006,11 @@ impl VariumApp {
             Act::Goal => self.ouvrir_objectif(),
             Act::PastePlain => self.coller_brut(ctx),
             Act::InsertQr => self.dialog = Some(Dialog::Qr(formulaire::QrSaisie::default())),
+            Act::DetectFields => {
+                self.dialog = Some(Dialog::Detection(detection::DetectionSaisie::analyser(
+                    &self.source,
+                )));
+            }
             Act::FillForm => {
                 self.outils.formulaire = !self.outils.formulaire;
                 if self.outils.formulaire {
@@ -1416,6 +1427,7 @@ impl VariumApp {
                 self.outils.formulaire,
                 Act::FillForm,
             );
+            self.item(ui, tr("Détecter les champs…"), Act::DetectFields);
             self.item(ui, tr("Publipostage…"), Act::Merge);
             ui.separator();
             self.check(
@@ -3313,6 +3325,7 @@ impl VariumApp {
                 Dialog::Objectif(saisie) => keep = self.objectif_dialogue(ui, saisie),
                 Dialog::Marquer(nom) => keep = self.marquer_dialogue(ui, nom),
                 Dialog::Qr(saisie) => keep = self.qr_dialogue(ui, saisie),
+                Dialog::Detection(saisie) => keep = self.detection_dialogue(ui, saisie),
                 Dialog::About => {
                     ui.heading("Varium");
                     ui.label(RichText::new(tr("Un document. Toutes ses possibilités.")).italics());
@@ -4530,6 +4543,7 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             ),
             &b.item(tr("Objectif de mots…"), Act::Goal, None),
             &b.item(tr("Remplir comme un formulaire"), Act::FillForm, None),
+            &b.item(tr("Détecter les champs…"), Act::DetectFields, None),
             &b.item(
                 tr("Correction automatique pendant la frappe"),
                 Act::ToggleAutocorrect,
@@ -4574,7 +4588,7 @@ impl VariumApp {
         let format = n_("Format");
         let affichage = n_("Affichage");
         let aide = n_("Aide");
-        let list: [(Act, &'static str, &'static str); 67] = [
+        let list: [(Act, &'static str, &'static str); 68] = [
             (Act::New, n_("Nouveau document"), fichier),
             (Act::Templates, n_("Nouveau à partir d'un modèle…"), fichier),
             (Act::Open, n_("Ouvrir…"), fichier),
@@ -4668,6 +4682,7 @@ impl VariumApp {
                 affichage,
             ),
             (Act::Goal, n_("Objectif de mots…"), affichage),
+            (Act::DetectFields, n_("Détecter les champs…"), n_("Outils")),
             (
                 Act::FillForm,
                 n_("Remplir comme un formulaire"),

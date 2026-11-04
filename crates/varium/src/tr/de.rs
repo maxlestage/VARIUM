@@ -423,6 +423,7 @@ pub static T: &[(&str, &str)] = &[
         "Créer les {n} documents dans un seul fichier, une page par destinataire :",
         "Die {n} Dokumente in einer einzigen Datei erstellen, eine Seite pro Empfänger:",
     ),
+    ("Créer {n} champ(s)", "{n} Feld(er) erstellen"),
     ("Ctrl+D", "Strg+D"),
     (
         "Ctrl+K ouvre la palette de commandes : tapez quelques lettres pour retrouver n'importe quelle action.",
@@ -533,6 +534,8 @@ pub static T: &[(&str, &str)] = &[
         "Déposez une image (PNG, JPEG) ou une présentation (ODP, PPTX)",
         "Legen Sie ein Bild (PNG, JPEG) oder eine Präsentation (ODP, PPTX) hier ab",
     ),
+    ("Détecter les champs", "Felder erkennen"),
+    ("Détecter les champs…", "Felder erkennen…"),
     ("E-mail", "E-Mail"),
     ("Effacer", "Löschen"),
     ("Effacer l'encre", "Freihandzeichnung löschen"),
@@ -986,6 +989,7 @@ pub static T: &[(&str, &str)] = &[
         "Ne plus signaler ce mot dans ce document",
         "Dieses Wort in diesem Dokument nicht mehr melden",
     ),
+    ("Nom", "Name"),
     (
         "Nom invalide (lettres, chiffres, _ . -)",
         "Ungültiger Name (Buchstaben, Ziffern, _ . -)",
@@ -1250,6 +1254,10 @@ pub static T: &[(&str, &str)] = &[
         "Zur gewohnten Ansicht zurück",
     ),
     ("Rien", "Nichts"),
+    (
+        "Rien à proposer : ni date, ni montant, ni e-mail, ni téléphone, ni nom répété.",
+        "Nichts vorzuschlagen: weder Datum noch Betrag, E-Mail, Telefonnummer oder wiederholter Name.",
+    ),
     ("Rose", "Rosa"),
     ("Règles…", "Regeln…"),
     ("Récemment utilisées", "Zuletzt verwendet"),
@@ -1456,6 +1464,7 @@ pub static T: &[(&str, &str)] = &[
         "Herunterladen {step}/{steps}: {file} ({v})",
     ),
     ("Téléchargement…", "Wird heruntergeladen…"),
+    ("Téléphone", "Telefon"),
     (
         "Un code QR qu'on lit avec l'appareil photo d'un téléphone : adresse d'un site, texte, numéro… Il s'imprime dans tous les exports (PDF, Word, LibreOffice, page web).",
         "Ein QR-Code, den man mit der Handykamera liest: Webadresse, Text, Nummer… Er erscheint in jedem Export (PDF, Word, LibreOffice, Webseite).",
@@ -1500,6 +1509,10 @@ pub static T: &[(&str, &str)] = &[
     ("Valider et aller à droite", "Bestätigen und nach rechts"),
     ("Valider et descendre", "Bestätigen und nach unten"),
     ("Varium / texte", "Varium / Text"),
+    (
+        "Varium a repéré des valeurs qui peuvent devenir des champs {{…}} : on les remplit ensuite une seule fois, ou depuis un tableur, pour tous les documents du même type.",
+        "Varium hat Werte gefunden, die zu {{…}}-Feldern werden können: Sie werden danach nur einmal oder aus einer Tabelle für alle gleichartigen Dokumente ausgefüllt.",
+    ),
     (
         "Varium s'est arrêté sans que « {title} » soit enregistré. Une sauvegarde automatique plus récente existe.",
         "Varium wurde beendet, ohne dass „{title}“ gespeichert wurde. Eine neuere automatische Sicherung ist vorhanden.",
@@ -1930,6 +1943,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("{n} / {total} renseignés", "{n} / {total} ausgefüllt"),
     (
+        "{n} champ(s) créé(s) · Ctrl+Z pour annuler",
+        "{n} Feld(er) erstellt · Strg+Z zum Rückgängigmachen",
+    ),
+    (
         "{n} champ(s) du document rempli(s) depuis le classeur",
         "{n} Dokumentfeld(er) aus der Tabelle ausgefüllt",
     ),
@@ -2118,6 +2135,7 @@ pub static T: &[(&str, &str)] = &[
     ("Édition", "Bearbeiten"),
     ("Élégant", "Elegant"),
     ("Étendre la sélection", "Auswahl erweitern"),
+    ("× {n}", "× {n}"),
     (
         "écriture impossible sur le disque",
         "Schreiben auf die Festplatte nicht möglich",
