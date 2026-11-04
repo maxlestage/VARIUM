@@ -29,6 +29,9 @@ arboard = { version = "3.7", default-features = false }
 # Barre de menus native de macOS (en haut de l'écran), comme Pages.
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.17", default-features = false }
+# Fichiers ouverts depuis le Finder (événement Apple « open documents ») ; même
+# version que celle de muda.
+objc2 = "0.6"
 
 # Langue du système, pour l'interface (sous Linux : LC_ALL, LC_MESSAGES, LANG).
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]

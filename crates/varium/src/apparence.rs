@@ -1,5 +1,7 @@
 //! Apparence de l'interface : thème (automatique, clair, sombre, sépia, contraste élevé)
-//! et zoom de l'interface. Le choix est mémorisé et s'applique à toute la suite.
+//! et zoom de l'interface. Le choix est mémorisé et s'applique à toute la suite, ou
+//! à chaque module s'il a son propre thème ; « Apparence selon l'heure » passe
+//! automatiquement en sépia ou en sombre le soir (heures réglables).
 
 use egui::{Color32, Context, Stroke, Theme, ThemePreference, Visuals};
 
@@ -10,6 +12,97 @@ pub const ZOOM_KEY: &str = "varium_zoom_interface";
 pub const ZOOM_MIN: f32 = 0.8;
 pub const ZOOM_MAX: f32 = 2.0;
 pub const ZOOM_PAS: f32 = 0.1;
+/// Réglages du soir (`Soir`, en JSON).
+pub const SOIR_KEY: &str = "varium_apparence_soir";
+/// Thème de chaque module (codes, vide : celui de la suite).
+pub const MODULES_KEY: &str = "varium_apparence_modules";
+
+/// « Apparence selon l'heure » : le thème du soir et ses heures.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Soir {
+    pub actif: bool,
+    /// Heure de début (0 à 23), incluse.
+    pub debut: u8,
+    /// Heure de fin (0 à 23), exclue ; plus petite que le début : le lendemain.
+    pub fin: u8,
+    /// Sépia ou sombre (code de l'apparence).
+    pub theme: SoirTheme,
+}
+
+/// Le thème du soir.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum SoirTheme {
+    #[default]
+    Sepia,
+    Sombre,
+}
+
+impl SoirTheme {
+    pub fn apparence(self) -> Apparence {
+        match self {
+            SoirTheme::Sepia => Apparence::Sepia,
+            SoirTheme::Sombre => Apparence::Sombre,
+        }
+    }
+}
+
+impl Default for Soir {
+    fn default() -> Self {
+        Soir {
+            actif: false,
+            debut: 20,
+            fin: 7,
+            theme: SoirTheme::Sepia,
+        }
+    }
+}
+
+impl Soir {
+    /// L'heure `h` (0 à 23) est-elle dans la plage du soir ? La plage peut passer
+    /// minuit (20 h → 7 h) ; début = fin : jamais.
+    pub fn contient(&self, h: u8) -> bool {
+        let (d, f, h) = (self.debut % 24, self.fin % 24, h % 24);
+        if d == f {
+            false
+        } else if d < f {
+            (d..f).contains(&h)
+        } else {
+            h >= d || h < f
+        }
+    }
+
+    /// Le thème à appliquer à l'heure `h` à la place de `base`.
+    pub fn effective(&self, base: Apparence, h: u8) -> Apparence {
+        // Le contraste élevé est un besoin d'accessibilité : jamais remplacé.
+        if self.actif && base != Apparence::Contraste && self.contient(h) {
+            self.theme.apparence()
+        } else {
+            base
+        }
+    }
+}
+
+/// L'heure locale (0 à 23).
+pub fn heure_locale() -> u8 {
+    jiff::Zoned::now().hour().clamp(0, 23) as u8
+}
+
+/// Les thèmes par module relus : un code par module, inconnu ou vide = aucun.
+pub fn modules_depuis(codes: &[String]) -> [Option<Apparence>; 3] {
+    let mut out = [None; 3];
+    for (o, c) in out.iter_mut().zip(codes) {
+        *o = Apparence::depuis_code(c);
+    }
+    out
+}
+
+/// Les thèmes par module à enregistrer.
+pub fn modules_codes(m: &[Option<Apparence>; 3]) -> Vec<String> {
+    m.iter()
+        .map(|a| a.map_or(String::new(), |a| a.code().to_string()))
+        .collect()
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Apparence {
@@ -178,6 +271,56 @@ mod tests {
             assert_eq!(Apparence::depuis_code(a.code()), Some(a));
         }
         assert_eq!(Apparence::depuis_code("inconnu"), None);
+    }
+
+    #[test]
+    fn le_soir_selon_l_heure() {
+        let s = Soir {
+            actif: true,
+            ..Soir::default()
+        };
+        assert!(s.contient(20) && s.contient(23) && s.contient(0) && s.contient(6));
+        assert!(!s.contient(7) && !s.contient(12) && !s.contient(19));
+        assert_eq!(s.effective(Apparence::Clair, 22), Apparence::Sepia);
+        assert_eq!(s.effective(Apparence::Clair, 12), Apparence::Clair);
+        assert_eq!(s.effective(Apparence::Contraste, 22), Apparence::Contraste);
+        let jour = Soir {
+            actif: true,
+            debut: 9,
+            fin: 17,
+            theme: SoirTheme::Sombre,
+        };
+        assert!(jour.contient(9) && !jour.contient(17) && !jour.contient(3));
+        assert_eq!(
+            jour.effective(Apparence::Automatique, 10),
+            Apparence::Sombre
+        );
+        let vide = Soir {
+            actif: true,
+            debut: 5,
+            fin: 5,
+            ..Soir::default()
+        };
+        assert!((0..24).all(|h| !vide.contient(h)));
+        let inactif = Soir::default();
+        assert_eq!(inactif.effective(Apparence::Clair, 22), Apparence::Clair);
+        // Valeurs hors bornes (fichier modifié à la main) : pas de panique.
+        let fou = Soir {
+            actif: true,
+            debut: 200,
+            fin: 255,
+            ..Soir::default()
+        };
+        assert!((0..=255).filter(|&h| fou.contient(h)).count() <= 256);
+        assert!(heure_locale() < 24);
+    }
+
+    #[test]
+    fn themes_par_module() {
+        let m = [Some(Apparence::Sombre), None, Some(Apparence::Sepia)];
+        assert_eq!(modules_depuis(&modules_codes(&m)), m);
+        assert_eq!(modules_depuis(&["inconnu".into()]), [None; 3]);
+        assert_eq!(modules_depuis(&[]), [None; 3]);
     }
 
     #[test]

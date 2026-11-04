@@ -3896,7 +3896,7 @@ dependencies = [
 
 [[package]]
 name = "varium"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "arboard",
  "eframe",
@@ -3907,6 +3907,7 @@ dependencies = [
  "jiff",
  "log",
  "muda",
+ "objc2 0.6.5",
  "rfd",
  "serde",
  "spellbook",
@@ -3919,7 +3920,7 @@ dependencies = [
 
 [[package]]
 name = "varium-calc"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "quick-xml 0.42.0",
  "serde",
@@ -3929,16 +3930,17 @@ dependencies = [
 
 [[package]]
 name = "varium-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "miniz_oxide 0.8.9",
+ "quick-xml 0.42.0",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "varium-slides"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ab_glyph",
  "image",

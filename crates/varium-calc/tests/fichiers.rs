@@ -50,6 +50,7 @@ fn classeur_piege() -> Workbook {
             color: Some([10, 20, 30]),
             align: Some(varium_calc::HAlign::Center),
             number: NumberFormat::Text,
+            wrap: true,
         },
     );
     wb.set_format(

@@ -132,6 +132,62 @@ pub const TEXTES: Textes = Textes {
             titre: "Eine echte Mac-App",
             texte: "Menüs in der Menüleiste, ⌘-Kurzbefehle, eigenes Symbol, Vollbild und Fokusmodus; auch für Windows und Linux.",
         },
+        Item {
+            titre: "Befehlspalette ⌘K",
+            texte: "Strg+K oder ⌘K: ein paar Buchstaben tippen und jeden Befehl der drei Module starten; F1 zeigt die Übersicht der Tastenkürzel.",
+        },
+        Item {
+            titre: "Startcenter",
+            texte: "Vorlagen, zuletzt verwendete Dateien und Tipps gleich beim Öffnen; eine hineingezogene oder im Finder bzw. Explorer doppelt angeklickte Datei landet im richtigen Modul.",
+        },
+        Item {
+            titre: "Blitzvorschau",
+            texte: "Strg+E im Classeur: Varium errät den Rest der Spalte aus einem Beispiel, mit Autovervollständigung, intelligentem Einfügen und Schnellanalyse.",
+        },
+        Item {
+            titre: "Pivot-Tabelle",
+            texte: "Spalten in Zeilen, Spalten und Werte ziehen: Summen, Mittelwerte und Anzahlen pro Gruppe im Handumdrehen.",
+        },
+        Item {
+            titre: "Versionsverlauf",
+            texte: "Jedes Speichern bewahrt eine Version des Dokuments; vergleichen Sie sie mit hervorgehobenen Unterschieden und gehen Sie mit einem Klick zurück.",
+        },
+        Item {
+            titre: "QR-Codes",
+            texte: "Ein QR-Code in einem Dokument oder auf einer Folie, und eine Folie „Teilen“ mit der Adresse der Präsentation.",
+        },
+        Item {
+            titre: "Verschönern und Vereinheitlichen",
+            texte: "Layouts, die zum Inhalt der Folie passen, dann die ganze Präsentation aus einem Guss, mit zehn Designs.",
+        },
+        Item {
+            titre: "Referentenansicht",
+            texte: "Das Publikum auf dem Beamer, für Sie Notizen, nächste Folie, Stoppuhr, Laserpointer, Stift und Zoom.",
+        },
+        Item {
+            titre: "Kioskmodus und Fotoalbum",
+            texte: "Eine Endlos-Präsentation ohne Bedienelemente, die nach Inaktivität zum Anfang zurückkehrt; ein Album aus einem Bilderordner, nach Datum sortiert.",
+        },
+        Item {
+            titre: "Import aus Word, LibreOffice und PowerPoint",
+            texte: "Öffnen Sie .docx- und .odt-Dateien in Documents und .pptx-Präsentationen mit Designfarben, Verläufen, Drehungen und Tabellen.",
+        },
+        Item {
+            titre: "Kommentare und Änderungsverfolgung",
+            texte: "Kommentieren Sie eine Auswahl, schlagen Sie Einfügungen und Löschungen vor und nehmen Sie jede Änderung an oder lehnen Sie sie ab.",
+        },
+        Item {
+            titre: "Fußnoten",
+            texte: "Echte Fußnoten unten auf der Seite, automatisch nummeriert, in der Vorschau wie im PDF.",
+        },
+        Item {
+            titre: "Handschriftliche Unterschrift",
+            texte: "Mit Maus oder Trackpad unterschreiben, und die Unterschrift wird ins Dokument gesetzt.",
+        },
+        Item {
+            titre: "Vorlesen",
+            texte: "Das Dokument wird von der Sprachausgabe des Systems in seiner Sprache vorgelesen, zum Korrekturhören.",
+        },
     ],
     etapes_titre: "So funktioniert's",
     etapes: [

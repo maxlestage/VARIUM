@@ -124,9 +124,47 @@ struct Styles {
     xml: String,
     noms: HashMap<String, String>,
     compte: HashMap<&'static str, usize>,
+    /// Dégradés nommés (`draw:gradient`), écrits dans `styles.xml`.
+    degrades: String,
+    noms_degrades: HashMap<String, String>,
 }
 
 impl Styles {
+    /// Nom du dégradé `g` (déclaré une seule fois dans `office:styles`).
+    fn degrade(&mut self, g: &crate::Gradient) -> String {
+        let (debut, fin) = match (g.stops.first(), g.stops.last()) {
+            (Some(a), Some(b)) => (a.color, b.color),
+            _ => ([0, 0, 0], [0, 0, 0]),
+        };
+        let xml_style = if g.radial {
+            // ODF : la couleur de départ est au bord, celle d'arrivée au centre.
+            format!(
+                "draw:style=\"ellipsoid\" draw:cx=\"50%\" draw:cy=\"50%\" draw:start-color=\"{}\" draw:end-color=\"{}\"",
+                hex_color(fin),
+                hex_color(debut)
+            )
+        } else {
+            // ODF : angle 0 de haut en bas, compté dans le sens inverse des aiguilles.
+            let a = ((90.0 - g.angle).rem_euclid(360.0) * 10.0).round() as i32 % 3600;
+            format!(
+                "draw:style=\"linear\" draw:angle=\"{a}\" draw:start-color=\"{}\" draw:end-color=\"{}\"",
+                hex_color(debut),
+                hex_color(fin)
+            )
+        };
+        if let Some(n) = self.noms_degrades.get(&xml_style) {
+            return n.clone();
+        }
+        let k = self.noms_degrades.len() + 1;
+        let nom = format!("Varium_20_degrade_20_{k}");
+        let _ = write!(
+            self.degrades,
+            "<draw:gradient draw:name=\"{nom}\" draw:display-name=\"Varium degrade {k}\" {xml_style} draw:start-intensity=\"100%\" draw:end-intensity=\"100%\" draw:border=\"0%\"/>"
+        );
+        self.noms_degrades.insert(xml_style, nom.clone());
+        nom
+    }
+
     fn style(
         &mut self,
         prefixe: &'static str,
@@ -303,10 +341,22 @@ impl Styles {
         let trait_ = o.stroke.filter(|_| o.stroke_width > 0.0);
         let fleche = o.kind == ObjectKind::Arrow;
         let largeur = o.stroke_width * pw / 720.0;
-        let cle = format!("{fond:?}{trait_:?}{largeur}{fleche}");
+        let degrade = o
+            .gradient
+            .as_ref()
+            .filter(|_| o.kind.is_closed())
+            .map(|g| self.degrade(g));
+        let cle = format!("{fond:?}{trait_:?}{largeur}{fleche}{degrade:?}");
         self.style("gf", cle, |nom| {
             let mut p = String::new();
             match fond {
+                _ if degrade.is_some() => {
+                    let _ = write!(
+                        p,
+                        " draw:fill=\"gradient\" draw:fill-gradient-name=\"{}\"",
+                        degrade.as_deref().unwrap_or_default()
+                    );
+                }
                 Some(c) => {
                     let _ = write!(
                         p,
@@ -692,6 +742,29 @@ fn geometrie(f: Frame, pw: f32, ph: f32) -> String {
     )
 }
 
+/// Géométrie d'un objet tourné de `rotation` degrés (sens des aiguilles d'une
+/// montre) autour de son centre : taille, puis `draw:transform` (ODF : rotation
+/// autour de l'origine, comptée dans le sens inverse, puis translation).
+fn geometrie_tournee(f: Frame, rotation: f32, pw: f32, ph: f32) -> String {
+    if rotation == 0.0 {
+        return geometrie(f, pw, ph);
+    }
+    let (x, y, w, h) = f.scaled(pw, ph);
+    let (s, c) = rotation.to_radians().sin_cos();
+    // Le centre du cadre reste en place : T = centre − R·(w/2, h/2).
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    let tx = cx - (c * w / 2.0 - s * h / 2.0);
+    let ty = cy - (s * w / 2.0 + c * h / 2.0);
+    let r = -rotation.to_radians();
+    format!(
+        "svg:width=\"{}\" svg:height=\"{}\" draw:transform=\"rotate ({r:.6}) translate ({} {})\"",
+        cm(w),
+        cm(h),
+        cm(tx),
+        cm(ty)
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cadre(
     out: &mut String,
@@ -729,6 +802,7 @@ fn objet_xml(
     out: &mut String,
     o: &Object,
     texte: &[Para],
+    qr: Option<&varium_core::qr::QrCode>,
     pal: Palette,
     styles: &mut Styles,
     deck: &Deck,
@@ -745,15 +819,58 @@ fn objet_xml(
             let _ = write!(
                 out,
                 "<draw:frame draw:style-name=\"{st}\" draw:layer=\"layout\" {}><draw:image xlink:href=\"Pictures/{}.{}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\" draw:mime-type=\"{}\"><text:p/></draw:image></draw:frame>",
-                geometrie(f, pw, ph),
+                geometrie_tournee(f, o.rotation, pw, ph),
                 o.media,
                 m.extension(),
                 m.mime
             );
         }
+        ObjectKind::Qr => {
+            let Some(q) = qr else {
+                return;
+            };
+            let blanc = Object {
+                kind: ObjectKind::Rect,
+                fill: Some([255, 255, 255]),
+                stroke: None,
+                ..o.clone()
+            };
+            let st = styles.forme(&blanc, pw);
+            let _ = write!(
+                out,
+                "<draw:custom-shape draw:style-name=\"{st}\" draw:layer=\"layout\" {}><draw:enhanced-geometry svg:viewBox=\"0 0 21600 21600\" draw:type=\"rectangle\" draw:enhanced-path=\"M 0 0 L 21600 0 21600 21600 0 21600 0 0 Z N\"/></draw:custom-shape>",
+                geometrie_tournee(f, o.rotation, pw, ph)
+            );
+            let encre = Object {
+                kind: ObjectKind::Rect,
+                fill: Some(o.qr_ink()),
+                stroke: None,
+                ..o.clone()
+            };
+            let st = styles.forme(&encre, pw);
+            let marge = Object::QR_MARGIN;
+            let n = q.size() + 2 * marge;
+            let mut d = String::new();
+            for (x, y, l) in q.segments() {
+                let _ = write!(d, "M{} {}h{l}v1h-{l}z", x + marge, y + marge);
+            }
+            let _ = write!(
+                out,
+                "<draw:path draw:style-name=\"{st}\" draw:layer=\"layout\" {} svg:viewBox=\"0 0 {n} {n}\" svg:d=\"{d}\"><text:p/></draw:path>",
+                geometrie_tournee(f, o.rotation, pw, ph)
+            );
+        }
         ObjectKind::Line | ObjectKind::Arrow => {
             let st = styles.forme(o, pw);
             let ((x1, y1), (x2, y2)) = o.line_points();
+            // Une ligne tournée : ses extrémités tournent autour du centre du cadre.
+            let ratio = pw / ph;
+            let (cx, cy) = o.frame.center();
+            let tourne = |x: f32, y: f32| {
+                let p = crate::objets::rotate_point((x * ratio, y), (cx * ratio, cy), o.rotation);
+                (p.0 / ratio, p.1)
+            };
+            let ((x1, y1), (x2, y2)) = (tourne(x1, y1), tourne(x2, y2));
             let _ = write!(
                 out,
                 "<draw:line draw:style-name=\"{st}\" draw:layer=\"layout\" svg:x1=\"{}\" svg:y1=\"{}\" svg:x2=\"{}\" svg:y2=\"{}\"><text:p/></draw:line>",
@@ -805,7 +922,7 @@ fn objet_xml(
             let _ = write!(
                 out,
                 "<draw:custom-shape draw:style-name=\"{st}\" draw:layer=\"layout\" {}>{contenu}<draw:enhanced-geometry svg:viewBox=\"0 0 21600 21600\" {geometrie_forme}>{formules}</draw:enhanced-geometry></draw:custom-shape>",
-                geometrie(f, pw, ph)
+                geometrie_tournee(f, o.rotation, pw, ph)
             );
         }
     }
@@ -933,8 +1050,8 @@ fn page_xml(
             cadre(&mut out, styles, None, f, b.body_anchor, &contenu, pw, ph);
         }
     }
-    for (o, texte) in s.objects.iter().zip(&r.objets) {
-        objet_xml(&mut out, o, texte, pal, styles, deck, pw, ph);
+    for ((o, texte), qr) in s.objects.iter().zip(&r.objets).zip(&r.qrs) {
+        objet_xml(&mut out, o, texte, qr.as_ref(), pal, styles, deck, pw, ph);
     }
     let pied = Habillage {
         taille: FOOTER_SIZE * ph,
@@ -1037,7 +1154,8 @@ pub(crate) fn odp(deck: &Deck) -> Vec<u8> {
     );
     let fond = deck.theme.palette().background;
     let styles_xml = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles {NS}>{POLICES}<office:styles><draw:marker draw:name=\"Varium_20_fleche\" draw:display-name=\"Varium flèche\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0l-10 20h20z\"/><style:default-style style:family=\"graphic\"><style:paragraph-properties fo:text-align=\"start\"/><style:text-properties style:font-name=\"Liberation Sans\" fo:font-size=\"18pt\" fo:language=\"fr\" fo:country=\"FR\"/></style:default-style></office:styles><office:automatic-styles><style:page-layout style:name=\"PM1\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"{}\" fo:page-height=\"{}\" style:print-orientation=\"landscape\"/></style:page-layout><style:page-layout style:name=\"PM2\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"21cm\" fo:page-height=\"29.7cm\" style:print-orientation=\"portrait\"/></style:page-layout><style:style style:name=\"Mdp1\" style:family=\"drawing-page\"><style:drawing-page-properties draw:background-size=\"full\" draw:fill=\"solid\" draw:fill-color=\"{}\"/></style:style><style:style style:name=\"Mdp2\" style:family=\"drawing-page\"><style:drawing-page-properties draw:fill=\"none\"/></style:style></office:automatic-styles><office:master-styles><draw:layer-set><draw:layer draw:name=\"layout\"/><draw:layer draw:name=\"background\"/><draw:layer draw:name=\"backgroundobjects\"/><draw:layer draw:name=\"controls\"/><draw:layer draw:name=\"measurelines\"/></draw:layer-set><style:master-page style:name=\"Varium\" style:page-layout-name=\"PM1\" draw:style-name=\"Mdp1\"><presentation:notes style:page-layout-name=\"PM2\" draw:style-name=\"Mdp2\"/></style:master-page></office:master-styles></office:document-styles>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles {NS}>{POLICES}<office:styles>{}<draw:marker draw:name=\"Varium_20_fleche\" draw:display-name=\"Varium flèche\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0l-10 20h20z\"/><style:default-style style:family=\"graphic\"><style:paragraph-properties fo:text-align=\"start\"/><style:text-properties style:font-name=\"Liberation Sans\" fo:font-size=\"18pt\" fo:language=\"fr\" fo:country=\"FR\"/></style:default-style></office:styles><office:automatic-styles><style:page-layout style:name=\"PM1\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"{}\" fo:page-height=\"{}\" style:print-orientation=\"landscape\"/></style:page-layout><style:page-layout style:name=\"PM2\"><style:page-layout-properties fo:margin-top=\"0cm\" fo:margin-bottom=\"0cm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:page-width=\"21cm\" fo:page-height=\"29.7cm\" style:print-orientation=\"portrait\"/></style:page-layout><style:style style:name=\"Mdp1\" style:family=\"drawing-page\"><style:drawing-page-properties draw:background-size=\"full\" draw:fill=\"solid\" draw:fill-color=\"{}\"/></style:style><style:style style:name=\"Mdp2\" style:family=\"drawing-page\"><style:drawing-page-properties draw:fill=\"none\"/></style:style></office:automatic-styles><office:master-styles><draw:layer-set><draw:layer draw:name=\"layout\"/><draw:layer draw:name=\"background\"/><draw:layer draw:name=\"backgroundobjects\"/><draw:layer draw:name=\"controls\"/><draw:layer draw:name=\"measurelines\"/></draw:layer-set><style:master-page style:name=\"Varium\" style:page-layout-name=\"PM1\" draw:style-name=\"Mdp1\"><presentation:notes style:page-layout-name=\"PM2\" draw:style-name=\"Mdp2\"/></style:master-page></office:master-styles></office:document-styles>",
+        styles.degrades,
         cm(pw),
         cm(ph),
         hex_color(fond)
