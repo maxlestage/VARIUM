@@ -156,6 +156,7 @@ pub static T: &[(&str, &str)] = &[
         "Aperçu : {n} diapositive(s), thème {theme}",
         "Pré-visualização: {n} diapositivo(s), tema {theme}",
     ),
+    ("Apparence", "Aparência"),
     (
         "Après une panne, le document interrompu vous est proposé au lancement suivant.",
         "Após uma falha, o documento interrompido é-lhe proposto no arranque seguinte.",
@@ -378,6 +379,7 @@ pub static T: &[(&str, &str)] = &[
     ("Comparer avec", "Comparar com"),
     ("Condition", "Condição"),
     ("Contenu", "Conteúdo"),
+    ("Contraste élevé", "Alto contraste"),
     ("Contrat", "Contrato"),
     (
         "Contrat de prestation en articles, sur deux pages",
@@ -1368,6 +1370,7 @@ pub static T: &[(&str, &str)] = &[
         "Sélectionnez deux colonnes d'un classeur (noms, valeurs) pour remplir d'un coup les champs du document.",
         "Selecione duas colunas de uma folha de cálculo (nomes, valores) para preencher de uma vez os campos do documento.",
     ),
+    ("Sépia", "Sépia"),
     ("Tab", "Tab"),
     ("Tableau", "Tabela"),
     ("Tableau CSV", "Tabela CSV"),
@@ -1381,6 +1384,8 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Tableau…", "Tabela…"),
     ("Taille", "Tamanho"),
+    ("Taille de l'interface", "Tamanho da interface"),
+    ("Taille normale", "Tamanho normal"),
     (
         "Temps de lecture ({lecture} mots/min) · à voix haute : {parole}",
         "Tempo de leitura ({lecture} palavras/min) · em voz alta: {parole}",
@@ -1416,6 +1421,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Thème", "Tema"),
     ("Thème : {theme}", "Tema: {theme}"),
+    (
+        "Thème et taille de l'interface",
+        "Tema e tamanho da interface",
+    ),
     ("Titre", "Título"),
     ("Titre 1", "Título 1"),
     ("Titre 2", "Título 2"),
