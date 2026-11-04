@@ -111,6 +111,10 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   reviennent, et propose d'en faire des `{{champs}}` en un clic (noms modifiables, cases à
   cocher). Chaque champ garde la valeur d'origine : le document ne change pas, mais il
   devient un modèle réutilisable (publipostage compris). Annulable avec Ctrl+Z.
+- **Apparence et taille de l'interface** (bouton 🎨 en haut à droite, sur les trois modules) :
+  thème automatique (suit le système), clair, sombre, **sépia** (papier chaud, reposant) ou
+  **contraste élevé** (noir et blanc, rapport ≥ 7:1, contours épais), et zoom de 80 à 200 %
+  pour les gros caractères. Le choix est mémorisé.
 - **Typographie française automatique** : « guillemets », apostrophe ’, …, espaces fines
   avant ; : ! ? (désactivable dans Document).
 - **PDF natif** : « Exporter → PDF » écrit directement le fichier (sans navigateur) : polices Times/Helvetica, texte justifié, titres, listes, tableaux coupés entre pages, en-tête, pied de page et « Page X sur N », et un plan de signets (un par titre) dans le lecteur PDF, et des liens cliquables (adresses `http`, `https`, `mailto`). Les caractères hors latin-1/WinAnsi (formules exotiques, émojis) sont remplacés par `?` ; l'incorporation des polices est prévue.

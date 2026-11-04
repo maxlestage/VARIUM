@@ -10,6 +10,7 @@ mod tr;
 
 mod accueil;
 mod app;
+mod apparence;
 mod calc_ui;
 mod conversions;
 mod depot;

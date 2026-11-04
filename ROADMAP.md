@@ -87,7 +87,8 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Classeur : tableau croisé dynamique en glisser-déposer ; « Poser une question » en langage simple sur les données
 - [ ] Signature manuscrite dessinée à la souris ; lecture à voix haute (synthèse vocale du système)
 - [ ] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation
-- [ ] Thèmes d'interface (sépia, contraste élevé) et zoom de l'interface
+- [x] Thèmes d'interface (automatique, clair, sombre, sépia, contraste élevé) et zoom de l'interface (`apparence.rs`, bouton 🎨) — « Apparence de l'interface »
 - [ ] Ouvrir .docx/.odt dans Documents (le glisser-déposer l'annonce déjà)
 - [ ] Idée : « Découper en modèle » — à partir d'un document détecté, enregistrer le modèle (champs vides + questions) dans la galerie de modèles, et proposer d'en refaire un nouveau en répondant aux questions
+- [ ] Idée : « Apparence selon l'heure » — bascule automatique en sépia/sombre le soir, et thème par module mémorisé
 - [ ] Idée : détection des champs à la volée — un petit badge « 3 champs possibles » dans la barre d'état quand on colle un document contenant dates et montants

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::accueil::{self, Accueil, Choix};
 use crate::app::{Act, VariumApp};
+use crate::apparence::{self, Apparence};
 use crate::calc_ui::{CalcAction, CalcApp};
 use crate::conversions;
 use crate::depot::{self, Cible};
@@ -115,6 +116,9 @@ pub struct Suite {
     accueil: Accueil,
     palette: Palette,
     aide: AideMemoire,
+    apparence: Apparence,
+    zoom_interface: f32,
+    apparence_appliquee: Option<(Apparence, f32)>,
     /// Identifiants des commandes récemment lancées depuis la palette.
     palette_recents: Vec<String>,
     /// Fichiers récents des trois modules.
@@ -167,6 +171,16 @@ impl Suite {
             .storage
             .and_then(|s| eframe::get_value::<Vec<String>>(s, PALETTE_KEY))
             .unwrap_or_default();
+        let apparence = cc
+            .storage
+            .and_then(|s| s.get_string(apparence::THEME_KEY))
+            .and_then(|c| Apparence::depuis_code(&c))
+            .unwrap_or_default();
+        let zoom_interface = apparence::zoom_valide(
+            cc.storage
+                .and_then(|s| eframe::get_value::<f32>(s, apparence::ZOOM_KEY))
+                .unwrap_or(1.0),
+        );
         let file_arg = std::env::args_os().nth(1).is_some();
         #[allow(unused_mut)]
         let mut suite = Self {
@@ -180,6 +194,9 @@ impl Suite {
             accueil: Accueil::new(au_demarrage),
             palette: Palette::default(),
             aide: AideMemoire::default(),
+            apparence,
+            zoom_interface,
+            apparence_appliquee: None,
             palette_recents,
             recents,
             seen_paths: [None, None, None],
@@ -900,6 +917,33 @@ impl Suite {
                 })
                 .response
                 .on_hover_text(tr("Langue de l'interface"));
+                ui.menu_button(format!("🎨 {}", self.apparence.nom()), |ui| {
+                    ui.label(RichText::new(tr("Apparence")).strong());
+                    ui.separator();
+                    for a in Apparence::TOUTES {
+                        if ui.radio(self.apparence == a, a.nom()).clicked() {
+                            self.apparence = a;
+                        }
+                    }
+                    ui.separator();
+                    ui.label(RichText::new(tr("Taille de l'interface")).strong());
+                    ui.horizontal(|ui| {
+                        if ui.button("−").clicked() {
+                            self.zoom_interface =
+                                apparence::zoom_valide(self.zoom_interface - apparence::ZOOM_PAS);
+                        }
+                        ui.label(format!("{} %", (self.zoom_interface * 100.0).round()));
+                        if ui.button("+").clicked() {
+                            self.zoom_interface =
+                                apparence::zoom_valide(self.zoom_interface + apparence::ZOOM_PAS);
+                        }
+                        if ui.button(tr("Taille normale")).clicked() {
+                            self.zoom_interface = 1.0;
+                        }
+                    });
+                })
+                .response
+                .on_hover_text(tr("Thème et taille de l'interface"));
                 let k = ctx.format_shortcut(&PALETTE_KEYS[1]);
                 if ui
                     .button(format!("🔍 {}", tr("Commandes")))
@@ -1067,6 +1111,10 @@ impl eframe::App for Suite {
             self.update_native_menu();
             self.native_actions(&ctx);
         }
+        if self.apparence_appliquee != Some((self.apparence, self.zoom_interface)) {
+            apparence::appliquer(&ctx, self.apparence, self.zoom_interface);
+            self.apparence_appliquee = Some((self.apparence, self.zoom_interface));
+        }
         // Langue changée : les titres de fenêtre suivent.
         if self.title_lang != tr::lang() {
             self.title_lang = tr::lang();
@@ -1162,6 +1210,8 @@ impl eframe::App for Suite {
         eframe::set_value(storage, accueil::STORAGE_KEY, &self.accueil.au_demarrage);
         eframe::set_value(storage, RECENTS_KEY, &self.recents);
         eframe::set_value(storage, PALETTE_KEY, &self.palette_recents);
+        storage.set_string(apparence::THEME_KEY, self.apparence.code().to_string());
+        eframe::set_value(storage, apparence::ZOOM_KEY, &self.zoom_interface);
         storage.set_string(tr::STORAGE_KEY, tr::choice_code(tr::choice()).to_string());
     }
 
