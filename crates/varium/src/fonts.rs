@@ -144,3 +144,25 @@ pub fn polices(font: DocFont) -> Arc<varium_core::pdf::PdfFonts> {
 pub fn pdf_fonts(font: DocFont) -> varium_core::pdf::PdfFonts {
     (*polices(font)).clone()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pdf_avec_polices_de_secours() {
+        let f = pdf_fonts(DocFont::Sans);
+        assert!(!f.secours.is_empty(), "polices de secours d'egui");
+        // L'émoji vient d'une police de secours, pas du rectangle `.notdef`.
+        let g = f.glyphe('😀', 0);
+        assert!(g.police >= varium_core::pdf::SECOURS && g.gid != 0);
+        let page = varium_core::PageSetup {
+            font: DocFont::Sans,
+            ..Default::default()
+        };
+        let d = varium_core::export::prepare("Bonjour 😀 *italique*", &Default::default(), &page);
+        let o = varium_core::pdf::pdf("t", &[d], &page, &f);
+        let s = String::from_utf8_lossy(&o);
+        assert!(s.matches("/FontFile2").count() >= 2);
+    }
+}

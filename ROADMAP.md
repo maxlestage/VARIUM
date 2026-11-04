@@ -20,7 +20,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Confirmation avant fermeture / ouverture d'un autre document — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
 - [x] Documents récents — « Fichiers comme Writer : Ctrl+S, Enregistrer sous, récents, confirmation »
 - [x] Sauvegarde de secours automatique sur disque (`.nom.varium-secours` à côté du document, ou dossier de données ; restauration proposée à l'ouverture/au démarrage ; secours.rs) — « Sauvegarde de secours automatique »
-- [ ] Test d'intégration de l'état « modifié » de l'application (logique is_dirty/guard hors egui)
+- [x] Test d'intégration de l'état « modifié » de l'application (logique is_dirty/guard hors egui ; `files.rs` : `Snapshot::differe`, `garder`, `apres_confirmation`)
 - [x] Restaurer le fichier courant au redémarrage (`Prefs::dernier_fichier`, `files::lire_projet` ; Ctrl+S réécrit le même fichier, « modifié » si l'état restauré diffère du disque) — « Restaurer le fichier courant au redémarrage »
 
 ## 3. Distribution
@@ -41,7 +41,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Notes `\note{texte}` numérotées `[n]`, rassemblées en fin de document (champs et gras acceptés ; non fermée = texte) — « Notes numérotées »
 - [x] Vraies notes de bas de page `[^1]`, `^[…]`, `\note{…}` en bas de la page de leur appel (place réservée), `text:note` en ODT, `footnotes.xml` en DOCX, notes de fin en HTML/EPUB — idem
 - [x] Retraits, couleurs/surlignage, interligne et espacements par paragraphe (`{: …}`, `{couleur:…}…{/}`, `==…==`), inspecteur Format → Paragraphe — idem
-- [ ] Import .odt / .docx simples
+- [x] Import .odt / .docx (`import.rs`, `import_odt.rs`, `import_docx.rs`)
 - [x] Détection des doubles espaces / correcteur orthographique
 
 ## 6. Performance : cache de rendu et de pagination pour les longs documents
@@ -59,7 +59,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Ouvrir un document par double-clic dans le Finder (événements Apple « open documents » non transmis par winit)
 - [ ] Barre de titre unifiée façon macOS, à valider sur un vrai Mac
 - [x] Vignettes des pages dans la barre latérale (comme Pages), page courante entourée, clic pour y aller — idem
-- [ ] Commentaires et suivi des modifications
+- [x] Commentaires et suivi des modifications (CriticMarkup, `critic.rs`)
 
 ## 10. Suite bureautique et langues
 - [x] Module Classeur (varium-calc + calc_ui) : formules FR/EN, feuilles, formats, tri, recopie, graphiques, XLSX/ODS/CSV
@@ -83,16 +83,16 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Classeur : remplissage instantané (Ctrl+E), saisie semi-automatique, collage intelligent, analyse rapide, filtres, assistant de formule, formules expliquées en clair — version 0.6.0
 - [x] Documents : historique des versions avec différences, mode concentration et objectif de mots, lisibilité par langue, collage intelligent (HTML, Markdown, tableaux), liens `[texte](url)`, codes QR `{{qr:…}}`, remplir comme un formulaire, correction automatique — version 0.6.0
 - [x] Présentation : Embellir et Harmoniser, mode plan, présentation depuis un texte ou un e-mail, répétition minutée et avance automatique, pointeur laser, stylo, zoom, grille, polycopiés PDF et export PNG — version 0.6.0
-- [ ] Modèles intelligents qui posent les questions puis remplissent le document
+- [x] Modèles intelligents qui posent les questions puis remplissent le document (`modele.rs`, `lettres.rs`)
 - [x] Détection automatique des champs dans un document existant (dates, montants, e-mails, téléphones, noms répétés ; `detection.rs`, Outils → Détecter les champs…) — « Détecter les champs »
 - [x] Classeur : « Poser une question » en langage simple (`question.rs`, Données → Poser une question…, Ctrl+Maj+Q ; total, moyenne, nombre, max, min, médiane, par groupe) — « Poser une question »
 - [ ] Classeur : tableau croisé dynamique en glisser-déposer
 - [x] Signature manuscrite dessinée à la souris (`signature.rs`, Insertion → Signature…) — idem
-- [ ] Lecture à voix haute (synthèse vocale du système)
+- [x] Lecture à voix haute (synthèse vocale du système ; `doc_voix.rs`)
 - [ ] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation
 - [x] Thèmes d'interface (automatique, clair, sombre, sépia, contraste élevé) et zoom de l'interface (`apparence.rs`, bouton 🎨) — « Apparence de l'interface »
-- [ ] Ouvrir .docx/.odt dans Documents (le glisser-déposer l'annonce déjà)
-- [ ] Idée : « Découper en modèle » — à partir d'un document détecté, enregistrer le modèle (champs vides + questions) dans la galerie de modèles, et proposer d'en refaire un nouveau en répondant aux questions
+- [x] Ouvrir .docx/.odt dans Documents
+- [x] « Découper en modèle » — à partir d'un document détecté, enregistrer le modèle (champs vides + questions) dans la galerie de modèles, et proposer d'en refaire un nouveau en répondant aux questions
 - [ ] Idée : « Apparence selon l'heure » — bascule automatique en sépia/sombre le soir, et thème par module mémorisé
-- [ ] Idée : détection des champs à la volée — un petit badge « 3 champs possibles » dans la barre d'état quand on colle un document contenant dates et montants
+- [x] Détection des champs à la volée — un petit badge « 3 champs possibles » dans la barre d'état quand on colle un document contenant dates et montants
 - [ ] Idée : « Poser une question » par période (« total par mois », « par trimestre ») à partir d'une colonne de dates, avec proposition d'un graphique du résultat ; et mémoire des questions fréquentes dans la palette de commandes
