@@ -61,6 +61,8 @@ pub(crate) struct Page {
     pub objets: Vec<Object>,
     pub fond: Option<[u8; 3]>,
     pub transition: Option<Transition>,
+    /// Avance automatique après ce nombre de secondes.
+    pub duree: Option<f32>,
 }
 
 /// Morceau de texte et sa mise en forme.
@@ -399,6 +401,7 @@ pub(crate) fn construire(
         values: BTreeMap::new(),
         slides: Vec::new(),
         media,
+        auto_advance: pages.iter().any(|p| p.duree.is_some()),
     };
     for page in pages {
         let s = diapositive(&mut deck, page, theme, fond_theme);
@@ -522,6 +525,7 @@ fn diapositive(deck: &mut Deck, page: Page, theme: Theme, fond_theme: Option<[u8
     s.body2 = corps2.join("\n\n");
     s.notes = corps_markup(&page.notes);
     s.transition = page.transition.unwrap_or_default();
+    s.duration = page.duree;
     s.background = match page.fond {
         Some(f) if Some(f) == fond_theme => None,
         Some(f) if fond_theme.is_none() && f == theme.palette().background => None,
@@ -910,12 +914,27 @@ fn odp_zip(z: &varium_core::zip::ZipReader) -> Result<Deck, String> {
             styles
                 .prop(st, "drawing-page-properties", "smil:type")
                 .or_else(|| {
-                    styles.prop(
-                        st,
-                        "drawing-page-properties",
-                        "presentation:transition-type",
-                    )
+                    styles
+                        .prop(
+                            st,
+                            "drawing-page-properties",
+                            "presentation:transition-type",
+                        )
+                        .filter(|t| !matches!(*t, "automatic" | "manual" | "semi-automatic"))
                 })
+        });
+        let duree = p.attr("draw:style-name").and_then(|st| {
+            let auto = styles.prop(
+                st,
+                "drawing-page-properties",
+                "presentation:transition-type",
+            );
+            if auto != Some("automatic") {
+                return None;
+            }
+            styles
+                .prop(st, "drawing-page-properties", "presentation:duration")
+                .and_then(duree_iso)
         });
         let mut page = Page {
             transition: effet.map(|t| match t {
@@ -925,6 +944,7 @@ fn odp_zip(z: &varium_core::zip::ZipReader) -> Result<Deck, String> {
                 "irisWipe" | "zoom" | "ellipseWipe" => Transition::Zoom,
                 _ => Transition::Fondu,
             }),
+            duree,
             fond: fond_style(p.attr("draw:style-name")).or_else(|| {
                 p.attr("draw:master-page-name")
                     .and_then(|m| maitres.get(m))
@@ -1196,5 +1216,44 @@ mod tests {
         assert!((longueur_cm("72pt").unwrap() - 2.54).abs() < 1e-5);
         assert_eq!(longueur_cm("abc"), None);
         assert_eq!(longueur_cm("1e3cm"), Some(1000.0));
+    }
+}
+
+/// Une durée ISO 8601 (`PT00H01M12.5S`) en secondes ; `None` si elle est nulle
+/// ou illisible.
+pub(crate) fn duree_iso(s: &str) -> Option<f32> {
+    let t = s
+        .trim()
+        .strip_prefix("PT")
+        .or_else(|| s.trim().strip_prefix("pt"))?;
+    let mut total = 0.0f32;
+    let mut nombre = String::new();
+    for c in t.chars() {
+        match c {
+            '0'..='9' | '.' | ',' => nombre.push(if c == ',' { '.' } else { c }),
+            'H' | 'h' | 'M' | 'm' | 'S' | 's' => {
+                let v: f32 = nombre.parse().ok()?;
+                nombre.clear();
+                total += v * match c {
+                    'H' | 'h' => 3600.0,
+                    'M' | 'm' => 60.0,
+                    _ => 1.0,
+                };
+            }
+            _ => return None,
+        }
+    }
+    (total.is_finite() && total > 0.0).then_some(total.min(86_400.0))
+}
+
+#[cfg(test)]
+mod tests_duree {
+    #[test]
+    fn durees_iso() {
+        assert_eq!(super::duree_iso("PT00H00M12S"), Some(12.0));
+        assert_eq!(super::duree_iso("PT01H02M03.5S"), Some(3723.5));
+        assert_eq!(super::duree_iso("PT0S"), None);
+        assert_eq!(super::duree_iso("12"), None);
+        assert_eq!(super::duree_iso("PTxS"), None);
     }
 }

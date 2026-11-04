@@ -21,6 +21,12 @@ use crate::objets::{Object, ObjectKind, arrow_head, format_image, jpeg_composant
 use crate::texte::MISSING_COLOR;
 use crate::{Deck, Layout, Palette, Rendu, Slide, body_size, subtitle_size, title_size};
 
+mod polycopie;
+mod raster;
+
+pub use polycopie::{HandoutNotes, HandoutOptions, HandoutPaper};
+pub use raster::{PNG_HEIGHT, RasterFonts};
+
 /// Largeur d'une page, en points.
 const LARGEUR_PAGE: f32 = 720.0;
 /// Hauteur de la partie visible d'une police (ascendante + descendante), en em.
@@ -1420,17 +1426,34 @@ fn utf16(s: &str) -> String {
 
 pub(crate) fn pdf(deck: &Deck) -> Vec<u8> {
     let pw = LARGEUR_PAGE;
-    let ph = (pw / deck.aspect.ratio() * 1000.0).round() / 1000.0;
+    let ph = hauteur_diapo(deck);
     let rendus = deck.rendus();
     let slides = deck.exported();
     let np = rendus.len();
     // Les images suivent les pages : objets 12 + 2 × pages et au-delà.
     let (images, nums) = images_pdf(deck, 12 + 2 * np);
-    let pages: Vec<String> = rendus
+    let pages: Vec<(f32, f32, String)> = rendus
         .iter()
         .zip(slides.iter())
-        .map(|(r, s)| page(r, s, &nums, pw, ph))
+        .map(|(r, s)| (pw, ph, page(r, s, &nums, pw, ph)))
         .collect();
+    assembler(deck, &pages, images, &nums)
+}
+
+/// Hauteur d'une diapositive en points (largeur 720 pt).
+fn hauteur_diapo(deck: &Deck) -> f32 {
+    (LARGEUR_PAGE / deck.aspect.ratio() * 1000.0).round() / 1000.0
+}
+
+/// Écrit le fichier PDF : pages `(largeur, hauteur, contenu)`, images déjà
+/// numérotées à partir de `12 + 2 × pages`.
+fn assembler(
+    deck: &Deck,
+    pages: &[(f32, f32, String)],
+    images: Vec<Vec<u8>>,
+    nums: &BTreeMap<String, usize>,
+) -> Vec<u8> {
+    let np = pages.len();
     let xobjets: String = if nums.is_empty() {
         String::new()
     } else {
@@ -1469,12 +1492,12 @@ pub(crate) fn pdf(deck: &Deck) -> Vec<u8> {
     let polices: String = (0..POLICES.len())
         .map(|i| format!("/F{} {} 0 R ", i + 1, 4 + i))
         .collect();
-    for (i, contenu) in pages.iter().enumerate() {
+    for (i, (pw, ph, contenu)) in pages.iter().enumerate() {
         objs.push(
             format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {polices}>>{xobjets} >> /Contents {} 0 R >>",
-                n(pw),
-                n(ph),
+                n(*pw),
+                n(*ph),
                 13 + i * 2
             )
             .into_bytes(),

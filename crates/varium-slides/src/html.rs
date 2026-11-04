@@ -184,10 +184,13 @@ fn diapositive(out: &mut String, i: usize, total: usize, r: &Rendu, s: &Slide, d
     let centre = if b.centered { " centre" } else { "" };
     let _ = writeln!(
         out,
-        "<section class=\"slide d-{}\" id=\"d{}\" data-t=\"{}\" aria-roledescription=\"diapositive\" aria-label=\"Diapositive {} sur {total}\" style=\"--bg:{};--fg:{};--ti:{};--ac:{};--mu:{};--filet:{};--teinte:{};--titres:var(--{})\">",
+        "<section class=\"slide d-{}\" id=\"d{}\" data-t=\"{}\"{} aria-roledescription=\"diapositive\" aria-label=\"Diapositive {} sur {total}\" style=\"--bg:{};--fg:{};--ti:{};--ac:{};--mu:{};--filet:{};--teinte:{};--titres:var(--{})\">",
         s.layout.id(),
         i + 1,
         s.transition.id(),
+        deck.auto_advance_after(i)
+            .map(|d| format!(" data-duree=\"{}\"", nombre(d)))
+            .unwrap_or_default(),
         i + 1,
         hex_color(p.background),
         hex_color(p.text),
@@ -540,7 +543,7 @@ const SCRIPT: &str = r##"(function () {
   var texteNotes = panneau.querySelector(".texte");
   var numeroNotes = panneau.querySelector(".numero");
   var aide = document.querySelector(".aide");
-  var cur = -1, minuterie = 0, attente = 0;
+  var cur = -1, minuterie = 0, attente = 0, avance = 0;
   var reduit = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
   // Réduit le texte d'une zone trop pleine, comme l'ajustement automatique d'Impress.
@@ -591,6 +594,10 @@ const SCRIPT: &str = r##"(function () {
       : "<p class=\"aucune\">Aucune note pour cette diapositive.</p>";
     numeroNotes.textContent = "Diapositive " + (i + 1) + " / " + slides.length;
     try { history.replaceState(null, "", "#" + (i + 1)); } catch (e) { /* fichier local */ }
+    // Avance automatique selon le minutage répété.
+    clearTimeout(avance);
+    var duree = parseFloat(apres.getAttribute("data-duree"));
+    if (duree > 0 && i < slides.length - 1) avance = setTimeout(suivante, duree * 1000);
   }
   function suivante() { aller(cur + 1, true); }
   function precedente() { aller(cur - 1, true); }

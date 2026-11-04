@@ -113,6 +113,12 @@ pub enum CondRule {
     },
     /// Barre de données proportionnelle à la valeur.
     DataBar { color: [u8; 3] },
+    /// Valeurs présentes plusieurs fois dans la plage (ou une seule fois si
+    /// `unique`), sans tenir compte de la casse.
+    Duplicate {
+        #[serde(default, skip_serializing_if = "is_false")]
+        unique: bool,
+    },
 }
 
 impl CondRule {
@@ -151,6 +157,8 @@ impl CondRule {
             CondRule::ColorScale { mid: Some(_), .. } => "Échelle de trois couleurs".into(),
             CondRule::ColorScale { .. } => "Échelle de deux couleurs".into(),
             CondRule::DataBar { .. } => "Barre de données".into(),
+            CondRule::Duplicate { unique: false } => "Valeurs en double".into(),
+            CondRule::Duplicate { unique: true } => "Valeurs uniques".into(),
         }
     }
 }
@@ -189,7 +197,7 @@ pub struct CondFormat {
     pub style: CondStyle,
 }
 
-mod range_serde {
+pub(crate) mod range_serde {
     use super::Range;
     use serde::de::Error;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -251,6 +259,29 @@ struct Prepared {
     style: CondStyle,
     stats: Stats,
     operands: (Operand, Operand),
+    /// Valeurs (en minuscules) présentes plusieurs fois dans la plage.
+    repeated: std::collections::HashSet<String>,
+}
+
+/// Valeurs présentes plusieurs fois dans une plage.
+fn repeated_in(
+    sheet: &Sheet,
+    range: Range,
+    value: &dyn Fn(CellRef) -> Value,
+) -> std::collections::HashSet<String> {
+    let mut seen: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for (at, _) in sheet.cells.range(range.start..=range.end) {
+        if !range.contains(*at) {
+            continue;
+        }
+        if let Some(t) = value_text(&value(*at)).filter(|t| !t.is_empty()) {
+            *seen.entry(t).or_default() += 1;
+        }
+    }
+    seen.into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(t, _)| t)
+        .collect()
 }
 
 /// Applique les règles d'une feuille ; préparé une fois (statistiques des
@@ -341,12 +372,17 @@ impl CondFormatter {
                     CondRule::Compare { value, value2, .. } => (operand(value), operand(value2)),
                     _ => (Operand::Text(String::new()), Operand::Text(String::new())),
                 };
+                let repeated = match &cf.rule {
+                    CondRule::Duplicate { .. } => repeated_in(sheet, cf.range, value),
+                    _ => Default::default(),
+                };
                 Prepared {
                     range: cf.range,
                     rule: cf.rule.clone(),
                     style: cf.style,
                     stats,
                     operands,
+                    repeated,
                 }
             })
             .collect();
@@ -391,9 +427,7 @@ impl CondFormatter {
                         any = true;
                     }
                 }
-                (rule, stats)
-                    if !styled && rule.has_style() && matches(rule, stats, &p.operands, v) =>
-                {
+                (rule, stats) if !styled && rule.has_style() && hit(p, rule, stats, v) => {
                     styled = true;
                     any = true;
                     if p.style.fill.is_some() {
@@ -418,6 +452,15 @@ fn value_text(v: &Value) -> Option<String> {
         Value::Bool(b) => Some(crate::format::bool_text(*b).to_lowercase()),
         Value::Error(e) => Some(e.code().to_lowercase()),
         Value::Empty => None,
+    }
+}
+
+fn hit(p: &Prepared, rule: &CondRule, stats: Stats, v: &Value) -> bool {
+    match rule {
+        CondRule::Duplicate { unique } => value_text(v)
+            .filter(|t| !t.is_empty())
+            .is_some_and(|t| p.repeated.contains(&t) != *unique),
+        _ => matches(rule, stats, &p.operands, v),
     }
 }
 
@@ -494,8 +537,20 @@ fn matches(rule: &CondRule, stats: Stats, ops: &(Operand, Operand), v: &Value) -
             }
             _ => false,
         },
-        CondRule::ColorScale { .. } | CondRule::DataBar { .. } => false,
+        CondRule::ColorScale { .. } | CondRule::DataBar { .. } | CondRule::Duplicate { .. } => {
+            false
+        }
     }
+}
+
+/// La valeur vérifie-t-elle la comparaison (filtres automatiques) ?
+pub(crate) fn compare_matches(op: CompareOp, value: &str, value2: &str, v: &Value) -> bool {
+    let rule = CondRule::Compare {
+        op,
+        value: value.to_string(),
+        value2: value2.to_string(),
+    };
+    matches(&rule, Stats::None, &(operand(value), operand(value2)), v)
 }
 
 fn mix(a: [u8; 3], b: [u8; 3], t: f64) -> [u8; 3] {
