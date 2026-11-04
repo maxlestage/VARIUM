@@ -5499,6 +5499,11 @@ enum PivotDrag {
     Placed(PivotZone, usize),
 }
 
+/// Résultat calculé d'un tableau croisé.
+type PivotResult = Result<Vec<Vec<PivotCell>>, PivotError>;
+/// Réponse du téléchargement des taux (texte XML ou erreur).
+type FetchSlot = Arc<Mutex<Option<Result<String, String>>>>;
+
 /// Boîte « Tableau croisé dynamique ».
 struct PivotDialog {
     spec: PivotTable,
@@ -5511,7 +5516,7 @@ struct PivotDialog {
     values: BTreeMap<u32, Vec<String>>,
     new_sheet: bool,
     target: String,
-    preview: Option<(PivotTable, Result<Vec<Vec<PivotCell>>, PivotError>)>,
+    preview: Option<(PivotTable, PivotResult)>,
 }
 
 impl PivotDialog {
@@ -5636,7 +5641,7 @@ struct RatesDialog {
     date: String,
     rows: Vec<(String, String)>,
     /// Téléchargement des taux de la BCE en cours.
-    fetch: Option<Arc<Mutex<Option<Result<String, String>>>>>,
+    fetch: Option<FetchSlot>,
     fetched: Option<varium_calc::RatesTable>,
     error: Option<String>,
 }

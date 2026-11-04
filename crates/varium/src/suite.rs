@@ -1010,7 +1010,7 @@ impl Suite {
         let r = ui.max_rect();
         let fond = ui.interact(
             r,
-            ui.id().with("varium-barre-titre"),
+            ui.scope_id().with("varium-barre-titre"),
             egui::Sense::click_and_drag(),
         );
         if fond.drag_started() {

@@ -243,7 +243,7 @@ impl PdfFonts {
     pub fn face(&self, police: u8) -> Option<&Arc<Face>> {
         match police {
             0..=3 => self.faces[police as usize].as_ref(),
-            p if p >= SECOURS && p < WINANSI => self.secours.get((p - SECOURS) as usize),
+            p if (SECOURS..WINANSI).contains(&p) => self.secours.get((p - SECOURS) as usize),
             _ => None,
         }
     }
@@ -285,6 +285,15 @@ impl PdfFonts {
                     gid: g,
                     avance: s.avance(g),
                 };
+            }
+        }
+        // Caractère inconnu de toutes les polices : un signe de remplacement visible.
+        if c != '\u{FFFD}' && c != '\u{25A1}' {
+            for r in ['\u{FFFD}', '\u{25A1}'] {
+                let g = self.glyphe(r, style);
+                if g.gid != 0 {
+                    return g;
+                }
             }
         }
         Glyphe {
@@ -483,6 +492,9 @@ fn to_unicode(glyphes: &BTreeMap<u16, String>) -> String {
     s
 }
 
+/// Zone cliquable : x, y, largeur, hauteur, cible.
+type Zone = (f32, f32, f32, f32, Cible);
+
 struct Objets {
     o: Vec<Vec<u8>>,
 }
@@ -521,7 +533,7 @@ pub fn ecrire(
     // Glyphes employés par police : numéro → texte (pour ToUnicode).
     let mut usage: BTreeMap<u8, BTreeMap<u16, String>> = BTreeMap::new();
     let mut contenus: Vec<String> = Vec::with_capacity(np);
-    let mut liens: Vec<Vec<(f32, f32, f32, f32, Cible)>> = Vec::with_capacity(np);
+    let mut liens: Vec<Vec<Zone>> = Vec::with_capacity(np);
     for p in &mise.pages {
         let mut ops = String::new();
         let mut zones = Vec::new();

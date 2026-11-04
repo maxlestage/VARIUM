@@ -178,7 +178,9 @@ fn cadre_image(nom: &str, png: Vec<u8>, l: f32, h: f32, titre: &str, m: &mut Med
     let fichier = format!("{nom}{}.png", m.images.len() + 1);
     m.images.push((fichier.clone(), png));
     format!(
-        "<draw:frame draw:name=\"{nom}{n}\" text:anchor-type=\"as-char\" svg:width=\"{}\" svg:height=\"{}\" draw:z-index=\"0\"><draw:image xlink:href=\"Pictures/{fichier}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\" draw:mime-type=\"image/png\"/><svg:title>{}</svg:title></draw:frame>",
+        "<draw:frame draw:name=\"{}{n}\" text:anchor-type=\"as-char\" svg:width=\"{}\" svg:height=\"{}\" draw:z-index=\"0\"><draw:image xlink:href=\"Pictures/{fichier}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\" draw:mime-type=\"image/png\"/><svg:title>{}</svg:title></draw:frame>",
+        // « QR1 », « Signature1 » : noms relus par l'import.
+        if nom == "qr" { "QR" } else { "Signature" },
         mm(l),
         mm(h),
         xml_escape(titre),
