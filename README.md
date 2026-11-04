@@ -154,6 +154,7 @@ Document → **Langue** : français, anglais, espagnol, allemand, italien ou por
   reviennent, et propose d'en faire des `{{champs}}` en un clic (noms modifiables, cases à
   cocher). Chaque champ garde la valeur d'origine : le document ne change pas, mais il
   devient un modèle réutilisable (publipostage compris). Annulable avec Ctrl+Z.
+- **Prêt à envoyer** (Fichier → Prêt à envoyer…) : un dernier contrôle avant d'envoyer un document. Varium signale les champs `{{…}}` restés vides, les modifications proposées ou commentaires de relecture jamais traités et les remarques de révision, puis exporte le PDF sous un nom de fichier propre (sans accents ni espaces : `Lettre-de-relance-Eric.pdf`). Le contrôle ne bloque jamais : on peut exporter quand même.
 - **Poser une question** (Classeur, menu Données, Ctrl+Maj+Q) : écrivez « total des ventes par région », « moyenne de B », « combien de clients » ou « maximum des ventes » ; Varium la traduit en formules (`SOMME`, `MOYENNE`, `NBVAL`, `MAX`, `MIN`, `MEDIANE`, `SOMME.SI`, `MOYENNE.SI`, `NB.SI`), montre le résultat et l'écrit dans un espace libre, sans toucher à vos données. Les colonnes se désignent par leur titre ou leur lettre ; les mots-clés sont compris en français, anglais, espagnol, allemand, italien et portugais.
 - **Apparence et taille de l'interface** (bouton 🎨 en haut à droite, sur les trois modules) :
   thème automatique (suit le système), clair, sombre, **sépia** (papier chaud, reposant) ou
