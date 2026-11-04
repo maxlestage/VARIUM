@@ -437,3 +437,31 @@ fn formats_selon_la_langue() {
             .contains("w:val=\"de-DE\"")
     );
 }
+
+#[test]
+fn recuperation_de_projets_abimes() {
+    use varium_core::Project;
+    // Tronqué au milieu de la source.
+    let (p, notes) =
+        Project::recuperer(r#"{"format":"varium","version":2,"title":"T","source":"Bonjour {{no"#)
+            .expect("récupérable");
+    assert_eq!(p.source, "Bonjour {{no");
+    assert!(!notes.is_empty());
+    // Champs au mauvais type : on garde le reste.
+    let (p, notes) = Project::recuperer(
+        r#"{"source":"{{a}}","title":5,"values":{"a":3,"b":[1]},"types":{"a":"nimporte"},"page":"x"}"#,
+    )
+    .unwrap();
+    assert_eq!(p.source, "{{a}}");
+    assert_eq!(p.values.get("a").map(String::as_str), Some("3"));
+    assert!(!p.values.contains_key("b"));
+    assert!(notes.len() >= 3);
+    // Version future : récupéré avec avertissement.
+    let (_, notes) = Project::recuperer(r#"{"version":99,"source":"x"}"#).unwrap();
+    assert!(notes.iter().any(|n| n.contains("plus récente")));
+    // Rien d'exploitable.
+    assert!(Project::recuperer("pas du json").is_none());
+    assert!(Project::recuperer("[1,2]").is_none());
+    assert!(Project::recuperer(r#"{"title":"sans source"}"#).is_none());
+    assert!(Project::recuperer("").is_none());
+}
