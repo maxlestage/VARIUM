@@ -45,9 +45,13 @@
 //! Les dates sont des numéros de série comptés depuis le 30/12/1899, comme
 //! dans les tableurs.
 
+mod analysis;
 mod cond;
 mod csv;
 mod eval;
+mod explain;
+mod filter;
+mod flash;
 mod format;
 mod functions;
 mod import;
@@ -55,6 +59,7 @@ mod lexer;
 mod ods;
 mod ods_read;
 mod parser;
+mod paste;
 mod refs;
 mod rewrite;
 mod sample;
@@ -65,13 +70,18 @@ mod xlsx_read;
 mod xml;
 mod xmltree;
 
+pub use analysis::{DataShape, QuickFormat, QuickTotal};
 pub use cond::{CompareOp, CondFormat, CondFormatter, CondPaint, CondRule, CondStyle};
+pub use explain::{BinOp, ErrorCause, FormulaNode};
+pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
+pub use flash::{FlashProgram, autocomplete, flash_fill};
 pub use format::{
     CellFormat, HAlign, NBSP, NumberFormat, THOUSANDS_SEP, date_serial, format_general,
     format_number, format_value, parse_number, serial_to_ymd, today_serial,
 };
-pub use functions::{FunctionInfo, function_info, functions};
+pub use functions::{FunctionCategory, FunctionInfo, function_info, functions};
 pub use parser::check_formula;
+pub use paste::{PasteOptions, PasteSource, PasteWhat, parse_table, smart_input};
 pub use refs::{CellRef, MAX_COLS, MAX_ROWS, Range, col_index, col_name, quote_sheet_name};
 pub use rewrite::{shift_formula, translate_to_english};
 pub use value::{CalcError, Value};

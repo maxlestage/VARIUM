@@ -109,6 +109,9 @@ impl Values {
 
     /// Valeur finale d'une occurrence, ou `None` si elle n'est pas renseignée.
     pub fn resolve(&self, v: &VarRef) -> Option<String> {
+        if let Some(contenu) = v.name.strip_prefix(parse::QR) {
+            return Some(contenu.to_string());
+        }
         if let Some(formula) = &v.formula {
             return self.resolve_formula(formula, &v.filters);
         }
@@ -199,6 +202,11 @@ pub fn render_pieces(src: &str, values: &Values) -> Vec<Piece> {
         .map(|s| match s {
             Segment::Text(t) => Piece::Text(t),
             Segment::Var(v) => match values.resolve(&v) {
+                // `{{site | qr}}` : la valeur devient un code QR.
+                Some(text) if v.filters.iter().any(|f| f.name == "qr") => Piece::Value {
+                    name: format!("{}{}", parse::QR, v.name),
+                    text,
+                },
                 Some(text) => Piece::Value { name: v.name, text },
                 None => Piece::Missing {
                     name: v.name,

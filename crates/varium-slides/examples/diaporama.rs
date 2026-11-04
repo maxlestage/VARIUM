@@ -1,11 +1,17 @@
 //! Exporte une présentation dans un dossier, dans tous les formats :
 //! `cargo run -p varium-slides --example diaporama -- /tmp/varium-slides [thème] [4:3] [objets] [fichier.json]`
 //!
-//! `objets` ajoute une image (dégradé PNG transparent) et toutes les formes.
+//! `objets` ajoute une image (dégradé PNG transparent) et toutes les formes ;
+//! `minutage` donne 4 s à chaque diapositive, avec avance automatique.
+//! Écrit aussi les documents de présentation (1, 2, 3, 6 par page) et une image
+//! PNG par diapositive.
 //!
 //! Sans fichier `.json`, c'est la présentation d'exemple qui est exportée.
 
-use varium_slides::{Aspect, Deck, ObjectKind, Theme};
+use varium_slides::{
+    Aspect, Deck, HandoutNotes, HandoutOptions, HandoutPaper, ObjectKind, PNG_HEIGHT, RasterFonts,
+    Theme,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
@@ -13,7 +19,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut deck = Deck::sample();
     let (mut theme, mut aspect, mut objets) = (None, None, false);
     for a in args {
-        if a == "4:3" {
+        if a == "minutage" {
+            let n = deck.slides.len();
+            deck.set_timings(&vec![4.0; n]);
+            deck.auto_advance = true;
+        } else if a == "4:3" {
             aspect = Some(Aspect::Standard);
         } else if a == "objets" {
             objets = true;
@@ -36,6 +46,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(chemin("html"), deck.to_html())?;
     std::fs::write(chemin("odp"), deck.to_odp())?;
     std::fs::write(chemin("pdf"), deck.to_pdf())?;
+    for (par, notes) in [
+        (1, HandoutNotes::Speaker),
+        (2, HandoutNotes::Lines),
+        (3, HandoutNotes::Lines),
+        (6, HandoutNotes::Speaker),
+    ] {
+        let o = HandoutOptions {
+            per_page: par,
+            notes,
+            paper: HandoutPaper::A4,
+        };
+        std::fs::write(
+            chemin(&format!("document-{par}.pdf")),
+            deck.to_handout_pdf(o),
+        )?;
+    }
+    let polices = RasterFonts {
+        sans: include_bytes!("../../varium/assets/fonts/LiberationSans-Regular.ttf"),
+        sans_bold: include_bytes!("../../varium/assets/fonts/LiberationSans-Bold.ttf"),
+        serif: include_bytes!("../../varium/assets/fonts/LiberationSerif-Regular.ttf"),
+        serif_bold: include_bytes!("../../varium/assets/fonts/LiberationSerif-Bold.ttf"),
+        serif_italic: include_bytes!("../../varium/assets/fonts/LiberationSerif-Italic.ttf"),
+        serif_bold_italic: include_bytes!(
+            "../../varium/assets/fonts/LiberationSerif-BoldItalic.ttf"
+        ),
+    };
+    for (i, png) in deck.to_png_images(&polices, PNG_HEIGHT).iter().enumerate() {
+        std::fs::write(format!("{dossier}/diapositive-{:02}.png", i + 1), png)?;
+    }
     println!("Exports écrits dans {dossier}");
     Ok(())
 }

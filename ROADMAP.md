@@ -74,3 +74,18 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [ ] Classeur : couleurs de thème à l'import XLSX, hauteur de ligne variable
 - [ ] Présentation : rotations, dégradés et tableaux à l'import PPTX
 - [ ] Messages du moteur (remarques de révision, erreurs de formule) traduits
+
+## 11. Faciliter la vie des utilisateurs
+- [x] Palette de commandes (Ctrl+K / ⌘K) sur les trois modules, aide-mémoire des raccourcis (F1) — version 0.6.0
+- [x] Centre de démarrage (modèles, fichiers récents, astuces), glisser-déposer qui ouvre le bon module — version 0.6.0
+- [x] Conversions en un clic : document → présentation, classeur → tableau ou champs du document — version 0.6.0
+- [x] Classeur : remplissage instantané (Ctrl+E), saisie semi-automatique, collage intelligent, analyse rapide, filtres, assistant de formule, formules expliquées en clair — version 0.6.0
+- [x] Documents : historique des versions avec différences, mode concentration et objectif de mots, lisibilité par langue, collage intelligent (HTML, Markdown, tableaux), liens `[texte](url)`, codes QR `{{qr:…}}`, remplir comme un formulaire, correction automatique — version 0.6.0
+- [x] Présentation : Embellir et Harmoniser, mode plan, présentation depuis un texte ou un e-mail, répétition minutée et avance automatique, pointeur laser, stylo, zoom, grille, polycopiés PDF et export PNG — version 0.6.0
+- [ ] Modèles intelligents qui posent les questions puis remplissent le document
+- [ ] Détection automatique des champs dans un document existant (dates, montants, noms répétés)
+- [ ] Classeur : tableau croisé dynamique en glisser-déposer ; « Poser une question » en langage simple sur les données
+- [ ] Signature manuscrite dessinée à la souris ; lecture à voix haute (synthèse vocale du système)
+- [ ] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation
+- [ ] Thèmes d'interface (sépia, contraste élevé) et zoom de l'interface
+- [ ] Ouvrir .docx/.odt dans Documents (le glisser-déposer l'annonce déjà)

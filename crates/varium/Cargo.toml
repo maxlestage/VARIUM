@@ -22,6 +22,8 @@ rfd.workspace = true
 env_logger.workspace = true
 spellbook = "0.4.2"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+# Presse-papiers HTML (collage intelligent) ; déjà employé par egui-winit.
+arboard = { version = "3.7", default-features = false }
 
 
 # Barre de menus native de macOS (en haut de l'écran), comme Pages.

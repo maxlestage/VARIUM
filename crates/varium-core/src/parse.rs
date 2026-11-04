@@ -7,6 +7,8 @@
 //! - `\{{nom}}` : accolades littérales, non interprétées
 //! - `{{si …}}`, `{{sinon}}`, `{{fin}}` : texte conditionnel (voir `conditions`) ; `sinon` et
 //!   `fin` sont des mots réservés, on ne peut pas les employer comme noms de champ
+//! - `{{qr:texte}}` : code QR du texte écrit tel quel (nommé `qr:texte`, ce n'est pas un
+//!   champ à remplir) ; `{{site | qr}}` : code QR de la valeur d'un champ
 
 /// Un filtre appliqué à une variable, ex. `money:usd`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +71,15 @@ fn parse_filters(s: &str) -> Vec<Filter> {
         .collect()
 }
 
+/// Préfixe du nom d'un code QR, littéral (`qr:texte`) ou de champ (`qr:nom`).
+pub const QR: &str = "qr:";
+
+fn qr_litteral(inner: &str) -> Option<&str> {
+    let t = inner.trim_start();
+    let tete = t.get(..3)?;
+    tete.eq_ignore_ascii_case(QR).then(|| t[3..].trim())
+}
+
 /// Essaie de lire une variable commençant à `start` (qui pointe sur `{{`).
 /// Renvoie (nom, filtres, fin) si la syntaxe est valide.
 fn try_token(src: &str, start: usize) -> Option<(String, Vec<Filter>, usize)> {
@@ -82,6 +93,10 @@ fn try_token(src: &str, start: usize) -> Option<(String, Vec<Filter>, usize)> {
     }
     let close = inner_start + off;
     let inner = &reste[..off];
+    // `{{qr:…}}` : tout ce qui suit est le contenu du code, `|` compris.
+    if let Some(contenu) = qr_litteral(inner) {
+        return (!contenu.is_empty()).then(|| (format!("{QR}{contenu}"), Vec::new(), close + 2));
+    }
     let (name, filters) = match inner.split_once('|') {
         Some((n, f)) => (n.trim(), parse_filters(f)),
         None => (inner.trim(), Vec::new()),
@@ -160,6 +175,8 @@ pub fn variables(src: &str) -> Vec<VarInfo> {
                         .filter(|n| is_valid_name(n))
                         .map(|n| (v.range.start, n)),
                 ),
+                // Un code QR littéral n'a rien à remplir.
+                None if v.name.starts_with(QR) => {}
                 None => found.push((v.range.start, v.name)),
             }
         }
