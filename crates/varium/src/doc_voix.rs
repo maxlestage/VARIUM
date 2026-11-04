@@ -387,6 +387,69 @@ impl Drop for Lecteur {
     }
 }
 
+impl super::VariumApp {
+    /// Outils → « Lire à voix haute » : la sélection, sinon le document à partir du
+    /// curseur. Pendant la lecture, la même commande met en pause ou reprend.
+    pub(super) fn lire_voix(&mut self, ctx: &egui::Context) {
+        match self.etat.voix.etat {
+            EtatLecture::Lecture => {
+                self.etat.voix.pause();
+                return;
+            }
+            EtatLecture::Pause => {
+                self.etat.voix.reprendre();
+                return;
+            }
+            EtatLecture::Arret => {}
+        }
+        let (a, b) = (self.sel.0.min(self.sel.1), self.sel.0.max(self.sel.1));
+        let n = self.source.chars().count();
+        let (debut, fin) = if a != b {
+            (a, b)
+        } else if a >= n {
+            (0, n)
+        } else {
+            (a, n)
+        };
+        let ps = phrases(&self.source, debut, fin, &self.effective());
+        match self.etat.voix.lancer(ps, self.page.langue) {
+            Ok(()) => self.notify(
+                ctx,
+                crate::tr::tr("Lecture à voix haute · la phrase lue est surlignée"),
+                false,
+            ),
+            Err(e) => self.notify(ctx, e, true),
+        }
+    }
+
+    /// La lecture dans la barre d'état : progression, Pause / Reprendre, Arrêter.
+    pub(super) fn voix_statut(&mut self, ui: &mut egui::Ui) {
+        use crate::tr::tr;
+        let l = &self.etat.voix;
+        if l.etat == EtatLecture::Arret {
+            return;
+        }
+        ui.separator();
+        let (i, n) = l.progression();
+        ui.label(trf!("🔊 Phrase {i} sur {n}", i, n));
+        let (icone, aide) = if l.etat == EtatLecture::Lecture {
+            ("⏸", tr("Pause"))
+        } else {
+            ("▶", tr("Reprendre"))
+        };
+        if ui.small_button(icone).on_hover_text(aide).clicked() {
+            self.queue.push(super::Act::LireVoix);
+        }
+        if ui
+            .small_button("⏹")
+            .on_hover_text(tr("Arrêter la lecture"))
+            .clicked()
+        {
+            self.queue.push(super::Act::ArreterVoix);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,68 +515,5 @@ mod tests {
         l.pause();
         l.reprendre();
         l.arreter();
-    }
-}
-
-impl super::VariumApp {
-    /// Outils → « Lire à voix haute » : la sélection, sinon le document à partir du
-    /// curseur. Pendant la lecture, la même commande met en pause ou reprend.
-    pub(super) fn lire_voix(&mut self, ctx: &egui::Context) {
-        match self.etat.voix.etat {
-            EtatLecture::Lecture => {
-                self.etat.voix.pause();
-                return;
-            }
-            EtatLecture::Pause => {
-                self.etat.voix.reprendre();
-                return;
-            }
-            EtatLecture::Arret => {}
-        }
-        let (a, b) = (self.sel.0.min(self.sel.1), self.sel.0.max(self.sel.1));
-        let n = self.source.chars().count();
-        let (debut, fin) = if a != b {
-            (a, b)
-        } else if a >= n {
-            (0, n)
-        } else {
-            (a, n)
-        };
-        let ps = phrases(&self.source, debut, fin, &self.effective());
-        match self.etat.voix.lancer(ps, self.page.langue) {
-            Ok(()) => self.notify(
-                ctx,
-                crate::tr::tr("Lecture à voix haute · la phrase lue est surlignée"),
-                false,
-            ),
-            Err(e) => self.notify(ctx, e, true),
-        }
-    }
-
-    /// La lecture dans la barre d'état : progression, Pause / Reprendre, Arrêter.
-    pub(super) fn voix_statut(&mut self, ui: &mut egui::Ui) {
-        use crate::tr::tr;
-        let l = &self.etat.voix;
-        if l.etat == EtatLecture::Arret {
-            return;
-        }
-        ui.separator();
-        let (i, n) = l.progression();
-        ui.label(trf!("🔊 Phrase {i} sur {n}", i, n));
-        let (icone, aide) = if l.etat == EtatLecture::Lecture {
-            ("⏸", tr("Pause"))
-        } else {
-            ("▶", tr("Reprendre"))
-        };
-        if ui.small_button(icone).on_hover_text(aide).clicked() {
-            self.queue.push(super::Act::LireVoix);
-        }
-        if ui
-            .small_button("⏹")
-            .on_hover_text(tr("Arrêter la lecture"))
-            .clicked()
-        {
-            self.queue.push(super::Act::ArreterVoix);
-        }
     }
 }

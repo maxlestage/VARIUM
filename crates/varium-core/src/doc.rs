@@ -81,7 +81,7 @@ impl Couleur {
                 3 => {
                     let v = u32::from_str_radix(h, 16).ok()?;
                     let (r, g, b) = ((v >> 8) & 15, (v >> 4) & 15, v & 15);
-                    Some(Couleur::rvb((r * 17) << 16 | (g * 17) << 8 | b * 17))
+                    Some(Couleur::rvb(((r * 17) << 16) | ((g * 17) << 8) | (b * 17)))
                 }
                 _ => None,
             };
@@ -405,7 +405,7 @@ impl Para {
             | Para::Heading { runs, .. }
             | Para::Item { runs, .. }
             | Para::Quote { runs } => f(runs),
-            Para::Table(t) => t.rows.iter_mut().flatten().for_each(|c| f(c)),
+            Para::Table(t) => t.rows.iter_mut().flatten().for_each(f),
             Para::Math { .. } | Para::Rule | Para::PageBreak => {}
         }
     }
@@ -2096,5 +2096,249 @@ mod tests_liens_qr {
                 .iter()
                 .all(|s| matches!(s, crate::Segment::Text(_)))
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_mise_en_forme {
+    use super::*;
+
+    fn complet(src: &str) -> Document {
+        document_complet(src, &Values::default())
+    }
+
+    #[test]
+    fn attributs_de_paragraphe() {
+        let d = complet(
+            "{: retrait=1,5cm alinéa=-5mm interligne=1,5 avant=6pt après=12pt} # Titre\ntexte",
+        );
+        assert!(matches!(d.paras[0], Para::Heading { level: 1, .. }));
+        let f = d.formats[0];
+        assert_eq!(f.gauche, Some(15.0));
+        assert_eq!(f.alinea, Some(-5.0));
+        assert_eq!(f.interligne, Some(Interligne::Multiple(1.5)));
+        assert_eq!(f.avant, Some(6.0));
+        assert!((f.apres.unwrap() - 12.0).abs() < 0.01);
+        assert!(d.formats[1].est_vide());
+        // Exact, double, unités.
+        let a = lire_attributs("interligne=exact:14pt droite=1in").unwrap();
+        assert_eq!(a.format.interligne, Some(Interligne::Exact(14.0)));
+        assert!((a.format.droite.unwrap() - 25.4).abs() < 0.01);
+        assert_eq!(
+            lire_attributs("interligne=double")
+                .unwrap()
+                .format
+                .interligne,
+            Some(Interligne::Multiple(2.0))
+        );
+        // Clé inconnue ou valeur illisible : du texte.
+        assert!(lire_attributs("bonjour").is_none());
+        assert!(lire_attributs("retrait=beaucoup").is_none());
+        assert_eq!(
+            complet("{: smile} et voilà").paras[0].plain(),
+            "{: smile} et voilà"
+        );
+    }
+
+    #[test]
+    fn attributs_persistants_et_alignement() {
+        let d = complet("{: interligne=double}\nun\n{: couleur=rouge} -> deux <-\n{:}\ntrois");
+        assert_eq!(d.paras.len(), 3);
+        assert_eq!(d.formats[0].interligne, Some(Interligne::Multiple(2.0)));
+        assert_eq!(d.formats[1].interligne, Some(Interligne::Multiple(2.0)));
+        assert!(matches!(
+            d.paras[1],
+            Para::Text {
+                align: Align::Center,
+                ..
+            }
+        ));
+        assert_eq!(d.paras[1].runs()[0].style().couleur, Couleur::lire("rouge"));
+        assert!(d.formats[2].est_vide());
+        assert_eq!(d.paras.len(), d.formats.len());
+    }
+
+    #[test]
+    fn ecriture_et_modification_des_attributs() {
+        let a = lire_attributs("retrait=2cm interligne=1,5 couleur=bleu surlignage=jaune").unwrap();
+        let t = ecrire_attributs(&a);
+        assert_eq!(
+            t,
+            "{: retrait=2cm interligne=1,5 couleur=bleu surlignage=jaune}"
+        );
+        assert_eq!(attributs_de_ligne(&t).unwrap().0, a);
+        let src = "un\ndeux\ntrois";
+        let s = modifier_attributs(src, 3, 4, &|mut a| {
+            a.format.gauche = Some(10.0);
+            a
+        });
+        assert_eq!(s, "un\n{: retrait=1cm} deux\ntrois");
+        let s = modifier_attributs(&s, 3, 3, &|_| Attributs::default());
+        assert_eq!(s, src);
+        assert_eq!(modifier_attributs("", 0, 0, &|a| a), "");
+    }
+
+    #[test]
+    fn couleurs_en_ligne() {
+        let d = complet(
+            "a {couleur:#c00}rouge{/} ==jaune== {surlignage:vert}v{/} {couleur:nulle}x{/} {/}",
+        );
+        let r = d.paras[0].runs();
+        let rouge = r.iter().find(|r| r.plain() == "rouge").unwrap();
+        assert_eq!(rouge.style().couleur, Some(Couleur::rvb(0xCC0000)));
+        let jaune = r.iter().find(|r| r.plain() == "jaune").unwrap();
+        assert_eq!(jaune.style().surlignage, Some(Couleur::SURLIGNAGE));
+        assert!(
+            r.iter()
+                .any(|r| r.plain() == "v" && r.style().surlignage.is_some())
+        );
+        // Couleur inconnue et fermeture seule : du texte.
+        assert!(d.paras[0].plain().contains("{couleur:nulle}x"));
+        assert!(d.paras[0].plain().ends_with("{/}"));
+        // Ouverture sans fermeture : du texte ; `===` aussi.
+        assert_eq!(
+            complet("{couleur:rouge}rien").paras[0].plain(),
+            "{couleur:rouge}rien"
+        );
+        assert_eq!(complet("a === b").paras[0].plain(), "a === b");
+        assert_eq!(complet("\\==x==").paras[0].plain(), "==x==");
+    }
+
+    #[test]
+    fn notes_de_bas_de_page() {
+        let d = complet(
+            "Un[^a] deux^[en ligne] trois\\note{tex} quatre[^a] cinq[^inconnue].\n[^a]: Définie **après**.",
+        );
+        assert_eq!(d.notes.len(), 3);
+        assert_eq!(plain(&d.notes[0]), "Définie après.");
+        assert_eq!(plain(&d.notes[1]), "en ligne");
+        assert_eq!(plain(&d.notes[2]), "tex");
+        let appels: Vec<usize> = d.paras[0].runs().iter().filter_map(Run::note).collect();
+        assert_eq!(appels, [1, 2, 3, 1]);
+        assert!(
+            d.paras[0]
+                .runs()
+                .iter()
+                .filter(|r| r.note().is_some())
+                .all(|r| r.style().exposant)
+        );
+        assert!(d.paras[0].plain().contains("cinq[^inconnue]"));
+        assert_eq!(d.paras.len(), 1, "la définition n'est pas un paragraphe");
+        // En fin de document (aperçu, diapositives).
+        let t: Vec<String> = document("a[^x]\n[^x]: note", &Values::default())
+            .iter()
+            .map(Para::plain)
+            .collect();
+        assert_eq!(t[0], "a[1]");
+        assert_eq!(t.last().unwrap(), "[1] note");
+    }
+
+    #[test]
+    fn sommaire_renvoie_aux_titres() {
+        let d = complet("\\sommaire\n# Un\n# \n## Deux");
+        let k: Vec<usize> = d
+            .paras
+            .iter()
+            .flat_map(|p| p.runs().iter().filter_map(Run::sommaire))
+            .collect();
+        assert_eq!(
+            k,
+            [0, 2],
+            "le titre vide compte dans les rangs mais n'a pas d'entrée"
+        );
+    }
+
+    #[test]
+    fn signatures() {
+        let d = complet(
+            "{{signature}} et {{signature:directeur}} et {{ Signature : x }} {{signature | upper}}",
+        );
+        let n: Vec<&str> = d.paras[0]
+            .runs()
+            .iter()
+            .filter_map(Run::signature)
+            .collect();
+        assert_eq!(n, ["", "directeur", "x"]);
+        let noms: Vec<String> =
+            crate::variables("{{signature}} {{signature:a}} {{signature | upper}}")
+                .into_iter()
+                .map(|v| v.name)
+                .collect();
+        assert_eq!(noms, ["signature"], "seul le champ filtré reste un champ");
+        assert!(
+            complet("{{signature:pas valide!}}").paras[0].runs()[0]
+                .signature()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn fuzz_syntaxe_de_mise_en_forme() {
+        const BOUTS: &[&str] = &[
+            "{: ",
+            "{:",
+            "}",
+            "retrait=",
+            "2cm",
+            "interligne=",
+            "exact:",
+            "1,5",
+            "double",
+            "couleur=",
+            "rouge",
+            "#fff",
+            "{couleur:",
+            "{surlignage:",
+            "{/}",
+            "==",
+            "=",
+            "[^",
+            "]",
+            "]:",
+            "^[",
+            "\\note{",
+            "a",
+            " ",
+            "\n",
+            "é",
+            "😀",
+            "{{x}}",
+            "{{signature}}",
+            "\\sommaire",
+            "# ",
+            "- ",
+            "| a |",
+            "$x$",
+            "\\",
+            "{",
+            "[",
+            "^",
+            "-> ",
+            " <-",
+        ];
+        let mut e = 0x9E37_79B9_7F4A_7C15u64;
+        for _ in 0..3000 {
+            let mut s = String::new();
+            for _ in 0..(e % 40) {
+                e ^= e << 13;
+                e ^= e >> 7;
+                e ^= e << 17;
+                s.push_str(BOUTS[(e >> 33) as usize % BOUTS.len()]);
+            }
+            let d = complet(&s);
+            assert_eq!(d.paras.len(), d.formats.len(), "{s:?}");
+            for p in &d.paras {
+                for r in p.runs() {
+                    if let Some(n) = r.note() {
+                        assert!(n >= 1 && n <= d.notes.len(), "{s:?}");
+                    }
+                }
+            }
+            let _ = document(&s, &Values::default());
+            let _ = modifier_attributs(&s, s.len() / 3, s.len() / 2, &|mut a| {
+                a.format.avant = Some(3.0);
+                a
+            });
+        }
     }
 }

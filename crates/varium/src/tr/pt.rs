@@ -98,6 +98,20 @@ pub static T: &[(&str, &str)] = &[
         "Actualiser les tableaux croisés",
         "Atualizar as tabelas dinâmicas",
     ),
+    ("Adresse du code QR", "Endereço do código QR"),
+    ("Adresse du code QR ?", "Endereço do código QR?"),
+    (
+        "Adresse ou texte à coder (champs {{…}} acceptés) :",
+        "Endereço ou texto a codificar (campos {{…}} aceites):",
+    ),
+    (
+        "Adresse où retrouver la présentation (site, dossier partagé…) :",
+        "Endereço onde encontrar a apresentação (site, pasta partilhada…):",
+    ),
+    (
+        "Adresse vide ou trop longue pour un code QR",
+        "Endereço vazio ou demasiado longo para um código QR",
+    ),
     ("Affichage", "Ver"),
     (
         "Afficher / masquer l'inspecteur",
@@ -112,6 +126,7 @@ pub static T: &[(&str, &str)] = &[
         "Mostrar / ocultar a barra de estado",
     ),
     ("Afficher au démarrage", "Mostrar ao arrancar"),
+    ("Agrume", "Citrino"),
     ("Aide", "Ajuda"),
     ("Aide-mémoire des raccourcis", "Guia rápido de atalhos"),
     (
@@ -119,10 +134,26 @@ pub static T: &[(&str, &str)] = &[
         "Guia rápido de atalhos ({k})",
     ),
     ("Aires", "Áreas"),
+    ("Ajout", "Acréscimo"),
+    (
+        "Ajoute un commentaire sur le texte sélectionné",
+        "Adiciona um comentário ao texto selecionado",
+    ),
     ("Ajouter au dictionnaire", "Adicionar ao dicionário"),
     ("Ajouter comme nouvelle règle", "Adicionar como nova regra"),
+    ("Ajouter la diapositive", "Adicionar o diapositivo"),
     ("Ajouter la règle", "Adicionar a regra"),
+    ("Ajouter un commentaire", "Adicionar um comentário"),
     ("Ajuster à la largeur", "Ajustar à largura"),
+    (
+        "Album créé : {n} diapositive(s)",
+        "Álbum criado: {n} diapositivo(s)",
+    ),
+    (
+        "Album créé : {n} diapositive(s) ; ignorées : {liste}",
+        "Álbum criado: {n} diapositivo(s); ignorados: {liste}",
+    ),
+    ("Album photo", "Álbum de fotografias"),
     ("Alignement", "Alinhamento"),
     ("Aligner à droite", "Alinhar à direita"),
     ("Aligner à gauche", "Alinhar à esquerda"),
@@ -139,11 +170,16 @@ pub static T: &[(&str, &str)] = &[
         "Ir para o módulo Apresentação",
     ),
     ("Aller au mot", "Ir para a palavra"),
+    ("Aller au texte", "Ir para o texto"),
     ("Aller à ce titre", "Ir para este título"),
     ("Aller à la diapositive n", "Ir para o diapositivo n"),
     (
         "Aller à la diapositive {n} (Entrée)",
         "Ir para o diapositivo {n} (Enter)",
+    ),
+    (
+        "Alterner plein cadre et image encadrée",
+        "Alternar imagem em ecrã inteiro e emoldurada",
     ),
     ("Analyse rapide", "Análise rápida"),
     (
@@ -164,11 +200,13 @@ pub static T: &[(&str, &str)] = &[
         "Pré-visualização: {n} diapositivo(s), tema {theme}",
     ),
     ("Apparence", "Aparência"),
+    ("Apparence selon l'heure", "Aparência conforme a hora"),
     (
         "Après une panne, le document interrompu vous est proposé au lancement suivant.",
         "Após uma falha, o documento interrompido é-lhe proposto no arranque seguinte.",
     ),
     ("Arrière-plan", "Enviar para trás"),
+    ("Arrêter la lecture", "Parar a leitura"),
     ("Assistant de formule", "Assistente de fórmula"),
     (
         "Assistant de formule (Maj+F3)",
@@ -197,6 +235,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Aucun champ. Écrivez {{prénom}} dans le texte, ou utilisez « + Champ ».",
         "Nenhum campo. Escreva {{nome}} no texto ou utilize «+ Campo».",
+    ),
+    (
+        "Aucun commentaire ni aucune modification. Activez « Suivre les modifications » ou commentez une sélection.",
+        "Nenhum comentário nem alteração. Ative «Registar alterações» ou comente uma seleção.",
     ),
     (
         "Aucun dictionnaire importé.",
@@ -235,6 +277,14 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Aucune faute d'orthographe ✔", "Nenhum erro ortográfico ✔"),
     (
+        "Aucune image PNG ou JPEG dans ce dossier",
+        "Nenhuma imagem PNG ou JPEG nesta pasta",
+    ),
+    (
+        "Aucune modification ni aucun commentaire",
+        "Nenhuma alteração nem comentário",
+    ),
+    (
         "Aucune note pour cette diapositive.",
         "Sem notas para este diapositivo.",
     ),
@@ -244,7 +294,12 @@ pub static T: &[(&str, &str)] = &[
         "Nenhuma regra nesta folha.",
     ),
     ("Aucune suggestion", "Sem sugestões"),
+    (
+        "Aucune synthèse vocale trouvée : installez espeak-ng (ou speech-dispatcher), par exemple « sudo apt install espeak-ng »",
+        "Nenhuma síntese de voz encontrada: instale o espeak-ng (ou o speech-dispatcher), por exemplo «sudo apt install espeak-ng»",
+    ),
     ("Aujourd'hui", "Hoje"),
+    ("Auteur", "Autor"),
     ("Automatique", "Automático"),
     (
         "Automatique (selon la langue)",
@@ -252,6 +307,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Automatique (système)", "Automático (sistema)"),
     ("Autre fichier…", "Outro ficheiro…"),
+    (
+        "Avancer automatiquement après",
+        "Avançar automaticamente após",
+    ),
     (
         "Avancer automatiquement selon le minutage",
         "Avançar automaticamente segundo os intervalos",
@@ -289,6 +348,18 @@ pub static T: &[(&str, &str)] = &[
         "Este documento não tem campos para preencher. Escreva {{nome}} no texto para criar uma pergunta.",
     ),
     (
+        "Ce document n'a pas encore de champ, et Varium n'y a repéré ni date, ni montant, ni e-mail, ni nom répété. Écrivez des {{champs}} (F2) puis recommencez.",
+        "Este documento ainda não tem campos, e o Varium não encontrou datas, montantes, e-mails nem nomes repetidos. Escreva {{campos}} (F2) e tente de novo.",
+    ),
+    (
+        "Ce que vous tapez devient des ajouts et des suppressions proposés, à accepter ou refuser",
+        "O que escreve torna-se acréscimos e supressões propostos, para aceitar ou rejeitar",
+    ),
+    (
+        "Ce que vous tapez est marqué ; cliquez pour ouvrir le panneau",
+        "O que escreve fica marcado; clique para abrir o painel",
+    ),
+    (
         "Ce type de fichier n'est pas pris en charge",
         "Este tipo de ficheiro não é suportado",
     ),
@@ -315,6 +386,7 @@ pub static T: &[(&str, &str)] = &[
     ("Champ {{…}}…", "Campo {{…}}…"),
     ("Champs", "Campos"),
     ("Champs calculés", "Campos calculados"),
+    ("Champs et questions", "Campos e perguntas"),
     ("Champs {filled}/{vars}", "Campos {filled}/{vars}"),
     ("Champ…", "Campo…"),
     ("Chargement du dictionnaire…", "A carregar o dicionário…"),
@@ -360,7 +432,9 @@ pub static T: &[(&str, &str)] = &[
         "Cliquez pour insérer dans la cellule active. Les arguments se séparent par « ; ».",
         "Clique para inserir na célula ativa. Os argumentos separam-se com «;».",
     ),
+    ("Code QR", "Código QR"),
     ("Code QR…", "Código QR…"),
+    ("Code de {n} × {n} modules", "Código de {n} × {n} módulos"),
     ("Code source", "Código-fonte"),
     ("Coin décoratif", "Canto decorativo"),
     ("Collage spécial", "Colar especial"),
@@ -397,11 +471,16 @@ pub static T: &[(&str, &str)] = &[
         "Comme un article de journal : clair pour la plupart des lecteurs.",
         "Como um artigo de jornal: claro para a maioria dos leitores.",
     ),
+    ("Commentaire", "Comentário"),
+    ("Commentaires et modifications", "Comentários e alterações"),
+    ("Commenter", "Comentar"),
+    ("Commenter la sélection…", "Comentar a seleção…"),
     ("Comparaison", "Comparação"),
     ("Comparaison en cadres", "Comparação em caixas"),
     ("Comparer avec", "Comparar com"),
     ("Condition", "Condição"),
     ("Contenu", "Conteúdo"),
+    ("Continuer (Échap)", "Continuar (Esc)"),
     ("Contraste élevé", "Alto contraste"),
     ("Contrat", "Contrato"),
     (
@@ -456,10 +535,20 @@ pub static T: &[(&str, &str)] = &[
         "Création du dossier des dictionnaires impossible : {e}",
         "Não é possível criar a pasta dos dicionários: {e}",
     ),
+    ("Créer l'album", "Criar o álbum"),
     ("Créer la présentation", "Criar a apresentação"),
+    ("Créer le document ✔", "Criar o documento ✔"),
     (
         "Créer les {n} documents dans un seul fichier, une page par destinataire :",
         "Criar os {n} documentos num único ficheiro, uma página por destinatário:",
+    ),
+    (
+        "Créer un modèle à partir de ce document",
+        "Criar um modelo a partir deste documento",
+    ),
+    (
+        "Créer un modèle à partir de ce document…",
+        "Criar um modelo a partir deste documento…",
     ),
     ("Créer {n} champ(s)", "Criar {n} campo(s)"),
     ("Ctrl+D", "Ctrl+D"),
@@ -489,6 +578,10 @@ pub static T: &[(&str, &str)] = &[
         "Livros prontos a usar, com fórmulas, formatação e gráficos.",
     ),
     (
+        "Des dates, montants, e-mails ou noms qui reviennent : Varium peut en faire des {{champs}}",
+        "Datas, montantes, e-mails ou nomes que se repetem: o Varium pode torná-los {{campos}}",
+    ),
+    (
         "Des lignes pour prendre des notes",
         "Linhas para tomar notas",
     ),
@@ -501,6 +594,7 @@ pub static T: &[(&str, &str)] = &[
         "Esquemas para este diapositivo, escolhidos segundo o conteúdo. Clique para aplicar (Ctrl+Z para voltar).",
     ),
     ("Descendre", "Mover para baixo"),
+    ("Description", "Descrição"),
     ("Deux colonnes", "Duas colunas"),
     ("Devis", "Orçamento"),
     ("Diaporama", "Projeção"),
@@ -508,6 +602,8 @@ pub static T: &[(&str, &str)] = &[
     ("Diapositive", "Diapositivo"),
     ("Diapositive précédente", "Diapositivo anterior"),
     ("Diapositive suivante", "Diapositivo seguinte"),
+    ("Diapositive « Partager »", "Diapositivo «Partilhar»"),
+    ("Diapositive « Partager »…", "Diapositivo «Partilhar»…"),
     ("Diapositives par page", "Diapositivos por página"),
     (
         "Dictionnaire Hunspell ou extension LibreOffice",
@@ -538,6 +634,10 @@ pub static T: &[(&str, &str)] = &[
     ("Disposition", "Esquema"),
     ("Document", "Documento"),
     ("Document actuel", "Documento atual"),
+    (
+        "Document créé depuis « {name} » · Ctrl+Z pour revenir",
+        "Documento criado a partir de «{name}» · Ctrl+Z para voltar",
+    ),
     ("Document de présentation", "Folhetos"),
     ("Document de présentation (PDF)…", "Folhetos (PDF)…"),
     (
@@ -547,6 +647,10 @@ pub static T: &[(&str, &str)] = &[
     ("Document vierge", "Documento em branco"),
     ("Document → Présentation", "Documento → Apresentação"),
     ("Documents", "Documentos"),
+    (
+        "Documents (Varium, Word, OpenDocument, texte)",
+        "Documentos (Varium, Word, OpenDocument, texto)",
+    ),
     ("Documents récents", "Documentos recentes"),
     (
         "Documents, classeurs et présentations, dans tous les formats pris en charge",
@@ -555,6 +659,7 @@ pub static T: &[(&str, &str)] = &[
     ("Données", "Dados"),
     ("Données : {range}", "Dados: {range}"),
     ("Données : {source}", "Dados: {source}"),
+    ("Dossier d'images de l'album", "Pasta de imagens do álbum"),
     ("Dossier des images", "Pasta das imagens"),
     ("Double", "Duplo"),
     ("Dupliquer", "Duplicar"),
@@ -565,12 +670,18 @@ pub static T: &[(&str, &str)] = &[
         "Tempo de apresentação para o avanço automático (ver «Ensaiar intervalos»)",
     ),
     (
+        "Durée d'une diapositive sans minutage",
+        "Duração de um diapositivo sem tempo definido",
+    ),
+    (
         "Durée totale : {total}. Enregistrer ce minutage dans la présentation ?",
         "Duração total: {total}. Guardar estes intervalos na apresentação?",
     ),
+    ("Début", "Início"),
     ("Défilement machine à écrire", "Rolagem máquina de escrever"),
     ("Définir", "Definir"),
     ("Définir…", "Definir…"),
+    ("Dégradé", "Gradiente"),
     (
         "Déposer pour insérer l'image dans la diapositive",
         "Largue para inserir a imagem no diapositivo",
@@ -617,6 +728,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Enregistrer la règle", "Guardar a regra"),
     ("Enregistrer le minutage", "Guardar os intervalos"),
+    (
+        "Enregistrer le modèle ({n} questions)",
+        "Guardar o modelo ({n} perguntas)",
+    ),
     ("Enregistrer le nom", "Guardar o nome"),
     ("Enregistrer les modifications ?", "Guardar as alterações?"),
     ("Enregistrer sous", "Guardar como"),
@@ -644,6 +759,10 @@ pub static T: &[(&str, &str)] = &[
         "Exemplos: «média de B», «quantos clientes», «máximo das vendas», «total de vendas por região».",
     ),
     ("Exporter", "Exportar"),
+    (
+        "Exporter avec les marques (sinon : version finale)",
+        "Exportar com as marcas (caso contrário: versão final)",
+    ),
     ("Exporter en EPUB", "Exportar em EPUB"),
     ("Exporter en HTML…", "Exportar em HTML…"),
     ("Exporter en PDF", "Exportar como PDF"),
@@ -700,6 +819,7 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Filtres", "Filtros"),
     ("Filtres disponibles", "Filtros disponíveis"),
+    ("Fin", "Fim"),
     ("Fin du diaporama", "Fim da apresentação"),
     ("Finances", "Finanças"),
     ("Flèche", "Seta"),
@@ -724,6 +844,7 @@ pub static T: &[(&str, &str)] = &[
         "Formules, sans la mise en forme",
         "Fórmulas, sem formatação",
     ),
+    ("Forêt", "Floresta"),
     ("Français (France)", "Francês (França)"),
     ("G", "N"),
     (
@@ -749,6 +870,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Glissez les champs dans les zones, ou utilisez le bouton +.",
         "Arraste os campos para as zonas ou use o botão +.",
+    ),
+    (
+        "Glissez un document Word (.docx) ou LibreOffice (.odt) sur la fenêtre : il s'ouvre dans Documents.",
+        "Arraste um documento Word (.docx) ou LibreOffice (.odt) para a janela: abre-se em Documentos.",
     ),
     (
         "Glissez un fichier sur la fenêtre : il s'ouvre tout seul dans Documents, Classeur ou Présentation.",
@@ -826,6 +951,7 @@ pub static T: &[(&str, &str)] = &[
     ("Insérer", "Inserir"),
     ("Insérer cette signature", "Inserir esta assinatura"),
     ("Insérer en euros", "Inserir em euros"),
+    ("Insérer le code QR", "Inserir o código QR"),
     ("Insérer un champ", "Inserir um campo"),
     ("Insérer un champ calculé", "Inserir um campo calculado"),
     (
@@ -895,12 +1021,20 @@ pub static T: &[(&str, &str)] = &[
         "A apresentação já está harmoniosa",
     ),
     (
+        "La synthèse vocale ({moteur}) a échoué : vérifiez qu'elle fonctionne et qu'une voix est installée pour cette langue",
+        "A síntese de voz ({moteur}) falhou: verifique se funciona e se há uma voz instalada para esta língua",
+    ),
+    (
         "La sélection du classeur est vide",
         "A seleção da folha de cálculo está vazia",
     ),
     ("La valeur de la cellule est…", "O valor da célula é…"),
     ("LaTeX (.tex)", "LaTeX (.tex)"),
     ("LaTeX (.tex)…", "LaTeX (.tex)…"),
+    (
+        "Laissez vide pour remplir plus tard.",
+        "Deixe vazio para preencher mais tarde.",
+    ),
     (
         "Lancer le diaporama (F5 ; Maj+F5 depuis la diapositive actuelle)",
         "Iniciar a apresentação (F5; Shift+F5 a partir do diapositivo atual)",
@@ -917,6 +1051,14 @@ pub static T: &[(&str, &str)] = &[
     (
         "Le champ prend la même valeur partout où il apparaît.",
         "O campo tem o mesmo valor em todos os sítios onde aparece.",
+    ),
+    (
+        "Le diaporama s'arrêtera et Varium réapparaîtra.",
+        "A apresentação vai parar e o Varium reaparecerá.",
+    ),
+    (
+        "Le diaporama tourne en boucle, plein écran, sans commandes : idéal pour un stand ou une vitrine.",
+        "A apresentação repete-se em ciclo, em ecrã inteiro, sem comandos: ideal para um stand ou uma montra.",
     ),
     (
         "Le document actuel reste récupérable avec Annuler (Ctrl+Z).",
@@ -942,6 +1084,7 @@ pub static T: &[(&str, &str)] = &[
         "Le publipostage produit une lettre par ligne d'un tableau CSV, sans rien recopier.",
         "A impressão em série produz uma carta por linha de uma tabela CSV, sem copiar nada.",
     ),
+    ("Le soir, passer en", "À noite, mudar para"),
     ("Le texte commence par…", "O texto começa por…"),
     ("Le texte contient…", "O texto contém…"),
     ("Le texte finit par…", "O texto termina em…"),
@@ -949,11 +1092,23 @@ pub static T: &[(&str, &str)] = &[
         "Le texte ne peut contenir ni « }} » ni retour à la ligne.",
         "O texto não pode conter “}}” nem quebras de linha.",
     ),
+    (
+        "Le thème choisi ci-dessus ne vaut alors que pour le module affiché",
+        "O tema escolhido acima aplica-se então apenas ao módulo apresentado",
+    ),
     ("Lecture", "Leitura"),
     ("Lecture impossible : {e}", "Não é possível ler: {e}"),
     (
+        "Lecture impossible avec {moteur} : {e}",
+        "Não é possível ler com {moteur}: {e}",
+    ),
+    (
         "Lecture impossible de « {p} » : {e}",
         "Não é possível ler «{p}»: {e}",
+    ),
+    (
+        "Lecture à voix haute · la phrase lue est surlignée",
+        "Leitura em voz alta · a frase lida fica realçada",
     ),
     ("Les N plus grandes valeurs", "Os N valores maiores"),
     ("Les N plus petites valeurs", "Os N valores menores"),
@@ -974,8 +1129,20 @@ pub static T: &[(&str, &str)] = &[
         "Les règles s'appliquent dans l'ordre : la première condition vérifiée donne son style ; les échelles de couleurs et les barres de données s'y ajoutent.",
         "As regras aplicam-se por ordem: a primeira condição verificada dá o seu estilo; as escalas de cores e as barras de dados juntam-se.",
     ),
+    (
+        "Les valeurs choisies deviennent des champs vides, et chacun reçoit une question. « Nouveau à partir d'un modèle » posera ces questions une à une pour écrire un nouveau document.",
+        "Os valores escolhidos tornam-se campos vazios, cada um com uma pergunta. «Novo a partir de um modelo» fará estas perguntas uma a uma para escrever um novo documento.",
+    ),
+    (
+        "Les visiteurs peuvent avancer ou reculer (flèches, clic). Pour sortir : Échap, puis confirmer.",
+        "Os visitantes podem avançar ou recuar (setas, clique). Para sair: Esc e confirmar.",
+    ),
     ("Lettre", "Carta"),
     ("Lettre US", "Carta EUA"),
+    (
+        "Lettres types et modèles intelligents",
+        "Cartas-modelo e modelos inteligentes",
+    ),
     (
         "Lettres, chiffres, _ . - (sans espace)",
         "Letras, algarismos, _ . - (sem espaços)",
@@ -993,6 +1160,8 @@ pub static T: &[(&str, &str)] = &[
     ("Ligne horizontale", "Linha horizontal"),
     ("Lignes", "Linhas"),
     ("Lignes (avec l'en-tête)", "Linhas (com o cabeçalho)"),
+    ("Linéaire", "Linear"),
+    ("Lire à voix haute", "Ler em voz alta"),
     ("Lisibilité", "Legibilidade"),
     ("Liste des fonctions", "Lista de funções"),
     ("Liste numérotée", "Lista numerada"),
@@ -1001,6 +1170,10 @@ pub static T: &[(&str, &str)] = &[
     ("Livre numérique (.epub)", "Livro eletrónico (.epub)"),
     ("Logique", "Lógica"),
     ("Légal US", "Legal EUA"),
+    (
+        "Légende tirée du nom du fichier",
+        "Legenda a partir do nome do ficheiro",
+    ),
     (
         "MPL 2.0 (Grammalecte, dictionnaire « Classique »)",
         "MPL 2.0 (Grammalecte, dicionário «Clássico»)",
@@ -1019,6 +1192,7 @@ pub static T: &[(&str, &str)] = &[
     ("Marquer cette version…", "Marcar esta versão…"),
     ("Marquer l'état actuel…", "Marcar o estado atual…"),
     ("Marquée", "Marcada"),
+    ("Masquer", "Ocultar"),
     ("Masquer Varium", "Ocultar Varium"),
     ("Masquer les autres", "Ocultar outros"),
     ("Mathématiques", "Matemática"),
@@ -1031,6 +1205,7 @@ pub static T: &[(&str, &str)] = &[
     ("Mettre à jour (BCE)", "Atualizar (BCE)"),
     ("Min : {v}", "Mín.: {v}"),
     ("Minimum", "Mínimo"),
+    ("Minuit", "Meia-noite"),
     ("Minutage", "Intervalo"),
     ("Minutage enregistré", "Intervalos guardados"),
     ("Minutage répété", "Intervalos ensaiados"),
@@ -1052,6 +1227,8 @@ pub static T: &[(&str, &str)] = &[
         "Modo de concentração · Esc para sair",
     ),
     ("Mode diapositives", "Vista de diapositivos"),
+    ("Mode kiosque", "Modo quiosque"),
+    ("Mode kiosque…", "Modo quiosque…"),
     ("Mode plan", "Vista de destaques"),
     ("Mode présentateur", "Consola do apresentador"),
     (
@@ -1062,11 +1239,17 @@ pub static T: &[(&str, &str)] = &[
         "Mode présentateur à partir d'ici",
         "Consola do apresentador a partir daqui",
     ),
+    ("Modifications", "Alterações"),
     ("Modifier la cellule", "Editar a célula"),
     ("Modifier la règle {v}", "Modificar a regra {v}"),
     (
         "Modèle avec ses {{champs}}",
         "Modelo com os seus {{campos}}",
+    ),
+    ("Modèle supprimé", "Modelo eliminado"),
+    (
+        "Modèle « {name} » ajouté à vos modèles : accueil et Fichier → Nouveau à partir d'un modèle",
+        "Modelo «{name}» adicionado aos seus modelos: início e Ficheiro → Novo a partir de um modelo",
     ),
     ("Modèle « {name} » ouvert", "Modelo «{name}» aberto"),
     (
@@ -1074,6 +1257,7 @@ pub static T: &[(&str, &str)] = &[
         "Modelo «{name}» aberto, valores mantidos",
     ),
     ("Modèles", "Modelos"),
+    ("Mon modèle", "O meu modelo"),
     ("Monnaie de référence :", "Moeda de referência:"),
     ("Montant", "Montante"),
     ("Monter", "Mover para cima"),
@@ -1104,6 +1288,7 @@ pub static T: &[(&str, &str)] = &[
         "Não voltar a assinalar esta palavra neste documento",
     ),
     ("Nom", "Nome"),
+    ("Nom du modèle", "Nome do modelo"),
     (
         "Nom invalide (lettres, chiffres, _ . -)",
         "Nome inválido (letras, algarismos, _ . -)",
@@ -1143,6 +1328,10 @@ pub static T: &[(&str, &str)] = &[
     ("Nouvelle feuille", "Nova folha"),
     ("Nouvelle présentation", "Nova apresentação"),
     (
+        "Nouvelle présentation depuis un dossier d'images…",
+        "Nova apresentação a partir de uma pasta de imagens…",
+    ),
+    (
         "Nouvelle présentation depuis un texte",
         "Nova apresentação a partir de um texto",
     ),
@@ -1176,6 +1365,7 @@ pub static T: &[(&str, &str)] = &[
         "OpenDocument Texte (.odt) — LibreOffice",
         "Texto OpenDocument (.odt) — LibreOffice",
     ),
+    ("OpenDocument texte (.odt)", "Texto OpenDocument (.odt)"),
     ("Opérateur", "Operador"),
     (
         "Opérations + − × ÷, parenthèses, pourcentages (20%) et fonctions arrondi(x; 2), min, max, somme.",
@@ -1203,11 +1393,16 @@ pub static T: &[(&str, &str)] = &[
         "Ferramentas → Contagem de palavras",
     ),
     (
+        "Outils → Révision → Suivre les modifications : vos ajouts et suppressions sont marqués, à accepter ou refuser.",
+        "Ferramentas → Revisão → Registar alterações: os seus acréscimos e supressões ficam marcados, para aceitar ou rejeitar.",
+    ),
+    (
         "Ouverture impossible de « {name} » : {e}",
         "Não é possível abrir «{name}»: {e}",
     ),
     ("Ouvrir", "Abrir"),
     ("Ouvrir un classeur", "Abrir uma folha de cálculo"),
+    ("Ouvrir un document", "Abrir um documento"),
     ("Ouvrir un document Varium", "Abrir um documento Varium"),
     (
         "Ouvrir un fichier (tous formats)…",
@@ -1269,6 +1464,8 @@ pub static T: &[(&str, &str)] = &[
         "Passer le contenu d'un module à un autre",
         "Passar o conteúdo de um módulo para outro",
     ),
+    ("Pause", "Pausa"),
+    ("Pause / reprendre la lecture", "Pausar / retomar a leitura"),
     ("Paysage", "Paisagem"),
     ("Pendant le diaporama", "Durante a apresentação"),
     (
@@ -1350,18 +1547,22 @@ pub static T: &[(&str, &str)] = &[
     ("Présenter à partir d'ici", "Projetar a partir daqui"),
     ("Publipostage", "Impressão em série"),
     ("Publipostage…", "Impressão em série…"),
+    ("Question {i} sur {n}", "Pergunta {i} de {n}"),
     ("Questions ?", "Perguntas?"),
     ("Questions fréquentes :", "Perguntas frequentes:"),
     ("Questions fréquentes…", "Perguntas frequentes…"),
     ("Quitter", "Sair"),
+    ("Quitter (Entrée)", "Sair (Enter)"),
     ("Quitter (Échap)", "Sair (Esc)"),
     ("Quitter Varium", "Sair do Varium"),
     ("Quitter le diaporama", "Sair da apresentação"),
+    ("Quitter le mode kiosque ?", "Sair do modo quiosque?"),
     ("Raccourcis clavier", "Atalhos de teclado"),
     (
         "Raccourcis clavier — {module}",
         "Atalhos de teclado — {module}",
     ),
+    ("Radial", "Radial"),
     ("Rallumer l'écran (B)", "Voltar a ligar o ecrã (B)"),
     ("Recherche", "Pesquisa"),
     ("Rechercher", "Localizar"),
@@ -1382,10 +1583,12 @@ pub static T: &[(&str, &str)] = &[
     ("Recopier à droite", "Preencher para a direita"),
     ("Rectangle", "Retângulo"),
     ("Rectangle arrondi", "Retângulo arredondado"),
+    ("Redémarrer après inactivité", "Recomeçar após inatividade"),
     (
         "Relevé bancaire (CSV, OFX, QIF)",
         "Extrato bancário (CSV, OFX, QIF)",
     ),
+    ("Remplacement", "Substituição"),
     ("Remplacement du document", "Substituição do documento"),
     ("Remplacer", "Substituir"),
     ("Remplacer par", "Substituir por"),
@@ -1414,6 +1617,7 @@ pub static T: &[(&str, &str)] = &[
     ("Renommer", "Mudar o nome"),
     ("Renommer partout", "Mudar o nome em todo o lado"),
     ("Renvoyer à la ligne", "Moldar texto"),
+    ("Reprendre", "Retomar"),
     ("Respecter la casse", "Diferenciar maiúsculas/minúsculas"),
     ("Restaurer", "Restaurar"),
     ("Restaurer cette version", "Restaurar esta versão"),
@@ -1421,20 +1625,27 @@ pub static T: &[(&str, &str)] = &[
         "Restaurer la sauvegarde de secours ?",
         "Restaurar a cópia de segurança?",
     ),
+    (
+        "Retire le commentaire, garde le texte",
+        "Retira o comentário e mantém o texto",
+    ),
     ("Retirer", "Remover"),
     ("Retirer l'objectif", "Remover a meta"),
     ("Retirer le filtre automatique", "Remover filtro automático"),
     ("Retrait à droite", "Recuo à direita"),
     ("Retrait à gauche", "Recuo à esquerda"),
+    ("Retrouvez cette présentation", "Encontre esta apresentação"),
     ("Revenir au module ouvert", "Voltar ao módulo aberto"),
     ("Revenir au texte (Échap)", "Voltar ao texto (Esc)"),
     ("Revenir à l'affichage habituel", "Voltar à vista habitual"),
     ("Rien", "Nada"),
+    ("Rien à lire ici", "Nada para ler aqui"),
     (
         "Rien à proposer : ni date, ni montant, ni e-mail, ni téléphone, ni nom répété.",
         "Nada a propor: nem data, nem montante, nem e-mail, nem telefone, nem nome repetido.",
     ),
     ("Rose", "Rosa"),
+    ("Rotation", "Rotação"),
     ("Règles de catégories", "Regras de categorias"),
     ("Règles de catégories…", "Regras de categorias…"),
     ("Règles par défaut", "Regras predefinidas"),
@@ -1444,8 +1655,13 @@ pub static T: &[(&str, &str)] = &[
         "Répondez aux questions : la page se remplit à mesure. Tab passe à la question suivante.",
         "Responda às perguntas: a página vai sendo preenchida. Tab passa à pergunta seguinte.",
     ),
+    (
+        "Répondez à quelques questions, Varium écrit le document. Vos propres modèles : Fichier → Créer un modèle à partir de ce document.",
+        "Responda a algumas perguntas e o Varium escreve o documento. Os seus modelos: Ficheiro → Criar um modelo a partir deste documento.",
+    ),
     ("Répéter le minutage", "Ensaiar intervalos"),
     ("Répétition", "Repetição"),
+    ("Résoudre", "Resolver"),
     ("Résultat : {v}", "Resultado: {v}"),
     (
         "Résultat avec les valeurs actuelles : {v}",
@@ -1489,6 +1705,10 @@ pub static T: &[(&str, &str)] = &[
     ("Signature", "Assinatura"),
     ("Signatures enregistrées", "Assinaturas guardadas"),
     ("Signature…", "Assinatura…"),
+    (
+        "Signé « {auteur} » · le nom se change dans l'inspecteur, onglet Modifications",
+        "Assinado «{auteur}» · o nome muda-se no inspetor, separador Alterações",
+    ),
     ("Simple", "Simples"),
     ("Site de Varium", "Site do Varium"),
     ("Sombre", "Escuro"),
@@ -1513,9 +1733,21 @@ pub static T: &[(&str, &str)] = &[
     ("Stylo (1 à 4 : couleur)", "Caneta (1 a 4: cor)"),
     ("Suggestions…", "Sugestões…"),
     ("Suivant", "Seguinte"),
+    ("Suivant ▶", "Seguinte ▶"),
     ("Suivante ▶", "Seguinte ▶"),
+    (
+        "Suivi des modifications activé · signé « {auteur} »",
+        "Registo de alterações ativado · assinado «{auteur}»",
+    ),
+    (
+        "Suivi des modifications désactivé",
+        "Registo de alterações desativado",
+    ),
+    ("Suivre les modifications", "Registar alterações"),
     ("Suppr", "Del"),
+    ("Suppression", "Supressão"),
     ("Supprimer", "Eliminar"),
+    ("Supprimer ce modèle", "Eliminar este modelo"),
     ("Supprimer l'objet", "Eliminar o objeto"),
     ("Supprimer la colonne", "Eliminar a coluna"),
     ("Supprimer la diapositive", "Eliminar o diapositivo"),
@@ -1528,6 +1760,10 @@ pub static T: &[(&str, &str)] = &[
         "Passe sobre uma opção para a pré-visualizar na folha; clique para a aplicar.",
     ),
     ("Sélection actuelle", "Seleção atual"),
+    (
+        "Sélectionne la marque dans le texte",
+        "Seleciona a marca no texto",
+    ),
     (
         "Sélectionner sur la feuille : cliquez ou faites glisser dans la grille",
         "Selecionar na folha: clique ou arraste na grelha",
@@ -1640,10 +1876,12 @@ pub static T: &[(&str, &str)] = &[
         "Tout (contenu et mise en forme)",
         "Tudo (conteúdo e formatação)",
     ),
+    ("Tout accepter", "Aceitar tudo"),
     ("Tout afficher", "Mostrar tudo"),
     ("Tout corriger", "Corrigir tudo"),
     ("Tout corriger ({fixable})", "Corrigir tudo ({fixable})"),
     ("Tout ramener au premier plan", "Trazer tudo para a frente"),
+    ("Tout refuser", "Rejeitar tudo"),
     ("Tout remplacer", "Substituir tudo"),
     ("Tout sélectionner", "Selecionar tudo"),
     (
@@ -1713,6 +1951,14 @@ pub static T: &[(&str, &str)] = &[
         "Um documento. Todas as suas possibilidades.",
     ),
     (
+        "Un thème différent pour chaque module",
+        "Um tema diferente para cada módulo",
+    ),
+    (
+        "Une diapositive par image, classées par date de prise de vue (sinon par nom).",
+        "Um diapositivo por imagem, ordenados pela data da fotografia (senão pelo nome).",
+    ),
+    (
         "Une fenêtre pour le public (à glisser sur le projecteur, F pour le plein écran), les notes, la suivante et le chronomètre ici",
         "Uma janela para o público (a arrastar para o projetor, F para ecrã inteiro); aqui, as notas, o seguinte e o cronómetro",
     ),
@@ -1754,6 +2000,10 @@ pub static T: &[(&str, &str)] = &[
         "O Varium encontrou valores que podem tornar-se campos {{…}}: depois preenchem-se uma só vez, ou a partir de uma folha de cálculo, para todos os documentos do mesmo tipo.",
     ),
     (
+        "Varium pose les questions, puis écrit le document. Vos modèles se créent avec Fichier → Créer un modèle à partir de ce document.",
+        "O Varium faz as perguntas e depois escreve o documento. Os seus modelos criam-se com Ficheiro → Criar um modelo a partir deste documento.",
+    ),
+    (
         "Varium s'est arrêté sans que « {title} » soit enregistré. Une sauvegarde automatique plus récente existe.",
         "O Varium terminou sem que «{title}» fosse guardado. Existe uma cópia de segurança automática mais recente.",
     ),
@@ -1775,6 +2025,9 @@ pub static T: &[(&str, &str)] = &[
     ("Vert", "Verde"),
     ("Vide", "Vazio"),
     ("Vignettes des pages", "Miniaturas das páginas"),
+    ("Votre nom", "O seu nome"),
+    ("Votre remarque…", "A sua observação…"),
+    ("Votre réponse…", "A sua resposta…"),
     ("Vérifier pendant la frappe", "Verificar durante a escrita"),
     ("Word (.docx)", "Word (.docx)"),
     ("Word (.docx)…", "Word (.docx)…"),
@@ -1806,6 +2059,10 @@ pub static T: &[(&str, &str)] = &[
     ("citation", "citação"),
     ("coche", "visto"),
     ("commence par", "começa com"),
+    (
+        "commentaire sur un passage (absent des exports)",
+        "comentário sobre um excerto (ausente das exportações)",
+    ),
     ("comprise entre", "entre"),
     (
         "connexion au serveur impossible",
@@ -1850,6 +2107,7 @@ pub static T: &[(&str, &str)] = &[
         "ex. {{entreprise}} — Confidentiel",
         "ex. {{empresa}} — Confidencial",
     ),
+    ("facultative", "opcional"),
     ("faux", "falso"),
     ("fichier", "ficheiro"),
     (
@@ -1922,6 +2180,10 @@ pub static T: &[(&str, &str)] = &[
         "mise en page ou titre modifiés",
         "paginação ou título alterados",
     ),
+    (
+        "modification suivie (Outils → Révision)",
+        "alteração registada (Ferramentas → Revisão)",
+    ),
     ("moins {x}", "menos {x}"),
     ("moyenne de {all}", "média de {all}"),
     (
@@ -1956,6 +2218,7 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("non comprise entre", "não compreendida entre"),
     ("non précisée", "não indicada"),
+    ("ou une autre réponse…", "ou outra resposta…"),
     ("ou une autre valeur…", "ou outro valor…"),
     ("oui", "sim"),
     ("par défaut", "predefinida"),
@@ -1969,6 +2232,10 @@ pub static T: &[(&str, &str)] = &[
     ("points-virgules", "pontos e vírgulas"),
     ("portugais", "português"),
     ("position de {a} dans {b}", "posição de {a} em {b}"),
+    (
+        "pour les métadonnées des exports",
+        "para os metadados das exportações",
+    ),
     ("produit de {all}", "produto de {all}"),
     (
         "prénom, montant, date_rdv…",
@@ -1984,6 +2251,7 @@ pub static T: &[(&str, &str)] = &[
         "remboursement d'un emprunt de {c} au taux {a} sur {b} périodes",
         "prestação de um empréstimo de {c} à taxa {a} em {b} períodos",
     ),
+    ("remplacement proposé", "substituição proposta"),
     (
         "reste de la division de {a} par {b}",
         "resto da divisão de {a} por {b}",
@@ -2202,10 +2470,23 @@ pub static T: &[(&str, &str)] = &[
         "{n} diapositivo(s) harmonizado(s)",
     ),
     (
+        "{n} image(s) dans « {dossier} »",
+        "{n} imagem(ns) em «{dossier}»",
+    ),
+    (
         "{n} image(s) enregistrée(s) dans {dossier}",
         "{n} imagem(ns) guardada(s) em {dossier}",
     ),
     ("{n} ko", "{n} KB"),
+    ("{n} marque(s)", "{n} marca(s)"),
+    (
+        "{n} marque(s) acceptée(s) · Ctrl+Z pour annuler",
+        "{n} marca(s) aceite(s) · Ctrl+Z para anular",
+    ),
+    (
+        "{n} marque(s) refusée(s) · Ctrl+Z pour annuler",
+        "{n} marca(s) rejeitada(s) · Ctrl+Z para anular",
+    ),
     ("{n} masqué(s)", "{n} oculto(s)"),
     ("{n} min", "{n} min"),
     ("{n} mots", "{n} palavras"),
@@ -2218,6 +2499,8 @@ pub static T: &[(&str, &str)] = &[
         "{n} opérations importées de « {name} »",
         "{n} movimentos importados de «{name}»",
     ),
+    ("{n} photo(s)", "{n} fotografia(s)"),
+    ("{n} questions", "{n} perguntas"),
     ("{n} remarques", "{n} observações"),
     ("{n} réponse(s) à vérifier", "{n} resposta(s) a verificar"),
     ("{n} s", "{n} s"),
@@ -2277,6 +2560,14 @@ pub static T: &[(&str, &str)] = &[
         "«{name}»: o Varium exporta para Word e OpenDocument texto, mas ainda não os consegue abrir",
     ),
     (
+        "« {name} » : ce format ne s'ouvre pas encore ; enregistrez-le en .docx ou en .odt depuis Word, LibreOffice ou Pages",
+        "«{name}»: este formato ainda não abre; guarde-o em .docx ou .odt a partir do Word, LibreOffice ou Pages",
+    ),
+    (
+        "« {name} » : type de fichier non pris en charge (documents .varium.json, .docx, .odt, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
+        "«{name}»: tipo de ficheiro não suportado (documentos .varium.json, .docx, .odt, .md, .txt; folhas .xlsx, .ods, .csv; apresentações .odp, .pptx)",
+    ),
+    (
         "« {name} » : type de fichier non pris en charge (documents .varium.json, .md, .txt ; classeurs .xlsx, .ods, .csv ; présentations .odp, .pptx)",
         "«{name}»: tipo de ficheiro não suportado (documentos .varium.json, .md, .txt; folhas de cálculo .xlsx, .ods, .csv; apresentações .odp, .pptx)",
     ),
@@ -2303,6 +2594,10 @@ pub static T: &[(&str, &str)] = &[
         "«{name}» não contém nenhuma linha de dados",
     ),
     ("« {name} » ouvert", "«{name}» aberto"),
+    (
+        "« {name} » ouvert et converti · Enregistrer crée un document Varium, l'original n'est pas modifié",
+        "«{name}» aberto e convertido · Guardar cria um documento Varium, o original não é alterado",
+    ),
     (
         "« {path} » est introuvable (déplacé ou supprimé)",
         "«{path}» não foi encontrado (movido ou eliminado)",
@@ -2415,8 +2710,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("⏸ Pause", "⏸ Pausa"),
     ("▦ Tableau", "▦ Tabela"),
+    ("▶ Lancer le kiosque", "▶ Iniciar o quiosque"),
     ("▶ Présenter", "▶ Apresentar"),
     ("▶ Reprendre", "▶ Retomar"),
+    ("◀ Précédent", "◀ Anterior"),
     ("◀ Précédente", "◀ Anterior"),
     ("☰ Plan", "☰ Destaques"),
     (
@@ -2424,28 +2721,37 @@ pub static T: &[(&str, &str)] = &[
         "⚡ Preenchimento relâmpago: {n} células sugeridas — Enter para aceitar, Esc para cancelar",
     ),
     ("✉ Publipostage", "✉ Impressão em série"),
+    ("✎ Suivi des modifications", "✎ Registo de alterações"),
     (
         "✏ Stylo — 1 à 4 : couleur, E : effacer, P : terminer",
         "✏ Caneta — 1 a 4: cor, E: apagar, P: terminar",
     ),
+    ("✔ Accepter", "✔ Aceitar"),
     ("✔ Dictionnaire {locale}", "✔ Dicionário {locale}"),
+    ("✔ Tout accepter", "✔ Aceitar tudo"),
     (
         "✔ Tout est rempli. Exportez le document (Fichier → Exporter) ou terminez.",
         "✔ Tudo preenchido. Exporte o documento (Ficheiro → Exportar) ou termine.",
     ),
     ("✔ colonne « {v} »", "✔ coluna «{v}»"),
+    ("✖ Refuser", "✖ Rejeitar"),
+    ("✖ Tout refuser", "✖ Rejeitar tudo"),
+    ("✨ 1 champ possible", "✨ 1 campo possível"),
     ("✨ Embellir", "✨ Estruturador"),
     ("✨ Embellir…", "✨ Estruturador…"),
+    ("✨ {n} champs possibles", "✨ {n} campos possíveis"),
     ("➕ Diapositive", "➕ Diapositivo"),
     ("⤓ Saut de page", "⤓ Quebra de página"),
     ("⤓ Télécharger", "⤓ Transferir"),
     ("⬟ Forme", "⬟ Forma"),
+    ("💬 Commenter la sélection", "💬 Comentar a seleção"),
     ("📂 Choisir un fichier CSV…", "📂 Escolher um ficheiro CSV…"),
     ("📅 Aujourd'hui", "📅 Hoje"),
     ("📅 Date du jour", "📅 Data de hoje"),
     ("📊 Graphique", "📊 Gráfico"),
     ("📊 Insérer avec un graphique", "📊 Inserir com um gráfico"),
     ("📝 Remplir le formulaire", "📝 Preencher o formulário"),
+    ("🔊 Phrase {i} sur {n}", "🔊 Frase {i} de {n}"),
     (
         "🔍 Cliquez sur la zone à agrandir (Z ou Échap pour annuler)",
         "🔍 Clique na zona a ampliar (Z ou Esc para cancelar)",

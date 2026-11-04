@@ -401,10 +401,8 @@ impl Object {
         if self.kind != ObjectKind::Image {
             self.media.clear();
         }
-        if self.kind == ObjectKind::Qr {
-            if self.text.chars().count() > 2400 {
-                self.text = self.text.chars().take(2400).collect();
-            }
+        if self.kind == ObjectKind::Qr && self.text.chars().count() > 2400 {
+            self.text = self.text.chars().take(2400).collect();
         }
         self
     }

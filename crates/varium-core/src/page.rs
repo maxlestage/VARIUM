@@ -160,3 +160,23 @@ impl PageSetup {
 pub fn pt_to_mm(pt: f32) -> f32 {
     pt * 25.4 / 72.0
 }
+
+#[cfg(all(test, feature = "serde"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auteur_retrocompatible() {
+        // Une mise en page enregistrée avant l'ajout de l'auteur se relit.
+        let ancienne = r#"{"paper":"a4","landscape":false,"font_size":11.0}"#;
+        let p: PageSetup = serde_json::from_str(ancienne).unwrap();
+        assert_eq!(p.auteur, "");
+        assert_eq!(p.font_size, 11.0);
+        let p = PageSetup {
+            auteur: "Zoé".into(),
+            ..PageSetup::default()
+        };
+        let relu: PageSetup = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(relu, p);
+    }
+}

@@ -260,6 +260,12 @@ pub struct Palette {
     pub math: Color32,
     pub heading: Color32,
     pub found: Color32,
+    /// Révision : ajouts, suppressions, commentaires et passages commentés.
+    pub ajout: Color32,
+    pub retrait: Color32,
+    pub commentaire: Color32,
+    pub commentaire_bg: Color32,
+    pub surligne: Color32,
 }
 
 impl Palette {
@@ -274,6 +280,11 @@ impl Palette {
                 math: Color32::from_rgb(0x81, 0xC9, 0x95),
                 heading: Color32::from_rgb(0xF2, 0xEE, 0xE8),
                 found: Color32::from_rgba_unmultiplied(0xF2, 0xC0, 0x4B, 90),
+                ajout: Color32::from_rgb(0x81, 0xC9, 0x95),
+                retrait: Color32::from_rgb(0xF2, 0x8B, 0x82),
+                commentaire: Color32::from_rgb(0xB8, 0xC7, 0xE0),
+                commentaire_bg: Color32::from_rgba_unmultiplied(0x8A, 0xB4, 0xF8, 28),
+                surligne: Color32::from_rgba_unmultiplied(0xF2, 0xC0, 0x4B, 60),
             }
         } else {
             Self {
@@ -285,6 +296,11 @@ impl Palette {
                 math: Color32::from_rgb(0x1E, 0x7A, 0x3C),
                 heading: Color32::from_rgb(0x10, 0x10, 0x10),
                 found: Color32::from_rgb(0xFF, 0xE0, 0x82),
+                ajout: Color32::from_rgb(0x1E, 0x7A, 0x3C),
+                retrait: Color32::from_rgb(0xB3, 0x26, 0x1E),
+                commentaire: Color32::from_rgb(0x3A, 0x55, 0x80),
+                commentaire_bg: Color32::from_rgb(0xEC, 0xF1, 0xF9),
+                surligne: Color32::from_rgb(0xFF, 0xF0, 0xB3),
             }
         }
     }
@@ -347,6 +363,74 @@ fn inline_marks(line: &str, protected: &dyn Fn(usize) -> bool) -> Vec<(usize, us
         }
     }
     active
+}
+
+/// Couleurs des marques de révision ; leurs délimiteurs sont protégés (le `~~` de
+/// `{~~…~~}` n'est pas un barré).
+fn marques_de_revision(src: &str, pal: &Palette, attrs: &mut [Attr], protected: &mut [bool]) {
+    use varium_core::critic::Genre;
+    let delim = |a: usize, b: usize, attrs: &mut [Attr], protected: &mut [bool]| {
+        for i in a..b.min(attrs.len()) {
+            attrs[i].color = pal.dim;
+            protected[i] = true;
+        }
+    };
+    for m in varium_core::critic::marques(src) {
+        let (debut, fin) = (m.plage.start, m.plage.end.min(src.len()));
+        let int = m.interieur.start.min(fin)..m.interieur.end.min(fin);
+        // Fin de la marque principale (le commentaire attaché suit).
+        let ferme = (int.end + 3).min(fin);
+        match m.genre {
+            Genre::Commentaire => {}
+            Genre::Substitution => {
+                let fleche = int.start.saturating_sub(2).max(debut);
+                delim(debut, debut + 3, attrs, protected);
+                delim(fleche, int.start, attrs, protected);
+                delim(int.end, ferme, attrs, protected);
+                for a in &mut attrs[(debut + 3).min(fleche)..fleche] {
+                    a.color = pal.retrait;
+                    a.strike = true;
+                }
+                for a in &mut attrs[int.clone()] {
+                    a.color = pal.ajout;
+                    a.underline = true;
+                }
+            }
+            g => {
+                delim(debut, int.start, attrs, protected);
+                delim(int.end, ferme, attrs, protected);
+                for a in &mut attrs[int.clone()] {
+                    match g {
+                        Genre::Ajout => {
+                            a.color = pal.ajout;
+                            a.underline = true;
+                        }
+                        Genre::Suppression => {
+                            a.color = pal.retrait;
+                            a.strike = true;
+                        }
+                        _ => a.bg = pal.surligne,
+                    }
+                }
+            }
+        }
+        // Commentaire (seul ou attaché) : en italique sur un fond bleuté.
+        let c0 = if m.genre == Genre::Commentaire {
+            debut
+        } else {
+            ferme
+        };
+        for (k, a) in attrs.iter_mut().enumerate().take(fin).skip(c0) {
+            a.italic = true;
+            a.bg = pal.commentaire_bg;
+            a.color = if k < c0 + 3 || k + 3 >= fin {
+                pal.dim
+            } else {
+                pal.commentaire
+            };
+            protected[k] = true;
+        }
+    }
 }
 
 /// La mise en page de la source pour l'éditeur.
@@ -412,6 +496,11 @@ pub fn highlight(
             attrs[i].color = pal.math;
             protected[i] = true;
         }
+    }
+
+    // Révision : {++ajout++}, {--retrait--}, {~~a~>b~~}, {==passage==}{>>remarque<<}
+    if varium_core::critic::a_des_marques(src) {
+        marques_de_revision(src, pal, &mut attrs, &mut protected);
     }
 
     // Lignes : préfixes de paragraphe, titres, marques de caractères
@@ -797,6 +886,9 @@ mod tests {
             "$x",
             "é **gras** {{v}} $y$ \\newpage",
             "-> c <-",
+            "{++a++}{>>M · 2026-01-01<<} {--b--} {~~c~>d~~} {==e==}{>>f<<} {>>g<<}",
+            "{++é++}{~~~>~~}{==",
+            "{~~é~>~~}",
         ] {
             let job = highlight(
                 s,

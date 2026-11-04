@@ -47,6 +47,12 @@ pub const TIPS: &[&str] = &[
     n_(
         "Le Classeur ouvre les fichiers Excel et LibreOffice, et les réenregistre dans les deux formats.",
     ),
+    n_(
+        "Glissez un document Word (.docx) ou LibreOffice (.odt) sur la fenêtre : il s'ouvre dans Documents.",
+    ),
+    n_(
+        "Outils → Révision → Suivre les modifications : vos ajouts et suppressions sont marqués, à accepter ou refuser.",
+    ),
 ];
 
 /// L'astuce à montrer à l'instant `t` (secondes), décalée de `offset`.
@@ -59,7 +65,8 @@ pub fn tip_index(t: f64, offset: i64) -> usize {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Choix {
     Nouveau(Module),
-    /// Un modèle de document (`templates::ALL`).
+    /// Un modèle de document : `templates::ALL`, puis les modèles intelligents
+    /// (`templates::intelligents`).
     Modele(usize),
     ExempleClasseur,
     ExemplePresentation,
@@ -216,6 +223,38 @@ impl Accueil {
             );
             if r.clicked() {
                 *choix = Some(Choix::ExemplePresentation);
+            }
+        });
+
+        // Lettres types et modèles de l'utilisateur : Varium pose les questions.
+        ui.add_space(22.0);
+        ui.label(
+            RichText::new(tr("Lettres types et modèles intelligents"))
+                .size(18.0)
+                .strong(),
+        );
+        ui.label(
+            RichText::new(tr(
+                "Répondez à quelques questions, Varium écrit le document. Vos propres modèles : Fichier → Créer un modèle à partir de ce document.",
+            ))
+            .weak(),
+        );
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(14.0, 14.0);
+            for (k, i) in templates::intelligents().iter().enumerate() {
+                let m = &i.modele;
+                let description = if m.description.is_empty() {
+                    trf!("{n} questions", n = m.questions.len())
+                } else {
+                    m.description.clone()
+                };
+                let r = carte(ui, &m.nom, &description, |ui, rect| {
+                    vignette_document(ui, rect, &m.icone, &m.projet.source)
+                });
+                if r.clicked() {
+                    *choix = Some(Choix::Modele(templates::ALL.len() + k));
+                }
             }
         });
 

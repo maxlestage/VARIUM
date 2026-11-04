@@ -132,6 +132,62 @@ pub const TEXTES: Textes = Textes {
             titre: "Una auténtica app para Mac",
             texte: "Menús en la barra superior, atajos con ⌘, icono propio, pantalla completa y modo concentración; también para Windows y Linux.",
         },
+        Item {
+            titre: "Paleta de comandos ⌘K",
+            texte: "Ctrl+K o ⌘K: escriba unas letras y lance cualquier comando de los tres módulos; F1 muestra la chuleta de atajos.",
+        },
+        Item {
+            titre: "Centro de inicio",
+            texte: "Plantillas, archivos recientes y consejos nada más abrir; un archivo arrastrado, o abierto con doble clic en el Finder o el Explorador, va al módulo adecuado.",
+        },
+        Item {
+            titre: "Relleno rápido",
+            texte: "Ctrl+E en Classeur: Varium adivina el resto de la columna a partir de un ejemplo, con autocompletado, pegado inteligente y análisis rápido.",
+        },
+        Item {
+            titre: "Tabla dinámica",
+            texte: "Arrastre las columnas a filas, columnas y valores: totales, medias y recuentos por grupo en un instante.",
+        },
+        Item {
+            titre: "Historial de versiones",
+            texte: "Cada guardado conserva una versión del documento; compárelas, con las diferencias resaltadas, y vuelva atrás con un clic.",
+        },
+        Item {
+            titre: "Códigos QR",
+            texte: "Un código QR en un documento o en una diapositiva, y una diapositiva «Compartir» con la dirección de la presentación.",
+        },
+        Item {
+            titre: "Embellecer y Armonizar",
+            texte: "Diseños propuestos según el contenido de la diapositiva y luego toda la presentación coherente, con diez temas.",
+        },
+        Item {
+            titre: "Modo presentador",
+            texte: "El público en el proyector y, para usted, las notas, la diapositiva siguiente, el cronómetro, el puntero láser, el lápiz y el zoom.",
+        },
+        Item {
+            titre: "Modo quiosco y álbum de fotos",
+            texte: "Una presentación en bucle, sin controles, que vuelve al principio tras un tiempo de inactividad; un álbum creado a partir de una carpeta de imágenes, ordenado por fecha.",
+        },
+        Item {
+            titre: "Importación de Word, LibreOffice y PowerPoint",
+            texte: "Abra archivos .docx y .odt en Documents, y presentaciones .pptx con sus colores de tema, degradados, rotaciones y tablas.",
+        },
+        Item {
+            titre: "Comentarios y control de cambios",
+            texte: "Comente una selección, proponga inserciones y eliminaciones, y acepte o rechace cada cambio.",
+        },
+        Item {
+            titre: "Notas al pie",
+            texte: "Notas de verdad al pie de la página, numeradas automáticamente, en la vista previa y en el PDF.",
+        },
+        Item {
+            titre: "Firma manuscrita",
+            texte: "Firme con el ratón o el panel táctil y la firma se coloca en el documento.",
+        },
+        Item {
+            titre: "Lectura en voz alta",
+            texte: "El documento leído por la síntesis de voz del sistema, en su idioma, para revisar de oído.",
+        },
     ],
     etapes_titre: "Cómo funciona",
     etapes: [

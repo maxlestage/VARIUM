@@ -29,22 +29,23 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 
 ## 4. Export PDF natif (en-tête, pied de page, numéros de page)
 - [x] PDF natif sans dépendance (`pdf.rs`) : césure, justification, titres, listes, citations, tableaux, filets, sauts de page, en-tête/pied/« Page X sur N » par document, métriques Liberation — « Export PDF natif »
-- [ ] Incorporer les polices Liberation (sous-ensemble TrueType) pour Unicode complet (grec des formules, émojis) au lieu de `?`
-- [ ] Compression Flate des flux (fichiers plus petits) ; formules `$$…$$` en vrai rendu plutôt qu'en texte Unicode
+- [x] Incorporer les polices Liberation (sous-ensemble TrueType, `police.rs`) et des polices de secours (symboles, émojis) : Unicode complet, ToUnicode, `.notdef` visible pour l'inconnu — « Mise en page commune, PDF Unicode »
+- [x] Compression Flate des flux ; formules `$…$` et `$$…$$` composées (`formule.rs` : fractions, indices, racines, grands opérateurs, matrices ; MathML en HTML/EPUB/ODT, OMML en DOCX) ; métadonnées titre/auteur/langue et XMP — idem
 - [x] Signets (plan des titres, imbriqués par niveau) dans le PDF — « PDF : signets des titres »
 - [x] Liens cliquables dans le PDF (adresses http, https, mailto détectées dans le texte, annotations /Link ; une adresse coupée sur deux lignes n’est cliquable que sur son début) — « PDF : liens cliquables »
 
 ## 5. Proche de Writer
 - [x] Texte conditionnel `{{si champ}}…{{sinon}}…{{fin}}` (conditions.rs) — « Texte conditionnel »
 - [x] Table des matières `\sommaire` (liste des titres, sans numéros de page) — « Table des matières »
-- [ ] Numéros de page dans la table des matières (nécessite la pagination)
+- [x] Numéros de page dans la table des matières : points de conduite et liens (vue page, PDF), vrais index ODT et champ TOC DOCX — « Mise en page commune » (`mise_en_page.rs`, partagée par la vue page et le PDF)
 - [x] Notes `\note{texte}` numérotées `[n]`, rassemblées en fin de document (champs et gras acceptés ; non fermée = texte) — « Notes numérotées »
-- [ ] Vraies notes de bas de page placées en bas de la page (nécessite la pagination)
-- [ ] Retraits, couleurs/surlignage, interligne par paragraphe
+- [x] Vraies notes de bas de page `[^1]`, `^[…]`, `\note{…}` en bas de la page de leur appel (place réservée), `text:note` en ODT, `footnotes.xml` en DOCX, notes de fin en HTML/EPUB — idem
+- [x] Retraits, couleurs/surlignage, interligne et espacements par paragraphe (`{: …}`, `{couleur:…}…{/}`, `==…==`), inspecteur Format → Paragraphe — idem
 - [ ] Import .odt / .docx simples
 - [x] Détection des doubles espaces / correcteur orthographique
 
 ## 6. Performance : cache de rendu et de pagination pour les longs documents
+- [x] Mise en page en cache par paragraphe (clé : contenu et mise en forme) et document préparé gardé tant qu'il ne change pas ; test de 300 pages sous budget en mode optimisé (`longs_documents_rapides`)
 
 ## 7. Accessibilité et ergonomie : clavier, info-bulles, messages d'erreur en français
 
@@ -57,7 +58,7 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Icône de l'application (Dock, .icns, varium.exe, Linux) et job CI macOS — idem
 - [ ] Ouvrir un document par double-clic dans le Finder (événements Apple « open documents » non transmis par winit)
 - [ ] Barre de titre unifiée façon macOS, à valider sur un vrai Mac
-- [ ] Vignettes des pages dans la barre latérale (comme Pages)
+- [x] Vignettes des pages dans la barre latérale (comme Pages), page courante entourée, clic pour y aller — idem
 - [ ] Commentaires et suivi des modifications
 
 ## 10. Suite bureautique et langues
@@ -86,7 +87,8 @@ Règles : pas de version web, jamais de push sur master, `.varium.json` toujours
 - [x] Détection automatique des champs dans un document existant (dates, montants, e-mails, téléphones, noms répétés ; `detection.rs`, Outils → Détecter les champs…) — « Détecter les champs »
 - [x] Classeur : « Poser une question » en langage simple (`question.rs`, Données → Poser une question…, Ctrl+Maj+Q ; total, moyenne, nombre, max, min, médiane, par groupe) — « Poser une question »
 - [ ] Classeur : tableau croisé dynamique en glisser-déposer
-- [ ] Signature manuscrite dessinée à la souris ; lecture à voix haute (synthèse vocale du système)
+- [x] Signature manuscrite dessinée à la souris (`signature.rs`, Insertion → Signature…) — idem
+- [ ] Lecture à voix haute (synthèse vocale du système)
 - [ ] Présentation : album depuis un dossier d'images, mode kiosque en boucle, QR code de la présentation
 - [x] Thèmes d'interface (automatique, clair, sombre, sépia, contraste élevé) et zoom de l'interface (`apparence.rs`, bouton 🎨) — « Apparence de l'interface »
 - [ ] Ouvrir .docx/.odt dans Documents (le glisser-déposer l'annonce déjà)

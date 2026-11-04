@@ -1815,10 +1815,10 @@ pub fn mettre_en_page(docs: &[Rendered], page: &PageSetup, o: &Options, cache: &
         f: o.polices,
         signatures: &std::collections::BTreeMap::new(),
     };
-    for pi in 0..toutes.len() {
-        let doc = toutes[pi].doc;
+    for page in toutes.iter_mut() {
+        let doc = page.doc;
         let mut ajouts = Vec::new();
-        for pl in &toutes[pi].lignes {
+        for pl in &page.lignes {
             let l = pl.ligne();
             let Some((k, fin, base, taille, gras)) = l.sommaire else {
                 continue;
@@ -1893,7 +1893,7 @@ pub fn mettre_en_page(docs: &[Rendered], page: &PageSetup, o: &Options, cache: &
                 cible: Cible::Titre(base_titre(doc) + k),
             });
         }
-        toutes[pi].extra.extend(ajouts);
+        page.extra.extend(ajouts);
     }
     // En-têtes, pieds de page et numéros.
     let small = g.taille * 0.75;
@@ -2176,7 +2176,7 @@ mod tests {
         let f = polices();
         let page = PageSetup::default();
         let mut src = String::from("\\sommaire\n");
-        for i in 0..1500 {
+        for i in 0..5000 {
             if i % 50 == 0 {
                 src.push_str(&format!("# Chapitre {i}\n"));
             }
@@ -2192,6 +2192,10 @@ mod tests {
         let t = std::time::Instant::now();
         let _ = mettre_en_page(&[d], &page, &Options::new(&f), &mut c);
         let seconde = t.elapsed();
+        eprintln!(
+            "{} pages : {premiere:?}, puis {seconde:?} avec le cache",
+            m.pages.len()
+        );
         assert!(
             premiere.as_millis() < 3000,
             "première mise en page : {premiere:?}"

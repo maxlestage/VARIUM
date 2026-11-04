@@ -311,7 +311,7 @@ mod tests {
             fin: 255,
             ..Soir::default()
         };
-        let _ = (0..=255).map(|h| fou.contient(h)).count();
+        assert!((0..=255).filter(|&h| fou.contient(h)).count() <= 256);
         assert!(heure_locale() < 24);
     }
 

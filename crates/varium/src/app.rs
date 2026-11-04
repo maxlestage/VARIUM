@@ -2183,6 +2183,13 @@ impl VariumApp {
                     .show(ui, |ui| {
                         ui.label(RichText::new(tr("Mise en page")).strong());
                         page_form(ui, &mut self.page, "insp-page");
+                        ui.horizontal(|ui| {
+                            ui.label(tr("Auteur"));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.page.auteur)
+                                    .hint_text(tr("pour les métadonnées des exports")),
+                            );
+                        });
                         ui.add_space(8.0);
                         ui.label(RichText::new(tr("Document")).strong());
                         let eff = self.effective();
