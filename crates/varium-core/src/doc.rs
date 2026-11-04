@@ -16,6 +16,8 @@
 //! | `\newpage` | saut de page |
 //! | `\sommaire` | table des matières (liste des titres, générée) |
 //! | `\note{texte}` | note numérotée `[1]`, rassemblée en fin de document |
+//! | `[texte](https://…)` | lien (aussi `mailto:`, `www.`) |
+//! | `{{qr:texte}}`, `{{champ \| qr}}` | code QR, dans son propre paragraphe |
 //! | `\*`, `\_`, `\~`, `\|`, `\#`, `\>` | caractère littéral |
 
 use crate::render::{Block, Piece, Values, blocks, render_pieces};
@@ -95,6 +97,36 @@ pub fn plain(runs: &[Run]) -> String {
     runs.iter().map(Run::plain).collect()
 }
 
+/// Préfixe du nom d'un lien `[texte](adresse)` : `lien:adresse`.
+pub const LIEN: &str = "lien:";
+
+impl Run {
+    /// Le contenu d'un code QR (`{{qr:…}}` ou `{{champ | qr}}`).
+    pub fn qr(&self) -> Option<&str> {
+        match self {
+            Run::Value { name, text, .. } if name.starts_with(crate::parse::QR) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// Un lien : (adresse, texte affiché).
+    pub fn lien(&self) -> Option<(&str, &str)> {
+        match self {
+            Run::Value { name, text, .. } => name.strip_prefix(LIEN).map(|u| (u, text.as_str())),
+            _ => None,
+        }
+    }
+}
+
+/// L'adresse complète d'un lien (`www.x.fr` → `https://www.x.fr`).
+pub fn adresse_lien(url: &str) -> String {
+    if url.starts_with("www.") {
+        format!("https://{url}")
+    } else {
+        url.to_string()
+    }
+}
+
 /// Alignement d'un paragraphe.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Align {
@@ -168,6 +200,14 @@ impl Para {
         }
     }
 
+    /// Le contenu du code QR si le paragraphe n'est qu'un code QR.
+    pub fn qr(&self) -> Option<&str> {
+        match self {
+            Para::Text { runs, .. } if runs.len() == 1 => runs[0].qr(),
+            _ => None,
+        }
+    }
+
     /// Texte brut du paragraphe, sans mise en forme.
     pub fn plain(&self) -> String {
         match self {
@@ -190,8 +230,19 @@ impl Para {
 #[derive(Debug, Clone)]
 enum Item {
     Text(String),
-    Value { name: String, text: String },
-    Missing { name: String, raw: String },
+    /// Lien `[texte](adresse)`.
+    Lien {
+        url: String,
+        label: String,
+    },
+    Value {
+        name: String,
+        text: String,
+    },
+    Missing {
+        name: String,
+        raw: String,
+    },
     Math(String),
 }
 
@@ -398,7 +449,7 @@ pub fn document(src: &str, values: &Values) -> Vec<Para> {
             continue;
         }
 
-        out.push(paragraph(items));
+        isoler_qr(paragraph(items), &mut out);
     }
     // Du dernier au premier, pour que les positions restent valables.
     if !sommaires.is_empty() {
@@ -409,6 +460,41 @@ pub fn document(src: &str, values: &Values) -> Vec<Para> {
     }
     ajouter_notes(&mut out, notes);
     out
+}
+
+/// Un code QR occupe son propre paragraphe : le texte autour forme des paragraphes
+/// à part (même alignement).
+fn isoler_qr(p: Para, out: &mut Vec<Para>) {
+    let Para::Text { align, runs } = p else {
+        out.push(p);
+        return;
+    };
+    if runs.len() <= 1 || !runs.iter().any(|r| r.qr().is_some()) {
+        out.push(Para::Text { align, runs });
+        return;
+    }
+    let mut cur: Vec<Run> = Vec::new();
+    let vider = |cur: &mut Vec<Run>, out: &mut Vec<Para>| {
+        trim_runs(cur);
+        if !cur.is_empty() {
+            out.push(Para::Text {
+                align,
+                runs: std::mem::take(cur),
+            });
+        }
+    };
+    for r in runs {
+        if r.qr().is_some() {
+            vider(&mut cur, out);
+            out.push(Para::Text {
+                align,
+                runs: vec![r],
+            });
+        } else {
+            cur.push(r);
+        }
+    }
+    vider(&mut cur, out);
 }
 
 /// Remplace chaque `\note{…}` de la ligne par son numéro `[n]` et range le
@@ -764,9 +850,74 @@ fn is_space(t: Option<&Tok>) -> bool {
     }
 }
 
+/// Fin d'une adresse de lien commençant à `debut` dans `t` (parenthèses équilibrées).
+fn fin_adresse(t: &str, debut: usize) -> Option<usize> {
+    let url = &t[debut..];
+    if !["https://", "http://", "mailto:", "www.", "ftp://"]
+        .iter()
+        .any(|p| url.starts_with(p))
+    {
+        return None;
+    }
+    let mut prof = 0usize;
+    for (i, c) in url.char_indices() {
+        match c {
+            '(' => prof += 1,
+            ')' if prof == 0 => return (i > 0).then_some(debut + i),
+            ')' => prof -= 1,
+            c if c.is_whitespace() => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Repère les liens `[texte](adresse)` dans le texte de la source.
+fn liens(items: Vec<Item>) -> Vec<Item> {
+    let mut out = Vec::new();
+    for item in items {
+        let Item::Text(t) = item else {
+            out.push(item);
+            continue;
+        };
+        let mut reste = 0;
+        let mut i = 0;
+        while let Some(off) = t[i..].find('[') {
+            let ouv = i + off;
+            i = ouv + 1;
+            if ouv > 0 && t.as_bytes()[ouv - 1] == b'\\' {
+                continue;
+            }
+            let Some(ferm) = t[ouv + 1..].find(']').map(|f| ouv + 1 + f) else {
+                break;
+            };
+            let label = &t[ouv + 1..ferm];
+            if label.trim().is_empty() || label.contains('[') || !t[ferm + 1..].starts_with('(') {
+                continue;
+            }
+            let Some(fin) = fin_adresse(&t, ferm + 2) else {
+                continue;
+            };
+            if ouv > reste {
+                out.push(Item::Text(t[reste..ouv].to_string()));
+            }
+            out.push(Item::Lien {
+                url: t[ferm + 2..fin].to_string(),
+                label: label.to_string(),
+            });
+            reste = fin + 1;
+            i = reste;
+        }
+        if reste < t.len() {
+            out.push(Item::Text(t[reste..].to_string()));
+        }
+    }
+    out
+}
+
 /// Les morceaux mis en forme d'une suite d'éléments.
 fn runs(items: Vec<Item>) -> Vec<Run> {
-    let toks = tokens(items);
+    let toks = tokens(liens(items));
     // Une marque ouvre si elle est suivie d'autre chose qu'une espace et qu'une marque
     // de même nature, précédée d'autre chose qu'une espace, la ferme plus loin.
     let can_open = |i: usize| !is_space(toks.get(i + 1));
@@ -808,6 +959,11 @@ fn runs(items: Vec<Item>) -> Vec<Run> {
             }
             Tok::Atom(item) => out.push(match item.clone() {
                 Item::Value { name, text } => Run::Value { name, text, style },
+                Item::Lien { url, label } => Run::Value {
+                    name: format!("{LIEN}{url}"),
+                    text: label,
+                    style,
+                },
                 Item::Missing { name, raw } => Run::Missing { name, raw, style },
                 Item::Math(t) => Run::Math { tex: t, style },
                 Item::Text(t) => Run::Text { text: t, style },
@@ -1111,5 +1267,67 @@ mod tests_notes {
         let t = textes(&doc);
         assert!(t.iter().any(|l| l == "[1] "));
         assert!(t.iter().any(|l| l == "[2] 日本"));
+    }
+}
+
+#[cfg(test)]
+mod tests_liens_qr {
+    use super::*;
+
+    #[test]
+    fn liens() {
+        let d = document(
+            "Voir [le site](https://ex.fr/a_(b)?x=1__2) et **[gras](www.ex.fr)** ou [pas un lien](ici) \\[non](https://x.fr).",
+            &Values::default(),
+        );
+        let runs = d[0].runs();
+        let liens: Vec<(&str, &str)> = runs.iter().filter_map(Run::lien).collect();
+        assert_eq!(
+            liens,
+            [
+                ("https://ex.fr/a_(b)?x=1__2", "le site"),
+                ("www.ex.fr", "gras")
+            ]
+        );
+        assert!(runs.iter().any(|r| r.lien().is_some() && r.style().bold));
+        assert!(d[0].plain().contains("[pas un lien](ici)"));
+        assert_eq!(adresse_lien("www.ex.fr"), "https://www.ex.fr");
+        // Un lien n'est pas un champ à remplir.
+        assert!(crate::variables("[a](https://b.fr)").is_empty());
+    }
+
+    #[test]
+    fn codes_qr() {
+        let mut v = Values::default();
+        v.set("site", "https://varium.fr");
+        let d = document(
+            "Avant {{qr:Bonjour | le monde}} après\n{{site | qr}}\n{{vide | qr}}",
+            &v,
+        );
+        let qr: Vec<Option<&str>> = d.iter().map(Para::qr).collect();
+        assert_eq!(
+            qr,
+            [
+                None,
+                Some("Bonjour | le monde"),
+                None,
+                Some("https://varium.fr"),
+                None
+            ]
+        );
+        assert_eq!(d[0].plain(), "Avant");
+        assert_eq!(d[2].plain(), "après");
+        assert!(matches!(&d[4].runs()[0], Run::Missing { .. }));
+        // `{{qr:…}}` n'est pas un champ ; `{{site | qr}}` en est un.
+        let noms: Vec<String> = crate::variables("{{qr:x}} {{site | qr}}")
+            .into_iter()
+            .map(|i| i.name)
+            .collect();
+        assert_eq!(noms, ["site"]);
+        assert!(
+            crate::parse::parse("{{qr:}}")
+                .iter()
+                .all(|s| matches!(s, crate::Segment::Text(_)))
+        );
     }
 }

@@ -12,15 +12,20 @@
 //! assert_eq!(render(src, &v, Missing::Keep), "Bonjour Marc {{nom}}, dossier {{réf}}. — Marc");
 //! ```
 
+pub mod autocorrect;
 pub mod calc;
 pub mod check;
+pub mod collage;
 pub mod conditions;
+pub mod diff;
 pub mod doc;
 pub mod docx;
 pub mod epub;
 pub mod export;
 pub mod filters;
+pub mod formulaire;
 pub mod lang;
+pub mod lisibilite;
 pub mod merge;
 pub mod odt;
 pub mod page;
@@ -28,11 +33,14 @@ pub mod parse;
 pub mod pdf;
 #[cfg(feature = "serde")]
 pub mod project;
+pub mod qr;
 pub mod render;
 pub mod rtf;
 pub mod spell;
 pub mod tex;
 pub mod typo;
+#[cfg(feature = "serde")]
+pub mod versions;
 pub mod zip;
 
 pub use parse::{

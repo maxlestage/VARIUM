@@ -66,28 +66,39 @@ macro_rules! identifiants {
     };
 }
 
+mod depuis_document;
+mod depuis_texte;
+mod embellir;
 mod fichier;
 mod geometrie;
 mod html;
 mod import;
 mod metriques;
+mod minutage;
 mod objets;
 mod odp;
 mod pdf;
+mod plan;
 mod pptx;
 mod texte;
 mod theme;
 mod xml;
 
+pub use depuis_document::deck_from_document;
+pub use depuis_texte::{Closing, deck_from_text};
+pub use embellir::{Design, MAX_SUGGESTIONS, Suggestion, design_suggestions, suggestions};
 pub use fichier::{FORMAT, VERSION};
 pub use geometrie::{
     Anchor, BODY_LINE_HEIGHT, FOOTER_SIZE, Frame, SlideLayoutBoxes, TITLE_LINE_HEIGHT, body_size,
     boxes, footer_frame, number_frame, subtitle_size, title_size,
 };
+pub use minutage::format_duration;
 pub use objets::{
     MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, Media, Object, ObjectKind, arrow_head, base64, image_frame,
     unbase64,
 };
+pub use pdf::{HandoutNotes, HandoutOptions, HandoutPaper, PNG_HEIGHT, RasterFonts};
+pub use plan::{COLUMN_BREAK, OutlineEntry, outline_text, parse_outline};
 pub use texte::{MISSING_COLOR, hex_color, parse_color, readable_on, text_lines};
 pub use theme::{Palette, Theme};
 
@@ -265,6 +276,13 @@ pub struct Slide {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub objects: Vec<Object>,
+    /// Minutage répété (« Répéter le minutage »), en secondes : durée d'affichage
+    /// de la diapositive, pour l'avance automatique.
+    #[serde(
+        deserialize_with = "fichier::duree",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub duration: Option<f32>,
 }
 
 impl Slide {
@@ -345,6 +363,13 @@ pub struct Deck {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub media: BTreeMap<String, Media>,
+    /// Le diaporama avance seul selon le minutage des diapositives
+    /// ([`Slide::duration`]) : en présentation, dans l'export HTML et l'ODP.
+    #[serde(
+        deserialize_with = "fichier::booleen",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub auto_advance: bool,
 }
 
 impl Default for Deck {
@@ -365,6 +390,7 @@ impl Deck {
             values: BTreeMap::new(),
             slides: vec![Slide::new(Layout::Title)],
             media: BTreeMap::new(),
+            auto_advance: false,
         }
     }
 
@@ -463,6 +489,7 @@ impl Deck {
                 .collect(),
             slides,
             media: BTreeMap::new(),
+            auto_advance: false,
         }
     }
 

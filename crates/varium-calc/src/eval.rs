@@ -302,6 +302,75 @@ pub(crate) fn recalc(sheets: &[Sheet], today: f64) -> Computed {
     Computed { values }
 }
 
+/// Évaluation à la demande d'expressions déjà analysées, avec les valeurs d'un
+/// recalcul (assistant de formule, explication des erreurs).
+pub(crate) struct Probe<'a> {
+    sheets: &'a [Sheet],
+    values: &'a [CellMap],
+    extents: Vec<(u32, u32)>,
+    at: CellRef,
+    today: f64,
+}
+
+impl<'a> Probe<'a> {
+    pub(crate) fn new(sheets: &'a [Sheet], values: &'a [CellMap], at: CellRef, today: f64) -> Self {
+        Self {
+            sheets,
+            values,
+            extents: sheets.iter().map(Sheet::used_size).collect(),
+            at,
+            today,
+        }
+    }
+
+    fn ctx(&self) -> Ctx<'_> {
+        Ctx {
+            sheets: self.sheets,
+            values: self.values,
+            extents: &self.extents,
+            at: self.at,
+            today: self.today,
+        }
+    }
+
+    /// Valeur finale, comme celle d'une cellule.
+    pub(crate) fn result(&self, e: &Expr) -> Value {
+        self.ctx().result(e)
+    }
+
+    /// Valeur d'une sous-expression (une plage est réduite par intersection).
+    pub(crate) fn scalar(&self, e: &Expr) -> Value {
+        self.ctx().scalar(e)
+    }
+
+    /// Valeur d'une cellule.
+    pub(crate) fn cell(&self, s: usize, c: CellRef) -> Value {
+        self.values
+            .get(s)
+            .and_then(|m| m.get(&c))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Première cellule en erreur d'une plage.
+    pub(crate) fn first_error(&self, s: usize, r: Range) -> Option<(CellRef, CalcError)> {
+        let mut found = None;
+        let _ = self.ctx().each_in(s, r, |c, v| {
+            if let Value::Error(e) = v {
+                found = Some((c, *e));
+                return Err(*e);
+            }
+            Ok(())
+        });
+        found
+    }
+}
+
+/// Opération entre deux valeurs (`+`, `/`, `&`…).
+pub(crate) fn apply_op(op: Op, a: &Value, b: &Value) -> Value {
+    binop(op, a, b)
+}
+
 // ---------------------------------------------------------------- Évaluation
 
 /// Résultat intermédiaire : une valeur ou une référence.

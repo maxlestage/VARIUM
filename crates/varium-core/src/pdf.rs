@@ -206,6 +206,8 @@ struct Atom {
     bytes: Vec<u8>,
     style: Style,
     missing: bool,
+    /// Adresse du lien `[texte](adresse)` dont l'atome fait partie.
+    lien: Option<std::sync::Arc<str>>,
     width: f32,
     space: bool,
     /// Saut de ligne forcé (`\n`).
@@ -237,6 +239,8 @@ impl Ctx<'_> {
             st.bold |= force.bold;
             st.italic |= force.italic || matches!(r, Run::Math { .. });
             let missing = matches!(r, Run::Missing { .. });
+            let lien: Option<std::sync::Arc<str>> =
+                r.lien().map(|(u, _)| crate::doc::adresse_lien(u).into());
             let mut word: Vec<u8> = Vec::new();
             let flush = |word: &mut Vec<u8>, out: &mut Vec<Atom>| {
                 if word.is_empty() {
@@ -248,6 +252,7 @@ impl Ctx<'_> {
                     bytes,
                     style: st,
                     missing,
+                    lien: lien.clone(),
                     width,
                     space: false,
                     brk: false,
@@ -262,6 +267,7 @@ impl Ctx<'_> {
                                 bytes: vec![],
                                 style: st,
                                 missing,
+                                lien: lien.clone(),
                                 width: 0.0,
                                 space: false,
                                 brk: true,
@@ -276,6 +282,7 @@ impl Ctx<'_> {
                                 bytes: vec![0x20],
                                 style: st,
                                 missing,
+                                lien: lien.clone(),
                                 width: self.bw(st, size, 0x20),
                                 space: true,
                                 brk: false,
@@ -382,6 +389,8 @@ struct PageBuf {
     links: Vec<(f32, f32, f32, f32, String)>,
     used: f32,
     empty: bool,
+    /// Zones cliquables des liens : (x0, y0, x1, y1, adresse).
+    liens: Vec<(f32, f32, f32, f32, std::sync::Arc<str>)>,
 }
 
 struct Layout<'a> {
@@ -430,6 +439,7 @@ impl Layout<'_> {
             links: Vec::new(),
             used: 0.0,
             empty: true,
+            liens: Vec::new(),
         });
     }
 
@@ -507,6 +517,7 @@ impl Layout<'_> {
             while j < l.atoms.len()
                 && l.atoms[j].style == a.style
                 && l.atoms[j].missing == a.missing
+                && l.atoms[j].lien == a.lien
             {
                 bytes.extend_from_slice(&l.atoms[j].bytes);
                 w += l.atoms[j].width;
@@ -516,7 +527,13 @@ impl Layout<'_> {
                 j += 1;
             }
             let pw = w + extra * sp as f32;
-            let color = if a.missing { "0.63 0.13 0.11" } else { "0 0 0" };
+            let color = if a.missing {
+                "0.63 0.13 0.11"
+            } else if a.lien.is_some() {
+                "0.12 0.37 0.75"
+            } else {
+                "0 0 0"
+            };
             ops.push_str(&format!(
                 "{color} rg BT /{} {} Tf {} Tw 1 0 0 1 {} {} Tm <{}> Tj ET\n",
                 font_name(a.style),
@@ -527,7 +544,16 @@ impl Layout<'_> {
                 hex(&bytes)
             ));
             let thick = (size * 0.05).max(0.3);
-            if a.style.underline {
+            if let Some(url) = &a.lien {
+                self.pages[pi].liens.push((
+                    x,
+                    baseline - size * 0.25,
+                    x + pw,
+                    baseline + size * 0.85,
+                    url.clone(),
+                ));
+            }
+            if a.style.underline || a.lien.is_some() {
                 ops.push_str(&format!(
                     "{} {} {} {} re f\n",
                     n(x),
@@ -562,7 +588,10 @@ impl Layout<'_> {
                 } else {
                     0.0
                 };
-            if let Some(url) = adresse_de(&a.bytes) {
+            // Un lien [texte](url) a déjà sa zone cliquable.
+            if a.lien.is_none()
+                && let Some(url) = adresse_de(&a.bytes)
+            {
                 self.pages[pi]
                     .links
                     .push((lx, baseline - size * 0.2, w, size * 1.1, url));
@@ -728,10 +757,50 @@ impl Layout<'_> {
         self.space(size * 0.4);
     }
 
+    /// Un code QR en carrés vectoriels, de `TAILLE_MM` de côté (marge blanche comprise).
+    fn qr(&mut self, contenu: &str, align: Align) -> bool {
+        let Ok(q) = crate::qr::QrCode::encode(contenu) else {
+            return false;
+        };
+        let cote = mm(crate::qr::TAILLE_MM).min(self.tw).min(self.th);
+        if self.room() < cote && !self.cur().empty {
+            self.new_page();
+        }
+        let x0 = match align {
+            Align::Center => self.ml + (self.tw - cote) / 2.0,
+            Align::Right => self.ml + self.tw - cote,
+            _ => self.ml,
+        };
+        let top = self.ph - self.mt - self.cur().used;
+        let marge = 2.0;
+        let module = cote / (q.size() as f32 + 2.0 * marge);
+        let mut ops = String::from("q 0 0 0 rg\n");
+        for (x, y, l) in q.segments() {
+            ops.push_str(&format!(
+                "{} {} {} {} re\n",
+                n(x0 + (x as f32 + marge) * module),
+                n(top - (y as f32 + marge + 1.0) * module),
+                n(l as f32 * module),
+                n(module)
+            ));
+        }
+        ops.push_str("f Q\n");
+        let p = self.cur();
+        p.ops.push_str(&ops);
+        p.used += cote;
+        p.empty = false;
+        true
+    }
+
     fn para(&mut self, p: &Para) {
         let size = self.ctx.size;
         let (ml, tw) = (self.ml, self.tw);
         let none = Style::default();
+        if let (Some(q), Para::Text { align, .. }) = (p.qr(), p)
+            && self.qr(q, *align)
+        {
+            return;
+        }
         match p {
             Para::Text { align, runs } => {
                 if runs.is_empty() {
@@ -1064,14 +1133,31 @@ pub fn pdf(title: &str, docs: &[Rendered], page: &PageSetup, fonts: &PdfFonts) -
     }
     for (i, (page_buf, extra)) in lay.pages.iter().zip(&ops_extra).enumerate() {
         let content = format!("{}{}", page_buf.ops, extra);
-        let a = if annots[i].is_empty() {
+        // Liens : annotations cliquables vers leur adresse ([texte](url) en ligne, et
+        // adresses nues en objets séparés).
+        let mut a: String = page_buf
+            .liens
+            .iter()
+            .map(|(x0, y0, x1, y1, url)| {
+                format!(
+                    "<< /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /A << /S /URI /URI <{}> >> >> ",
+                    n(*x0),
+                    n(*y0),
+                    n(*x1),
+                    n(*y1),
+                    hex(url.as_bytes())
+                )
+            })
+            .collect();
+        a.push_str(&annots[i]);
+        let annots_page = if a.is_empty() {
             String::new()
         } else {
-            format!(" /Annots [{}]", annots[i])
+            format!(" /Annots [{}]", a.trim_end())
         };
         objs.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R /F4 7 0 R >> >> /Contents {} 0 R{a} >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R /F4 7 0 R >> >> /Contents {} 0 R{annots_page} >>",
                 n(lay.pw),
                 n(lay.ph),
                 9 + i * 2

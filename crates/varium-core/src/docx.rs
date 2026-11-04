@@ -5,7 +5,7 @@ use crate::export::{Rendered, xml_escape};
 use crate::page::PageSetup;
 use crate::zip::Zip;
 
-const W: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships""#;
+const W: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing""#;
 
 /// Millimètres → vingtièmes de point (twips).
 fn tw(mm: f32) -> i32 {
@@ -43,9 +43,48 @@ fn run_xml(text: &str, r: &Run, missing: bool) -> String {
     format!("<w:r>{rpr}{}</w:r>", parts.join("<w:br/>"))
 }
 
-fn runs_xml(runs: &[Run]) -> String {
+/// Images (codes QR) et liens du corps du document, à déclarer dans les relations.
+/// Sans `actif` (en-tête, pied de page), codes et liens restent du texte.
+#[derive(Default)]
+struct Medias {
+    actif: bool,
+    images: Vec<Vec<u8>>,
+    liens: Vec<String>,
+}
+
+/// Un code QR en image PNG en ligne, de `cote` millimètres.
+fn qr_xml(contenu: &str, cote: f32, m: &mut Medias) -> Option<String> {
+    let q = crate::qr::QrCode::encode(contenu).ok()?;
+    m.images.push(q.to_png(8, 2));
+    let n = m.images.len();
+    let emu = (cote * 36_000.0).round() as i64;
+    Some(format!(
+        r#"<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{emu}" cy="{emu}"/><wp:docPr id="{n}" name="QR {n}" descr="{d}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="{n}" name="qr{n}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdQr{n}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{emu}" cy="{emu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"#,
+        d = xml_escape(contenu)
+    ))
+}
+
+fn runs_xml(runs: &[Run], m: &mut Medias) -> String {
     runs.iter()
         .map(|r| match r {
+            _ if m.actif && r.qr().is_some() => {
+                let q = r.qr().unwrap_or_default();
+                qr_xml(q, 20.0, m).unwrap_or_else(|| run_xml(q, r, false))
+            }
+            _ if m.actif && r.lien().is_some() => {
+                let (url, label) = r.lien().unwrap_or_default();
+                m.liens.push(crate::doc::adresse_lien(url));
+                let n = m.liens.len();
+                let mut x = run_xml(label, r, false);
+                x = x.replacen(
+                    "<w:r>",
+                    "<w:r><w:rPr><w:color w:val=\"1F5FBF\"/><w:u w:val=\"single\"/></w:rPr>",
+                    1,
+                );
+                // Un seul <w:rPr> : on fusionne si le morceau en avait déjà un.
+                x = x.replacen("</w:rPr><w:rPr>", "", 1);
+                format!("<w:hyperlink r:id=\"rIdLien{n}\" w:history=\"1\">{x}</w:hyperlink>")
+            }
             Run::Text { text, .. } | Run::Value { text, .. } => run_xml(text, r, false),
             Run::Missing { raw, .. } => run_xml(raw, r, true),
             Run::Math { .. } => run_xml(&r.plain(), r, false),
@@ -62,7 +101,7 @@ fn jc(a: Align) -> &'static str {
     }
 }
 
-fn table_xml(t: &Table, text_width: i32) -> String {
+fn table_xml(t: &Table, text_width: i32, m: &mut Medias) -> String {
     let cols = t.columns().max(1);
     let col_w = text_width / cols as i32;
     let border = "w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"444444\"";
@@ -95,7 +134,7 @@ fn table_xml(t: &Table, text_width: i32) -> String {
             s.push_str(&format!(
                 "<w:tc><w:tcPr><w:tcW w:w=\"{col_w}\" w:type=\"dxa\"/>{shade}</w:tcPr><w:p><w:pPr><w:spacing w:after=\"0\"/>{}</w:pPr>{}</w:p></w:tc>",
                 jc(t.align(c)),
-                runs_xml(&runs)
+                runs_xml(&runs, m)
             ));
         }
         s.push_str("</w:tr>");
@@ -104,7 +143,7 @@ fn table_xml(t: &Table, text_width: i32) -> String {
     s
 }
 
-fn body_xml(docs: &[Rendered], page: &PageSetup) -> String {
+fn body_xml(docs: &[Rendered], page: &PageSetup, m: &mut Medias) -> String {
     let default_jc = if page.justify {
         Align::Justify
     } else {
@@ -121,11 +160,15 @@ fn body_xml(docs: &[Rendered], page: &PageSetup) -> String {
             match p {
                 Para::Text { align, runs } => {
                     let a = if *align == Align::Left { default_jc } else { *align };
-                    s.push_str(&format!("<w:p><w:pPr>{}</w:pPr>{}</w:p>", jc(a), runs_xml(runs)));
+                    let contenu = match p.qr().and_then(|q| qr_xml(q, crate::qr::TAILLE_MM, m)) {
+                        Some(x) => x,
+                        None => runs_xml(runs, m),
+                    };
+                    s.push_str(&format!("<w:p><w:pPr>{}</w:pPr>{contenu}</w:p>", jc(a)));
                 }
                 Para::Heading { level, runs } => s.push_str(&format!(
                     "<w:p><w:pPr><w:pStyle w:val=\"Heading{level}\"/></w:pPr>{}</w:p>",
-                    runs_xml(runs)
+                    runs_xml(runs, m)
                 )),
                 Para::Item {
                     number,
@@ -140,18 +183,18 @@ fn body_xml(docs: &[Rendered], page: &PageSetup) -> String {
                     s.push_str(&format!(
                         "<w:p><w:pPr><w:tabs><w:tab w:val=\"left\" w:pos=\"{left}\"/></w:tabs><w:ind w:left=\"{left}\" w:hanging=\"360\"/></w:pPr><w:r><w:t xml:space=\"preserve\">{}</w:t></w:r><w:r><w:tab/></w:r>{}</w:p>",
                         xml_escape(&label),
-                        runs_xml(runs)
+                        runs_xml(runs, m)
                     ));
                 }
                 Para::Quote { runs } => s.push_str(&format!(
                     "<w:p><w:pPr><w:pStyle w:val=\"Quote\"/></w:pPr>{}</w:p>",
-                    runs_xml(runs)
+                    runs_xml(runs, m)
                 )),
                 Para::Math { .. } => s.push_str(&format!(
                     "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:i/></w:rPr><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>",
                     xml_escape(&p.plain())
                 )),
-                Para::Table(t) => s.push_str(&table_xml(t, text_width)),
+                Para::Table(t) => s.push_str(&table_xml(t, text_width, m)),
                 Para::Rule => s.push_str("<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr></w:pPr></w:p>"),
                 Para::PageBreak => s.push_str(page_break),
             }
@@ -184,8 +227,18 @@ fn styles_xml(page: &PageSetup) -> String {
 /// Le fichier `.docx` (une archive ZIP).
 pub fn docx(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
     let first = docs.first();
-    let header = first.map(|d| runs_xml(&d.header)).unwrap_or_default();
-    let footer = first.map(|d| runs_xml(&d.footer)).unwrap_or_default();
+    let mut sans = Medias::default();
+    let header = first
+        .map(|d| runs_xml(&d.header, &mut sans))
+        .unwrap_or_default();
+    let footer = first
+        .map(|d| runs_xml(&d.footer, &mut sans))
+        .unwrap_or_default();
+    let mut medias = Medias {
+        actif: true,
+        ..Medias::default()
+    };
+    let body = body_xml(docs, page, &mut medias);
     let numbers = if page.page_numbers {
         "<w:r><w:t xml:space=\"preserve\">Page </w:t></w:r><w:fldSimple w:instr=\"PAGE\"><w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:t xml:space=\"preserve\"> sur </w:t></w:r><w:fldSimple w:instr=\"NUMPAGES\"><w:r><w:t>1</w:t></w:r></w:fldSimple>"
     } else {
@@ -210,7 +263,6 @@ pub fn docx(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
     let document = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document {W}><w:body>{body}<w:sectPr>{refs}<w:pgSz w:w="{w}" w:h="{h}"{orient}/><w:pgMar w:top="{mt}" w:right="{mr}" w:bottom="{mb}" w:left="{ml}" w:header="425" w:footer="425" w:gutter="0"/></w:sectPr></w:body></w:document>"#,
-        body = body_xml(docs, page),
         w = tw(w),
         h = tw(h),
         mt = tw(page.margin_top),
@@ -232,11 +284,17 @@ pub fn docx(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
         rels.push_str(r#"<Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#);
         overrides.push_str(r#"<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>"#);
     }
+    for n in 1..=medias.images.len() {
+        rels.push_str(&format!("<Relationship Id=\"rIdQr{n}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/qr{n}.png\"/>"));
+    }
+    for (i, url) in medias.liens.iter().enumerate() {
+        rels.push_str(&format!("<Relationship Id=\"rIdLien{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"{}\" TargetMode=\"External\"/>", i + 1, xml_escape(url)));
+    }
     rels.push_str("</Relationships>");
 
     let content_types = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>{overrides}</Types>"#
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>{overrides}</Types>"#
     );
     let root_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>"#;
@@ -254,6 +312,9 @@ pub fn docx(title: &str, docs: &[Rendered], page: &PageSetup) -> Vec<u8> {
     zip.add("word/document.xml", document.as_bytes());
     zip.add("word/styles.xml", styles_xml(page).as_bytes());
     zip.add("word/_rels/document.xml.rels", rels.as_bytes());
+    for (i, png) in medias.images.iter().enumerate() {
+        zip.add(&format!("word/media/qr{}.png", i + 1), png);
+    }
     if has_header {
         zip.add(
             "word/header1.xml",

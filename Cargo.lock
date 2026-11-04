@@ -3896,8 +3896,9 @@ dependencies = [
 
 [[package]]
 name = "varium"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
+ "arboard",
  "eframe",
  "egui",
  "egui_extras",
@@ -3918,7 +3919,7 @@ dependencies = [
 
 [[package]]
 name = "varium-calc"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "quick-xml 0.42.0",
  "serde",
@@ -3928,7 +3929,7 @@ dependencies = [
 
 [[package]]
 name = "varium-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "miniz_oxide 0.8.9",
  "serde",
@@ -3937,13 +3938,15 @@ dependencies = [
 
 [[package]]
 name = "varium-slides"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
+ "ab_glyph",
  "image",
  "miniz_oxide 0.8.9",
  "quick-xml 0.42.0",
  "serde",
  "serde_json",
+ "tiny-skia",
  "varium-core",
 ]
 

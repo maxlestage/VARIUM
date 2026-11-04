@@ -8,8 +8,11 @@
 #[macro_use]
 mod tr;
 
+mod accueil;
 mod app;
 mod calc_ui;
+mod conversions;
+mod depot;
 mod dico;
 mod editor;
 mod files;
@@ -19,6 +22,8 @@ mod labels;
 #[cfg(target_os = "macos")]
 mod menubar;
 mod pageview;
+mod palette;
+mod raccourcis;
 mod secours;
 mod slides_ui;
 mod suite;

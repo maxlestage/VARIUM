@@ -8,7 +8,9 @@ use crate::page::PageSetup;
 use crate::render::{Values, VarType};
 
 pub const FORMAT: &str = "varium";
-pub const VERSION: u32 = 2;
+/// Version du format : 1 (texte, valeurs, types), 2 (+ mise en page), 3 (+ objectif
+/// de mots). Les fichiers plus anciens se lisent toujours.
+pub const VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
@@ -27,6 +29,9 @@ pub struct Project {
     /// Mise en page (depuis la version 2 ; les projets v1 prennent celle par défaut).
     #[serde(default)]
     pub page: PageSetup,
+    /// Objectif de mots (depuis la version 3 ; absent : pas d'objectif).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub objectif: Option<u32>,
 }
 
 fn format_name() -> String {
@@ -46,6 +51,7 @@ impl Default for Project {
             values: BTreeMap::new(),
             types: BTreeMap::new(),
             page: PageSetup::default(),
+            objectif: None,
         }
     }
 }
@@ -159,6 +165,9 @@ impl Project {
         } else if objet.contains_key("types") {
             notes.push("Types illisibles : ignorés".into());
         }
+        if let Some(n) = objet.get("objectif").and_then(Value::as_u64) {
+            p.objectif = u32::try_from(n).ok();
+        }
         if let Some(v) = objet.get("page") {
             match serde_json::from_value::<PageSetup>(v.clone()) {
                 Ok(pg) => p.page = pg,
@@ -166,5 +175,39 @@ impl Project {
             }
         }
         Some((p, notes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anciens_formats_toujours_lisibles() {
+        // Version 1 : ni mise en page ni objectif.
+        let v1 = r#"{"format":"varium","version":1,"title":"Lettre","source":"Bonjour {{nom}}","values":{"nom":"Marc"},"types":{"nom":"text"}}"#;
+        let p = Project::from_json(v1).unwrap();
+        assert_eq!(p.source, "Bonjour {{nom}}");
+        assert_eq!(p.page, PageSetup::default());
+        assert_eq!(p.objectif, None);
+        // Version 2 : mise en page, pas d'objectif.
+        let v2 = r#"{"format":"varium","version":2,"title":"T","source":"x","page":{"paper":"a5","landscape":true}}"#;
+        let p = Project::from_json(v2).unwrap();
+        assert!(p.page.landscape);
+        assert_eq!(p.objectif, None);
+        // Version actuelle : aller-retour, objectif compris.
+        let mut p = Project::new("T", "Un texte", &Values::default());
+        p.objectif = Some(500);
+        let json = p.to_json();
+        assert!(json.contains("\"version\": 3"));
+        assert_eq!(Project::from_json(&json).unwrap(), p);
+        // Sans objectif, le champ n'est pas écrit.
+        assert!(!Project::default().to_json().contains("objectif"));
+        // Plus récent : refusé proprement, mais récupérable.
+        let futur = r#"{"format":"varium","version":99,"source":"x","objectif":42}"#;
+        assert!(Project::from_json(futur).is_err());
+        let (r, notes) = Project::recuperer(futur).unwrap();
+        assert_eq!(r.objectif, Some(42));
+        assert_eq!(notes.len(), 1);
     }
 }

@@ -262,6 +262,7 @@ fn sheet_xml(
     values: Option<&CellMap>,
     styles: &mut Styles,
     selected: bool,
+    filter: &FilterExport,
 ) -> String {
     let mut x = String::from(HEADER);
     let _ = write!(x, "<worksheet xmlns=\"{NS_MAIN}\" xmlns:r=\"{NS_REL}\">");
@@ -298,8 +299,12 @@ fn sheet_xml(
     x.push_str("<sheetData>");
     let mut row_ids: BTreeSet<u32> = sheet.cells().map(|(c, _)| c.row).collect();
     row_ids.extend(heights.keys().copied());
+    row_ids.extend(filter.hidden.iter().copied());
     for row in row_ids {
         let _ = write!(x, "<row r=\"{}\"", u64::from(row) + 1);
+        if filter.hidden.contains(&row) {
+            x.push_str(" hidden=\"1\"");
+        }
         if let Some(h) = heights.get(&row) {
             let _ = write!(
                 x,
@@ -374,9 +379,128 @@ fn sheet_xml(
         x.push_str("</row>");
     }
     x.push_str("</sheetData>");
+    x.push_str(&filter.xml);
     x.push_str(&cond_xml(sheet, styles));
     x.push_str("</worksheet>");
     x
+}
+
+/// Filtre automatique d'une feuille, prêt à écrire.
+#[derive(Default)]
+struct FilterExport {
+    xml: String,
+    hidden: BTreeSet<u32>,
+}
+
+/// Plage effective du filtre automatique (étendue aux lignes ajoutées).
+fn filter_range(wb: &Workbook, i: usize, sheet: &Sheet) -> Option<Range> {
+    let af = sheet.auto_filter.as_ref()?;
+    let rows = af.data_rows(&wb.sheets[i]);
+    Some(Range::new(
+        af.range.start,
+        CellRef::new((*rows.end()).max(af.range.start.row), af.range.end.col),
+    ))
+}
+
+/// Valeur d'un critère de filtre : nombre à l'anglaise ou texte.
+fn filter_val(v: &str) -> String {
+    match parse_literal(v.trim()).0 {
+        Value::Number(n) => num(n),
+        _ => v.trim().to_string(),
+    }
+}
+
+fn filter_export(wb: &Workbook, i: usize) -> FilterExport {
+    use crate::filter::FilterCondition as C;
+    let Some(sheet) = wb.sheets.get(i) else {
+        return FilterExport::default();
+    };
+    let (Some(af), Some(range)) = (&sheet.auto_filter, filter_range(wb, i, sheet)) else {
+        return FilterExport::default();
+    };
+    let mut x = format!("<autoFilter ref=\"{}\"", range.name());
+    let columns: Vec<_> = af
+        .columns
+        .iter()
+        .filter(|c| !c.is_empty() && (range.start.col..=range.end.col).contains(&c.col))
+        .collect();
+    if columns.is_empty() {
+        x.push_str("/>");
+    } else {
+        x.push('>');
+        for cf in columns {
+            let _ = write!(x, "<filterColumn colId=\"{}\">", cf.col - range.start.col);
+            if !cf.hidden.is_empty() {
+                // Excel écrit les valeurs affichées (cochées).
+                let shown: Vec<String> = wb
+                    .filter_values(i, cf.col)
+                    .into_iter()
+                    .map(|(v, _)| v)
+                    .filter(|v| !cf.hidden.contains(v))
+                    .collect();
+                let blank = shown.iter().any(String::is_empty);
+                x.push_str(if blank {
+                    "<filters blank=\"1\">"
+                } else {
+                    "<filters>"
+                });
+                for v in shown.iter().filter(|v| !v.is_empty()) {
+                    let _ = write!(x, "<filter val=\"{}\"/>", esc(v));
+                }
+                x.push_str("</filters>");
+            } else if let Some(cond) = &cf.condition {
+                let custom = |pairs: &[(&str, String)], and: bool| {
+                    let mut c = String::from(if and && pairs.len() > 1 {
+                        "<customFilters and=\"1\">"
+                    } else {
+                        "<customFilters>"
+                    });
+                    for (op, v) in pairs {
+                        let _ = write!(c, "<customFilter operator=\"{op}\" val=\"{}\"/>", esc(v));
+                    }
+                    c.push_str("</customFilters>");
+                    c
+                };
+                let body = match cond {
+                    C::Compare { op, value, value2 } => {
+                        let (a, b) = (filter_val(value), filter_val(value2));
+                        match op {
+                            CompareOp::Gt => custom(&[("greaterThan", a)], true),
+                            CompareOp::Ge => custom(&[("greaterThanOrEqual", a)], true),
+                            CompareOp::Lt => custom(&[("lessThan", a)], true),
+                            CompareOp::Le => custom(&[("lessThanOrEqual", a)], true),
+                            CompareOp::Eq => custom(&[("equal", a)], true),
+                            CompareOp::Ne => custom(&[("notEqual", a)], true),
+                            CompareOp::Between => {
+                                custom(&[("greaterThanOrEqual", a), ("lessThanOrEqual", b)], true)
+                            }
+                            CompareOp::NotBetween => {
+                                custom(&[("lessThan", a), ("greaterThan", b)], false)
+                            }
+                        }
+                    }
+                    C::Contains { text } => custom(&[("equal", format!("*{text}*"))], true),
+                    C::NotContains { text } => custom(&[("notEqual", format!("*{text}*"))], true),
+                    C::BeginsWith { text } => custom(&[("equal", format!("{text}*"))], true),
+                    C::EndsWith { text } => custom(&[("equal", format!("*{text}"))], true),
+                    C::Top { n, bottom } => format!(
+                        "<top10{} val=\"{}\"/>",
+                        if *bottom { " top=\"0\"" } else { "" },
+                        (*n).max(1)
+                    ),
+                    C::AboveAverage => "<dynamicFilter type=\"aboveAverage\"/>".into(),
+                    C::BelowAverage => "<dynamicFilter type=\"belowAverage\"/>".into(),
+                };
+                x.push_str(&body);
+            }
+            x.push_str("</filterColumn>");
+        }
+        x.push_str("</autoFilter>");
+    }
+    FilterExport {
+        xml: x,
+        hidden: wb.filtered_rows(i),
+    }
 }
 
 /// Volets figés : `<pane state="frozen"/>` et la sélection du volet actif.
@@ -503,6 +627,14 @@ fn cond_xml(sheet: &Sheet, styles: &mut Styles) -> String {
                     "<cfRule type=\"colorScale\" priority=\"{priority}\"><colorScale>{c}</colorScale></cfRule>"
                 )
             }
+            CondRule::Duplicate { unique } => format!(
+                "<cfRule type=\"{}\"{dxf} priority=\"{priority}\"/>",
+                if *unique {
+                    "uniqueValues"
+                } else {
+                    "duplicateValues"
+                }
+            ),
             CondRule::DataBar { color } => format!(
                 "<cfRule type=\"dataBar\" priority=\"{priority}\"><dataBar><cfvo type=\"min\"/><cfvo type=\"max\"/><color rgb=\"FF{}\"/></dataBar></cfRule>",
                 hex(*color)
@@ -523,7 +655,10 @@ pub(crate) fn to_xlsx(wb: &Workbook) -> Vec<u8> {
         .sheets
         .iter()
         .enumerate()
-        .map(|(i, s)| sheet_xml(s, computed.values.get(i), &mut styles, i == 0))
+        .map(|(i, s)| {
+            let filter = filter_export(wb, i);
+            sheet_xml(s, computed.values.get(i), &mut styles, i == 0, &filter)
+        })
         .collect();
     let names = export_sheet_names(&wb.sheets);
     let n = sheets.len();
@@ -566,7 +701,28 @@ pub(crate) fn to_xlsx(wb: &Workbook) -> Vec<u8> {
             i + 1
         );
     }
-    book.push_str("</sheets><calcPr calcId=\"191029\" fullCalcOnLoad=\"1\"/></workbook>");
+    book.push_str("</sheets>");
+    // Plage du filtre automatique, comme Excel l'écrit.
+    let mut defined = String::new();
+    for (i, (s, name)) in wb.sheets.iter().zip(&names).enumerate() {
+        if let Some(r) = filter_range(wb, i, s) {
+            let abs = |c: CellRef| format!("${}${}", crate::refs::col_name(c.col), c.row + 1);
+            let _ = write!(
+                defined,
+                "<definedName name=\"_xlnm._FilterDatabase\" localSheetId=\"{i}\" hidden=\"1\">{}</definedName>",
+                esc_text(&format!(
+                    "{}!{}:{}",
+                    crate::refs::always_quote_sheet_name(name),
+                    abs(r.start),
+                    abs(r.end)
+                ))
+            );
+        }
+    }
+    if !defined.is_empty() {
+        let _ = write!(book, "<definedNames>{defined}</definedNames>");
+    }
+    book.push_str("<calcPr calcId=\"191029\" fullCalcOnLoad=\"1\"/></workbook>");
 
     let mut book_rels = String::from(HEADER);
     book_rels.push_str(
