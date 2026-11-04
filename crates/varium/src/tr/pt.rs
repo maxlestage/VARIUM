@@ -69,6 +69,8 @@ pub static T: &[(&str, &str)] = &[
     ("(vides)", "(vazias)"),
     ("**gras**  *italique*", "**negrito**  *itálico*"),
     ("**gras** *italique*", "**negrito** *itálico*"),
+    ("+ Ajouter une monnaie", "+ Adicionar uma moeda"),
+    ("+ Ajouter une règle", "+ Adicionar uma regra"),
     ("+ Champ", "+ Campo"),
     ("- puce", "- marca"),
     (
@@ -91,6 +93,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Accueil — centre de démarrage",
         "Início — centro de arranque",
+    ),
+    (
+        "Actualiser les tableaux croisés",
+        "Atualizar as tabelas dinâmicas",
     ),
     ("Affichage", "Ver"),
     (
@@ -150,6 +156,7 @@ pub static T: &[(&str, &str)] = &[
     ("Anneau", "Anel"),
     ("Annuler", "Anular"),
     ("Annuler (Ctrl+Z)", "Anular (Ctrl+Z)"),
+    ("Annuler le dernier trait", "Desfazer o último traço"),
     ("Aperçu", "Pré-visualização"),
     ("Aperçu :", "Pré-visualização:"),
     (
@@ -212,6 +219,10 @@ pub static T: &[(&str, &str)] = &[
         "Nenhum nome de campo válido na primeira coluna",
     ),
     ("Aucun raccourci ne correspond", "Nenhum atalho corresponde"),
+    (
+        "Aucun tableau croisé dans ce classeur.",
+        "Nenhuma tabela dinâmica neste livro.",
+    ),
     ("Aucune", "Nenhuma"),
     (
         "Aucune commande ne correspond",
@@ -233,6 +244,7 @@ pub static T: &[(&str, &str)] = &[
         "Nenhuma regra nesta folha.",
     ),
     ("Aucune suggestion", "Sem sugestões"),
+    ("Aujourd'hui", "Hoje"),
     ("Automatique", "Automático"),
     (
         "Automatique (selon la langue)",
@@ -247,6 +259,10 @@ pub static T: &[(&str, &str)] = &[
     ("Avant une modification", "Antes de uma alteração"),
     ("Avant une restauration", "Antes de um restauro"),
     ("Avant « {op} »", "Antes de “{op}”"),
+    (
+        "Avec des dates : « total par mois », « ventes par trimestre », « évolution des ventes », « ventes 2025 vs 2026 », « top 5 des produits ».",
+        "Com datas: «total por mês», «vendas por trimestre», «evolução das vendas», «vendas 2025 vs 2026», «top 5 produtos».",
+    ),
     ("Bandeau", "Faixa"),
     ("Barre d'accent", "Barra de destaque"),
     ("Barre d'outils", "Barra de ferramentas"),
@@ -267,6 +283,7 @@ pub static T: &[(&str, &str)] = &[
     ("Caractère spécial", "Carácter especial"),
     ("Caractères", "Caracteres"),
     ("Caractères (espaces comprises)", "Caracteres (com espaços)"),
+    ("Catégorie", "Categoria"),
     (
         "Ce document n'a pas de champ à remplir. Écrivez {{nom}} dans le texte pour créer une question.",
         "Este documento não tem campos para preencher. Escreva {{nome}} no texto para criar uma pergunta.",
@@ -275,10 +292,16 @@ pub static T: &[(&str, &str)] = &[
         "Ce type de fichier n'est pas pris en charge",
         "Este tipo de ficheiro não é suportado",
     ),
+    ("Cellule :", "Célula:"),
+    (
+        "Cellule de destination invalide (ex. : H1).",
+        "Célula de destino inválida (ex.: H1).",
+    ),
     (
         "Cellules collées en tableau · Ctrl+Maj+V pour coller du texte brut",
         "Células coladas como tabela · Ctrl+Shift+V para colar texto simples",
     ),
+    ("Celui du document", "O do documento"),
     ("Centrer", "Centrar"),
     ("Centré", "Centrado"),
     ("Centrée  $$…$$", "Centrada  $$…$$"),
@@ -420,6 +443,7 @@ pub static T: &[(&str, &str)] = &[
     ("Couleur", "Cor"),
     ("Couleur auto", "Cor automática"),
     ("Couleur de fond", "Cor de fundo"),
+    ("Couleur du texte", "Cor do texto"),
     ("Couleurs", "Cores"),
     ("Couper", "Cortar"),
     ("Courbes", "Linhas"),
@@ -459,6 +483,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Depuis la première diapositive",
         "A partir do primeiro diapositivo",
+    ),
+    (
+        "Des classeurs prêts à l'emploi, avec formules, mises en forme et graphiques.",
+        "Livros prontos a usar, com fórmulas, formatação e gráficos.",
     ),
     (
         "Des lignes pour prendre des notes",
@@ -526,7 +554,9 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Données", "Dados"),
     ("Données : {range}", "Dados: {range}"),
+    ("Données : {source}", "Dados: {source}"),
     ("Dossier des images", "Pasta das imagens"),
+    ("Double", "Duplo"),
     ("Dupliquer", "Duplicar"),
     ("Dupliquer l'objet", "Duplicar o objeto"),
     ("Dupliquer la diapositive", "Duplicar o diapositivo"),
@@ -563,6 +593,10 @@ pub static T: &[(&str, &str)] = &[
     ("Effacer", "Limpar"),
     ("Effacer l'encre", "Apagar a tinta"),
     ("Effacer la mise en forme", "Limpar formatação"),
+    (
+        "Effacer la mise en forme du paragraphe",
+        "Limpar a formatação do parágrafo",
+    ),
     ("Effacer le contenu", "Limpar o conteúdo"),
     ("Effacer le filtre", "Limpar filtro"),
     ("Effacer toutes les valeurs", "Limpar todos os valores"),
@@ -576,6 +610,11 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Enregistrer", "Guardar"),
     ("Enregistrer (Ctrl+S)", "Guardar (Ctrl+S)"),
+    ("Enregistrer et insérer", "Guardar e inserir"),
+    (
+        "Enregistrer et reclasser la feuille",
+        "Guardar e reclassificar a folha",
+    ),
     ("Enregistrer la règle", "Guardar a regra"),
     ("Enregistrer le minutage", "Guardar os intervalos"),
     ("Enregistrer le nom", "Guardar o nome"),
@@ -585,12 +624,15 @@ pub static T: &[(&str, &str)] = &[
     ("Enregistré : {path}", "Guardado: {path}"),
     ("Entrée", "Enter"),
     ("Espace", "Espaços"),
+    ("Espace après", "Espaço depois"),
+    ("Espace avant", "Espaço antes"),
     ("Espacement", "Espaçamento"),
     ("Espagnol (Espagne)", "Espanhol (Espanha)"),
     (
         "Ex. : total des ventes par région",
         "p. ex. total de vendas por região",
     ),
+    ("Exact", "Exato"),
     ("Excel (.xlsx)", "Excel (.xlsx)"),
     ("Exemple : prénom;nom;ville", "Exemplo: nome;apelido;cidade"),
     (
@@ -656,6 +698,7 @@ pub static T: &[(&str, &str)] = &[
         "Filtre automatique (Ctrl+Maj+L)",
         "Filtro automático (Ctrl+Shift+L)",
     ),
+    ("Filtres", "Filtros"),
     ("Filtres disponibles", "Filtros disponíveis"),
     ("Fin du diaporama", "Fim da apresentação"),
     ("Finances", "Finanças"),
@@ -692,6 +735,8 @@ pub static T: &[(&str, &str)] = &[
         "GPL 3 / LGPL 3 / MPL 1.1 (au choix)",
         "GPL 3 / LGPL 3 / MPL 1.1 (à escolha)",
     ),
+    ("Gantt", "Gantt"),
+    ("Garder avec la feuille", "Guardar com a folha"),
     (
         "Garder l'état actuel sous un nom (jamais effacé)",
         "Guardar o estado atual com um nome (nunca apagado)",
@@ -700,6 +745,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Glisser pour déplacer, poignées pour redimensionner (Maj : proportions), flèches pour ajuster.",
         "Arraste para mover, alças para redimensionar (Shift: proporções), setas para ajustar.",
+    ),
+    (
+        "Glissez les champs dans les zones, ou utilisez le bouton +.",
+        "Arraste os campos para as zonas ou use o botão +.",
     ),
     (
         "Glissez un fichier sur la fenêtre : il s'ouvre tout seul dans Documents, Classeur ou Présentation.",
@@ -718,6 +767,7 @@ pub static T: &[(&str, &str)] = &[
     ("Général", "Geral"),
     ("Harmoniser la présentation", "Harmonizar a apresentação"),
     ("Hauteur", "Altura"),
+    ("Hauteur de ligne automatique", "Altura de linha automática"),
     ("Histogramme", "Colunas"),
     ("Historique des versions", "Histórico de versões"),
     ("Historique des versions…", "Histórico de versões…"),
@@ -752,6 +802,14 @@ pub static T: &[(&str, &str)] = &[
         "Importer un dictionnaire (.aff et .dic, ou extension .oxt)",
         "Importar um dicionário (.aff e .dic, ou extensão .oxt)",
     ),
+    (
+        "Importer un relevé bancaire",
+        "Importar um extrato bancário",
+    ),
+    (
+        "Importer un relevé bancaire…",
+        "Importar um extrato bancário…",
+    ),
     ("Importer…", "Importar…"),
     ("Imprimer", "Imprimir"),
     (
@@ -766,6 +824,7 @@ pub static T: &[(&str, &str)] = &[
     ("Information", "Informação"),
     ("Insertion", "Inserir"),
     ("Insérer", "Inserir"),
+    ("Insérer cette signature", "Inserir esta assinatura"),
     ("Insérer en euros", "Inserir em euros"),
     ("Insérer un champ", "Inserir um campo"),
     ("Insérer un champ calculé", "Inserir um campo calculado"),
@@ -787,6 +846,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Intercalaire", "Separador de secção"),
     ("Interligne", "Entrelinha"),
+    (
+        "Intégrer au document (sinon, gardée seulement sur cet ordinateur)",
+        "Integrar no documento (caso contrário, fica apenas neste computador)",
+    ),
     ("Inverser ↔", "Inverter ↔"),
     ("Inverser ↕", "Inverter ↕"),
     (
@@ -846,6 +909,7 @@ pub static T: &[(&str, &str)] = &[
     ("Langue de l'interface", "Idioma da interface"),
     ("Largeur", "Largura"),
     ("Largeur de la page", "Largura da página"),
+    ("Largeur des tranches", "Largura dos intervalos"),
     (
         "Le Classeur ouvre les fichiers Excel et LibreOffice, et les réenregistre dans les deux formats.",
         "A Folha de cálculo abre ficheiros Excel e LibreOffice e volta a guardá-los nos dois formatos.",
@@ -861,6 +925,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Le document reprend ce texte (l'état actuel est gardé dans l'historique, Ctrl+Z pour revenir)",
         "O documento retoma este texto (o estado atual fica no histórico; Ctrl+Z para voltar)",
+    ),
+    (
+        "Le graphique est enregistré dans le classeur et réapparaît avec la feuille",
+        "O gráfico é guardado no livro e reaparece com a folha",
     ),
     (
         "Le mode concentration (Ctrl+Maj+F) ne laisse que la page et votre texte.",
@@ -923,6 +991,7 @@ pub static T: &[(&str, &str)] = &[
     ("Ligne", "Linha"),
     ("Ligne au-dessus", "Linha acima"),
     ("Ligne horizontale", "Linha horizontal"),
+    ("Lignes", "Linhas"),
     ("Lignes (avec l'en-tête)", "Linhas (com o cabeçalho)"),
     ("Lisibilité", "Legibilidade"),
     ("Liste des fonctions", "Lista de funções"),
@@ -958,6 +1027,8 @@ pub static T: &[(&str, &str)] = &[
     ("Merci !", "Obrigado!"),
     ("Message clé", "Mensagem-chave"),
     ("Mettre sous forme de tableau", "Formatar como tabela"),
+    ("Mettre à jour", "Atualizar"),
+    ("Mettre à jour (BCE)", "Atualizar (BCE)"),
     ("Min : {v}", "Mín.: {v}"),
     ("Minimum", "Mínimo"),
     ("Minutage", "Intervalo"),
@@ -971,6 +1042,10 @@ pub static T: &[(&str, &str)] = &[
     ("Mise en forme seule", "Apenas formatação"),
     ("Mise en page", "Configurar página"),
     ("Mise en page…", "Configurar página…"),
+    (
+        "Mise à jour impossible (hors ligne ?) : {e}",
+        "Não foi possível atualizar (sem ligação?): {e}",
+    ),
     ("Mode concentration", "Modo de concentração"),
     (
         "Mode concentration · Échap pour en sortir",
@@ -999,6 +1074,7 @@ pub static T: &[(&str, &str)] = &[
         "Modelo «{name}» aberto, valores mantidos",
     ),
     ("Modèles", "Modelos"),
+    ("Monnaie de référence :", "Moeda de referência:"),
     ("Montant", "Montante"),
     ("Monter", "Mover para cima"),
     (
@@ -1007,6 +1083,7 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Monétaire", "Moeda"),
     ("Monétaire (€)", "Moeda (€)"),
+    ("Mot-clé", "Palavra-chave"),
     ("Mots", "Palavras"),
     ("Mots par phrase", "Palavras por frase"),
     (
@@ -1031,6 +1108,10 @@ pub static T: &[(&str, &str)] = &[
         "Nom invalide (lettres, chiffres, _ . -)",
         "Nome inválido (letras, algarismos, _ . -)",
     ),
+    (
+        "Nom invalide : lettres, chiffres, - et _ seulement.",
+        "Nome inválido: apenas letras, algarismos, - e _.",
+    ),
     ("Nombre", "Número"),
     ("Nombre 0,00", "Número 0,00"),
     ("Nombre : {filled}", "Contagem: {filled}"),
@@ -1045,6 +1126,8 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Nouveau", "Novo"),
     ("Nouveau classeur", "Nova folha de cálculo"),
+    ("Nouveau depuis un modèle", "Novo a partir de um modelo"),
+    ("Nouveau depuis un modèle…", "Novo a partir de um modelo…"),
     ("Nouveau document", "Novo documento"),
     (
         "Nouveau document · Ctrl+Z pour revenir au précédent",
@@ -1068,6 +1151,10 @@ pub static T: &[(&str, &str)] = &[
         "Nova apresentação a partir de um texto…",
     ),
     ("Nouvelle règle", "Nova regra"),
+    (
+        "Nouvelle signature : dessinez dans le cadre",
+        "Nova assinatura: desenhe no quadro",
+    ),
     ("Nuage de points", "Dispersão"),
     ("Nuit", "Noite"),
     ("Numéros de diapositive", "Números dos diapositivos"),
@@ -1093,6 +1180,10 @@ pub static T: &[(&str, &str)] = &[
     (
         "Opérations + − × ÷, parenthèses, pourcentages (20%) et fonctions arrondi(x; 2), min, max, somme.",
         "Operações + − × ÷, parênteses, percentagens (20%) e funções arrondi(x; 2), min, max, somme.",
+    ),
+    (
+        "Opérations reclassées : {n}",
+        "Movimentos reclassificados: {n}",
     ),
     ("Orange", "Laranja"),
     ("Orientation", "Orientação"),
@@ -1137,6 +1228,7 @@ pub static T: &[(&str, &str)] = &[
     ("Page seule", "Só a página"),
     ("Page web (.html)", "Página web (.html)"),
     ("Page web (.html)…", "Página web (.html)…"),
+    ("Page {n}", "Página {n}"),
     ("Page {n} sur {total}", "Página {n} de {total}"),
     ("Pages", "Páginas"),
     ("Pages ({pages})", "Páginas ({pages})"),
@@ -1148,11 +1240,16 @@ pub static T: &[(&str, &str)] = &[
     ("Palette de commandes ({k})", "Paleta de comandos ({k})"),
     ("Panneau des champs", "Painel dos campos"),
     ("Papier", "Papel"),
+    ("Par année", "Por ano"),
     ("Par défaut", "Predefinição"),
     (
         "Par groupe, je sais calculer le total, la moyenne et le nombre.",
         "Por grupo, sei calcular o total, a média e o número.",
     ),
+    ("Par mois", "Por mês"),
+    ("Par tranches", "Por intervalos"),
+    ("Par trimestre", "Por trimestre"),
+    ("Paragraphe", "Parágrafo"),
     ("Paragraphes", "Parágrafos"),
     ("Parenthèses", "Parênteses"),
     ("Partout dans Varium", "Em todo o Varium"),
@@ -1193,8 +1290,13 @@ pub static T: &[(&str, &str)] = &[
         "Rodapé (ex. {{empresa}})",
     ),
     ("Placer dans le Dock", "Minimizar"),
+    (
+        "Placez-vous dans un tableau avec une ligne de titres et des données.",
+        "Coloque-se numa tabela com uma linha de títulos e dados.",
+    ),
     ("Plage", "Intervalo"),
     ("Plan", "Estrutura"),
+    ("Planning de Gantt", "Cronograma de Gantt"),
     ("Plein écran", "Ecrã inteiro"),
     (
         "Pointeur laser (maintenir)",
@@ -1214,9 +1316,14 @@ pub static T: &[(&str, &str)] = &[
         "Postes, total et acompte calculés automatiquement",
         "Itens, total e sinal calculados automaticamente",
     ),
+    (
+        "Pour un total par mois, trimestre, semaine ou année, il faut une colonne de dates.",
+        "Para um total por mês, trimestre, semana ou ano é preciso uma coluna de datas.",
+    ),
     ("Pourcentage", "Percentagem"),
     ("PowerPoint", "PowerPoint"),
     ("Premier plan", "Trazer para a frente"),
+    ("Première ligne", "Primeira linha"),
     ("Première version", "Primeira versão"),
     ("Prendre la sélection", "Usar a seleção"),
     ("Proportions d'origine", "Proporções originais"),
@@ -1244,6 +1351,8 @@ pub static T: &[(&str, &str)] = &[
     ("Publipostage", "Impressão em série"),
     ("Publipostage…", "Impressão em série…"),
     ("Questions ?", "Perguntas?"),
+    ("Questions fréquentes :", "Perguntas frequentes:"),
+    ("Questions fréquentes…", "Perguntas frequentes…"),
     ("Quitter", "Sair"),
     ("Quitter (Échap)", "Sair (Esc)"),
     ("Quitter Varium", "Sair do Varium"),
@@ -1264,11 +1373,19 @@ pub static T: &[(&str, &str)] = &[
         "Procurar um comando, um ficheiro, um idioma…",
     ),
     ("Rechercher…", "Localizar…"),
+    (
+        "Reclasse les opérations de la feuille active",
+        "Reclassifica os movimentos da folha ativa",
+    ),
     ("Recommandé", "Recomendado"),
     ("Recopier vers le bas", "Preencher para baixo"),
     ("Recopier à droite", "Preencher para a direita"),
     ("Rectangle", "Retângulo"),
     ("Rectangle arrondi", "Retângulo arredondado"),
+    (
+        "Relevé bancaire (CSV, OFX, QIF)",
+        "Extrato bancário (CSV, OFX, QIF)",
+    ),
     ("Remplacement du document", "Substituição do documento"),
     ("Remplacer", "Substituir"),
     ("Remplacer par", "Substituir por"),
@@ -1296,6 +1413,7 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Renommer", "Mudar o nome"),
     ("Renommer partout", "Mudar o nome em todo o lado"),
+    ("Renvoyer à la ligne", "Moldar texto"),
     ("Respecter la casse", "Diferenciar maiúsculas/minúsculas"),
     ("Restaurer", "Restaurar"),
     ("Restaurer cette version", "Restaurar esta versão"),
@@ -1306,6 +1424,8 @@ pub static T: &[(&str, &str)] = &[
     ("Retirer", "Remover"),
     ("Retirer l'objectif", "Remover a meta"),
     ("Retirer le filtre automatique", "Remover filtro automático"),
+    ("Retrait à droite", "Recuo à direita"),
+    ("Retrait à gauche", "Recuo à esquerda"),
     ("Revenir au module ouvert", "Voltar ao módulo aberto"),
     ("Revenir au texte (Échap)", "Voltar ao texto (Esc)"),
     ("Revenir à l'affichage habituel", "Voltar à vista habitual"),
@@ -1315,6 +1435,9 @@ pub static T: &[(&str, &str)] = &[
         "Nada a propor: nem data, nem montante, nem e-mail, nem telefone, nem nome repetido.",
     ),
     ("Rose", "Rosa"),
+    ("Règles de catégories", "Regras de categorias"),
+    ("Règles de catégories…", "Regras de categorias…"),
+    ("Règles par défaut", "Regras predefinidas"),
     ("Règles…", "Regras…"),
     ("Récemment utilisées", "Usados recentemente"),
     (
@@ -1344,11 +1467,16 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Révision", "Revisão"),
     ("S", "S"),
+    (
+        "S'applique au paragraphe du curseur ou aux paragraphes sélectionnés (écriture {: …} en début de ligne).",
+        "Aplica-se ao parágrafo do cursor ou aos parágrafos selecionados ({: …} no início da linha).",
+    ),
     ("Sable", "Areia"),
     (
         "Sans enregistrement, elles seront perdues.",
         "Sem guardar, perder-se-ão.",
     ),
+    ("Sans regroupement", "Sem agrupamento"),
     ("Sans titre", "Sem título"),
     ("Saut de page", "Quebra de página"),
     (
@@ -1358,6 +1486,10 @@ pub static T: &[(&str, &str)] = &[
     ("Secteurs", "Circular"),
     ("Section", "Secção"),
     ("Services", "Serviços"),
+    ("Signature", "Assinatura"),
+    ("Signatures enregistrées", "Assinaturas guardadas"),
+    ("Signature…", "Assinatura…"),
+    ("Simple", "Simples"),
     ("Site de Varium", "Site do Varium"),
     ("Sombre", "Escuro"),
     ("Somme (colonne à droite)", "Soma (coluna à direita)"),
@@ -1370,6 +1502,10 @@ pub static T: &[(&str, &str)] = &[
     ),
     ("Souligné", "Sublinhado"),
     ("Sous-titre", "Subtítulo"),
+    (
+        "Sous-totaux (premier champ de lignes)",
+        "Subtotais (primeiro campo de linhas)",
+    ),
     ("Standard", "Padrão"),
     ("Statistiques", "Estatística"),
     ("Style de paragraphe", "Estilo de parágrafo"),
@@ -1386,6 +1522,7 @@ pub static T: &[(&str, &str)] = &[
     ("Supprimer la feuille", "Eliminar a folha"),
     ("Supprimer la ligne", "Eliminar a linha"),
     ("Supprimer la règle", "Eliminar a regra"),
+    ("Surlignage", "Realce"),
     (
         "Survolez un choix pour l'aperçu dans la feuille ; cliquez pour l'appliquer.",
         "Passe sobre uma opção para a pré-visualizar na folha; clique para a aplicar.",
@@ -1400,6 +1537,10 @@ pub static T: &[(&str, &str)] = &[
         "Selecione números (com os seus títulos)",
     ),
     (
+        "Sélectionnez des tâches avec leurs dates de début et de fin",
+        "Selecione tarefas com as datas de início e de fim",
+    ),
+    (
         "Sélectionnez deux colonnes : les noms des champs, puis leurs valeurs",
         "Selecione duas colunas: os nomes dos campos e depois os seus valores",
     ),
@@ -1411,6 +1552,9 @@ pub static T: &[(&str, &str)] = &[
     ("Tab", "Tab"),
     ("Tableau", "Tabela"),
     ("Tableau CSV", "Tabela CSV"),
+    ("Tableau croisé", "Tabela dinâmica"),
+    ("Tableau croisé dynamique", "Tabela dinâmica"),
+    ("Tableau croisé dynamique…", "Tabela dinâmica…"),
     (
         "Tableau de {n} ligne(s) inséré dans le document",
         "Tabela com {n} linha(s) inserida no documento",
@@ -1419,10 +1563,24 @@ pub static T: &[(&str, &str)] = &[
         "Tableau des prestations, totaux HT, TVA et TTC calculés",
         "Tabela das prestações, totais sem IVA, IVA e total calculados",
     ),
+    (
+        "Tableaux croisés actualisés : {n}",
+        "Tabelas dinâmicas atualizadas: {n}",
+    ),
     ("Tableau…", "Tabela…"),
     ("Taille", "Tamanho"),
     ("Taille de l'interface", "Tamanho da interface"),
     ("Taille normale", "Tamanho normal"),
+    ("Taux de change", "Taxas de câmbio"),
+    ("Taux de change…", "Taxas de câmbio…"),
+    (
+        "Taux quotidiens de la Banque centrale européenne",
+        "Taxas diárias do Banco Central Europeu",
+    ),
+    (
+        "Taux utilisés par =DEVISE(montant; \"EUR\"; \"USD\"; [date]) : unités de chaque monnaie pour une unité de la monnaie de référence.",
+        "Taxas usadas por =DEVISE(valor; \"EUR\"; \"USD\"; [data]): unidades de cada moeda por uma unidade da moeda de referência.",
+    ),
     (
         "Temps de lecture ({lecture} mots/min) · à voix haute : {parole}",
         "Tempo de leitura ({lecture} palavras/min) · em voz alta: {parole}",
@@ -1476,6 +1634,8 @@ pub static T: &[(&str, &str)] = &[
     ("Total", "Total"),
     ("Total\n{v}", "Total\n{v}"),
     ("Totaux", "Totais"),
+    ("Totaux généraux", "Totais gerais"),
+    ("Tout", "Tudo"),
     (
         "Tout (contenu et mise en forme)",
         "Tudo (conteúdo e formatação)",
@@ -1560,12 +1720,21 @@ pub static T: &[(&str, &str)] = &[
         "Une ligne par diapositive ; Tab pour une puce, Maj+Tab pour en faire une diapositive, Alt+↑ / Alt+↓ pour déplacer, || pour la seconde colonne.",
         "Uma linha por diapositivo; Tab para um marcador, Shift+Tab para o tornar diapositivo, Alt+↑ / Alt+↓ para mover, || para a segunda coluna.",
     ),
+    (
+        "Une opération dont le libellé contient le mot-clé va dans la catégorie (le mot-clé le plus long l'emporte).",
+        "Um movimento cuja descrição contém a palavra-chave vai para a categoria (ganha a palavra-chave mais longa).",
+    ),
+    (
+        "Unités : =CONVERTIR(10; \"km\"; \"mi\"), =CONVERTIR(20; \"C\"; \"F\"), =CONVERTIR(1; \"Go\"; \"Mo\").",
+        "Unidades: =CONVERTIR(10; \"km\"; \"mi\"), =CONVERTIR(20; \"C\"; \"F\"), =CONVERTIR(1; \"GB\"; \"MB\").",
+    ),
     ("Valeur", "Valor"),
     ("Valeur d'un champ", "Valor de um campo"),
     (
         "Valeur lue dans le fichier du publipostage",
         "Valor lido do ficheiro da impressão em série",
     ),
+    ("Valeurs", "Valores"),
     (
         "Valeurs effacées · Ctrl+Z pour les retrouver",
         "Valores limpos · Ctrl+Z para os recuperar",
@@ -1605,6 +1774,7 @@ pub static T: &[(&str, &str)] = &[
     ("Version « {nom} » marquée", "Versão “{nom}” marcada"),
     ("Vert", "Verde"),
     ("Vide", "Vazio"),
+    ("Vignettes des pages", "Miniaturas das páginas"),
     ("Vérifier pendant la frappe", "Verificar durante a escrita"),
     ("Word (.docx)", "Word (.docx)"),
     ("Word (.docx)…", "Word (.docx)…"),
@@ -1716,6 +1886,7 @@ pub static T: &[(&str, &str)] = &[
         "la date du jour, automatiquement",
         "a data de hoje, automaticamente",
     ),
+    ("la sélection", "a seleção"),
     ("la version précédente", "a versão anterior"),
     ("le contraire de {a}", "o contrário de {a}"),
     ("le dernier caractère de {a}", "o último caractere de {a}"),
@@ -1724,6 +1895,7 @@ pub static T: &[(&str, &str)] = &[
     ("le jour de {a}", "o dia de {a}"),
     ("le mois de {a}", "o mês de {a}"),
     ("le nombre π", "o número π"),
+    ("le paragraphe", "o parágrafo"),
     ("le premier caractère de {a}", "o primeiro caractere de {a}"),
     ("lecture {t}", "leitura {t}"),
     ("les 10 premiers", "os 10 primeiros"),
@@ -1786,6 +1958,7 @@ pub static T: &[(&str, &str)] = &[
     ("non précisée", "não indicada"),
     ("ou une autre valeur…", "ou outro valor…"),
     ("oui", "sim"),
+    ("par défaut", "predefinida"),
     ("paragraphe", "parágrafo"),
     ("partie entière de {a}", "parte inteira de {a}"),
     ("pas de suggestion", "sem sugestões"),
@@ -1852,6 +2025,7 @@ pub static T: &[(&str, &str)] = &[
     ("tableau HTML", "tabela HTML"),
     ("tableau Markdown", "tabela Markdown"),
     ("tabulations", "tabulações"),
+    ("taux du {date}", "taxas de {date}"),
     ("tiret cadratin", "travessão"),
     ("tiret demi-cadratin", "meia-risca"),
     (
@@ -2032,12 +2206,17 @@ pub static T: &[(&str, &str)] = &[
         "{n} imagem(ns) guardada(s) em {dossier}",
     ),
     ("{n} ko", "{n} KB"),
+    ("{n} masqué(s)", "{n} oculto(s)"),
     ("{n} min", "{n} min"),
     ("{n} mots", "{n} palavras"),
     ("{n} mots inconnus", "{n} palavras desconhecidas"),
     (
         "{n} objet(s) : cliquez sur la diapositive pour en sélectionner un.",
         "{n} objeto(s): clique no diapositivo para selecionar um.",
+    ),
+    (
+        "{n} opérations importées de « {name} »",
+        "{n} movimentos importados de «{name}»",
     ),
     ("{n} remarques", "{n} observações"),
     ("{n} réponse(s) à vérifier", "{n} resposta(s) a verificar"),
@@ -2265,6 +2444,7 @@ pub static T: &[(&str, &str)] = &[
     ("📅 Aujourd'hui", "📅 Hoje"),
     ("📅 Date du jour", "📅 Data de hoje"),
     ("📊 Graphique", "📊 Gráfico"),
+    ("📊 Insérer avec un graphique", "📊 Inserir com um gráfico"),
     ("📝 Remplir le formulaire", "📝 Preencher o formulário"),
     (
         "🔍 Cliquez sur la zone à agrandir (Z ou Échap pour annuler)",

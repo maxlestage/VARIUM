@@ -66,6 +66,7 @@ macro_rules! identifiants {
     };
 }
 
+mod album;
 mod depuis_document;
 mod depuis_texte;
 mod embellir;
@@ -84,6 +85,10 @@ mod texte;
 mod theme;
 mod xml;
 
+pub use album::{
+    AlbumImage, AlbumOptions, MAX_ALBUM_IMAGES, caption_from_name, exif_date, exif_orientation,
+    natural_key,
+};
 pub use depuis_document::deck_from_document;
 pub use depuis_texte::{Closing, deck_from_text};
 pub use embellir::{Design, MAX_SUGGESTIONS, Suggestion, design_suggestions, suggestions};
@@ -94,8 +99,8 @@ pub use geometrie::{
 };
 pub use minutage::format_duration;
 pub use objets::{
-    MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, Media, Object, ObjectKind, arrow_head, base64, image_frame,
-    unbase64,
+    Gradient, GradientStop, MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, Media, Object, ObjectKind, arrow_head,
+    base64, image_frame, rotate_point, unbase64,
 };
 pub use pdf::{HandoutNotes, HandoutOptions, HandoutPaper, PNG_HEIGHT, RasterFonts};
 pub use plan::{COLUMN_BREAK, OutlineEntry, outline_text, parse_outline};
@@ -665,6 +670,8 @@ pub(crate) struct Rendu {
     pub number: Option<usize>,
     /// Texte de chaque objet de la diapositive (lignes centrées), dans l'ordre.
     pub objets: Vec<Vec<varium_core::Para>>,
+    /// Code QR de chaque objet (pour les objets QR), dans l'ordre.
+    pub qrs: Vec<Option<varium_core::qr::QrCode>>,
 }
 
 impl Deck {
@@ -719,6 +726,7 @@ impl Deck {
                             }
                         })
                         .collect(),
+                    qrs: s.objects.iter().map(|o| o.qr_code(&values)).collect(),
                 }
             })
             .collect()

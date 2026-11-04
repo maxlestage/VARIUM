@@ -73,6 +73,61 @@ impl Lang {
         }
     }
 
+    /// Nom de la langue (et du pays) dans la langue de l'interface `ui`.
+    pub fn label_in(self, ui: Lang) -> &'static str {
+        let t: [&'static str; 6] = match self {
+            Lang::Fr => [
+                "Français (France)",
+                "French (France)",
+                "Francés (Francia)",
+                "Französisch (Frankreich)",
+                "Francese (Francia)",
+                "Francês (França)",
+            ],
+            Lang::En => [
+                "Anglais (Royaume-Uni)",
+                "English (United Kingdom)",
+                "Inglés (Reino Unido)",
+                "Englisch (Vereinigtes Königreich)",
+                "Inglese (Regno Unito)",
+                "Inglês (Reino Unido)",
+            ],
+            Lang::Es => [
+                "Espagnol (Espagne)",
+                "Spanish (Spain)",
+                "Español (España)",
+                "Spanisch (Spanien)",
+                "Spagnolo (Spagna)",
+                "Espanhol (Espanha)",
+            ],
+            Lang::De => [
+                "Allemand (Allemagne)",
+                "German (Germany)",
+                "Alemán (Alemania)",
+                "Deutsch (Deutschland)",
+                "Tedesco (Germania)",
+                "Alemão (Alemanha)",
+            ],
+            Lang::It => [
+                "Italien (Italie)",
+                "Italian (Italy)",
+                "Italiano (Italia)",
+                "Italienisch (Italien)",
+                "Italiano (Italia)",
+                "Italiano (Itália)",
+            ],
+            Lang::Pt => [
+                "Portugais (Portugal)",
+                "Portuguese (Portugal)",
+                "Portugués (Portugal)",
+                "Portugiesisch (Portugal)",
+                "Portoghese (Portogallo)",
+                "Português (Portugal)",
+            ],
+        };
+        t[Lang::ALL.iter().position(|&l| l == ui).unwrap_or(0)]
+    }
+
     pub fn months(self) -> [&'static str; 12] {
         match self {
             Lang::Fr => [

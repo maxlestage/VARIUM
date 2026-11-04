@@ -29,6 +29,16 @@ mod ecriture;
 mod formulaire;
 #[path = "doc_historique.rs"]
 mod historique;
+#[path = "doc_import.rs"]
+mod import;
+#[path = "doc_mise_en_forme.rs"]
+mod mise_en_forme;
+#[path = "doc_modeles.rs"]
+mod modeles;
+#[path = "doc_revision.rs"]
+mod revision;
+#[path = "doc_voix.rs"]
+mod voix;
 
 const STORAGE_KEY: &str = "varium.project";
 const PREFS_KEY: &str = "varium.prefs";
@@ -102,6 +112,19 @@ pub enum Act {
     ToggleAutocorrect,
     /// Défilement « machine à écrire » du mode concentration.
     ToggleTypewriter,
+    /// « Suivre les modifications » (révision).
+    ToggleSuivi,
+    /// Commenter la sélection.
+    Commenter,
+    ToutAccepter,
+    ToutRefuser,
+    /// L'onglet « Modifications » de l'inspecteur.
+    Revision,
+    /// « Créer un modèle à partir de ce document ».
+    DecouperModele,
+    /// « Lire à voix haute » (Pause / Reprendre pendant la lecture).
+    LireVoix,
+    ArreterVoix,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -197,6 +220,8 @@ enum Inspector {
     Fields,
     Outline,
     Review,
+    /// Commentaires et suivi des modifications.
+    Suivi,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -220,6 +245,13 @@ struct Prefs {
     correction_auto: bool,
     /// Mode concentration : la ligne en cours reste au milieu de l'écran.
     machine_a_ecrire: bool,
+    /// Nom signé sur les modifications suivies et les commentaires (vide : celui de
+    /// la session).
+    auteur: String,
+    /// « Suivre les modifications ».
+    suivi: bool,
+    /// Les exports gardent les marques de révision (sinon : version finale).
+    export_marques: bool,
 }
 
 impl Default for Prefs {
@@ -237,18 +269,15 @@ impl Default for Prefs {
             dernier_fichier: None,
             correction_auto: true,
             machine_a_ecrire: true,
+            auteur: String::new(),
+            suivi: false,
+            export_marques: false,
         }
     }
 }
 
-#[derive(Clone, PartialEq)]
-struct Snapshot {
-    title: String,
-    source: String,
-    values: Values,
-    page: PageSetup,
-    objectif: Option<u32>,
-}
+/// L'état d'un document (dernier enregistrement, annuler/rétablir) : voir `files`.
+use crate::files::Snapshot;
 
 /// Annuler / rétablir : la frappe continue est regroupée en une seule étape.
 struct History {
@@ -286,6 +315,12 @@ enum Dialog {
     Qr(formulaire::QrSaisie),
     /// « Détecter les champs… » (propositions cochées).
     Detection(detection::DetectionSaisie),
+    /// « Commenter la sélection » (texte du commentaire).
+    Commentaire(String),
+    /// « Créer un modèle à partir de ce document ».
+    Decouper(Box<modeles::Decoupe>),
+    /// « Nouveau depuis un modèle » : les questions une à une.
+    Assistant(Box<modeles::Assistant>),
     /// Modifications non enregistrées : que faire avant de continuer ?
     Confirm(Pending),
     /// Une sauvegarde de secours existe (arrêt brutal ?) : la restaurer ?
@@ -387,6 +422,8 @@ pub struct VariumApp {
     objectif: Option<u32>,
     /// Outils d'écriture : concentration, formulaire, historique des versions…
     outils: ecriture::Outils,
+    /// Badge « champs possibles » et lecture à voix haute.
+    etat: revision::Etat,
 }
 
 fn today() -> String {
@@ -396,6 +433,7 @@ fn today() -> String {
 impl VariumApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::fonts::install(&cc.egui_ctx);
+        mise_en_forme::charger_signatures();
         let stored = cc
             .storage
             .and_then(|s| eframe::get_value::<Project>(s, STORAGE_KEY));
@@ -457,6 +495,7 @@ impl VariumApp {
             spell_menu: None,
             objectif: None,
             outils: ecriture::Outils::default(),
+            etat: revision::Etat::default(),
         };
         app.restore(app.history.current.clone());
         app.saved = app.snapshot();
@@ -485,7 +524,7 @@ impl VariumApp {
         let lie = app.path.clone();
         app.propose_secours(lie.as_deref());
         // Un fichier donné au lancement (« Ouvrir avec », glisser sur l'icône, terminal).
-        if let Some(path) = std::env::args_os().nth(1).map(std::path::PathBuf::from)
+        if let Some(path) = crate::ouverture::document_arg()
             && path.is_file()
         {
             let kind = if path.extension().is_some_and(|e| e == "csv" || e == "tsv") {
@@ -549,6 +588,8 @@ impl VariumApp {
         // Les mots ignorés valent pour un document.
         self.dicos.clear_ignored();
         self.spell_menu = None;
+        self.etat.badge = None;
+        self.etat.voix.arreter();
     }
 
     /// Propose de restaurer la sauvegarde de secours de `document` (ou du
@@ -630,20 +671,21 @@ impl VariumApp {
     }
 
     fn is_dirty(&self) -> bool {
-        self.saved.source != self.source
-            || self.saved.title != self.title
-            || self.saved.page != self.page
-            || self.saved.values != self.values
-            || self.saved.objectif != self.objectif
+        self.saved.differe(
+            &self.title,
+            &self.source,
+            &self.values,
+            &self.page,
+            self.objectif,
+        )
     }
 
     /// Exécute `p` tout de suite, ou demande confirmation s'il y a des
     /// modifications non enregistrées.
     fn guard(&mut self, ctx: &egui::Context, p: Pending) {
-        if self.is_dirty() {
-            self.dialog = Some(Dialog::Confirm(p));
-        } else {
-            self.proceed(ctx, p);
+        match files::garder(self.is_dirty(), p) {
+            files::Garde::Confirmer(p) => self.dialog = Some(Dialog::Confirm(p)),
+            files::Garde::Continuer(p) => self.proceed(ctx, p),
         }
     }
 
@@ -791,6 +833,10 @@ impl VariumApp {
 
     /// Les documents à exporter : un seul, ou un par ligne du publipostage.
     fn rendered(&self) -> Vec<Rendered> {
+        varium_core::critic::avec_vue(self.vue_export(), || self.rendered_sans_vue())
+    }
+
+    fn rendered_sans_vue(&self) -> Vec<Rendered> {
         match &self.merge {
             Some(m) => {
                 let names = self.variable_names();
@@ -1031,6 +1077,17 @@ impl VariumApp {
                 );
             }
             Act::ToggleTypewriter => self.prefs.machine_a_ecrire = !self.prefs.machine_a_ecrire,
+            Act::ToggleSuivi => self.basculer_suivi(ctx),
+            Act::Commenter => self.ouvrir_commentaire(),
+            Act::ToutAccepter => self.decider_tout(ctx, true),
+            Act::ToutRefuser => self.decider_tout(ctx, false),
+            Act::Revision => {
+                self.prefs.inspector = Inspector::Suivi;
+                self.prefs.fields_panel = true;
+            }
+            Act::DecouperModele => self.ouvrir_decoupe(),
+            Act::LireVoix => self.lire_voix(ctx),
+            Act::ArreterVoix => self.etat.voix.arreter(),
         }
     }
 
@@ -1137,10 +1194,14 @@ impl VariumApp {
                     content,
                     path,
                 } => {
-                    if files::is_project_file(&name) {
+                    if io::is_office_text(&name) || content.starts_with("PK\u{3}\u{4}") {
+                        self.ouvrir_bureautique(ctx, &name, &content, path);
+                    } else if files::is_project_file(&name) {
                         match Project::from_json(&content) {
                             Ok(p) => {
                                 self.load(p);
+                                let source = self.source.clone();
+                                self.signaler_champs(&source);
                                 if let Some(path) = path {
                                     files::push_recent(&mut self.prefs.recent, &path);
                                     self.propose_secours(Some(&path));
@@ -1246,6 +1307,11 @@ impl VariumApp {
         ui.menu_button(tr("Fichier"), |ui| {
             self.item(ui, tr("Nouveau"), Act::New);
             self.item(ui, tr("Nouveau à partir d'un modèle…"), Act::Templates);
+            self.item(
+                ui,
+                tr("Créer un modèle à partir de ce document…"),
+                Act::DecouperModele,
+            );
             self.item(ui, tr("Ouvrir…"), Act::Open);
             ui.add_enabled_ui(!self.prefs.recent.is_empty(), |ui| {
                 ui.menu_button(tr("Documents récents"), |ui| {
@@ -1371,6 +1437,7 @@ impl VariumApp {
                     self.item(ui, &format!("{} %", (z * 100.0) as i32), Act::Zoom(z));
                 }
             });
+            pageview::case_vignettes(ui);
             ui.menu_button(tr("Thème"), egui::widgets::global_theme_preference_buttons);
             crate::tr::menu(ui);
         });
@@ -1379,6 +1446,10 @@ impl VariumApp {
             self.item(ui, tr("Champ calculé {{= …}}…"), Act::InsertFormula);
             self.item(ui, tr("Date du jour"), Act::InsertToday);
             self.item(ui, tr("Code QR…"), Act::InsertQr);
+            if ui.button(tr("Signature…")).clicked() {
+                mise_en_forme::ouvrir_signature(ui.ctx());
+                ui.close();
+            }
             ui.separator();
             self.item(ui, tr("Tableau…"), Act::InsertTable);
             self.item(ui, tr("Saut de page"), Act::InsertPageBreak);
@@ -1429,6 +1500,33 @@ impl VariumApp {
             );
             self.item(ui, tr("Détecter les champs…"), Act::DetectFields);
             self.item(ui, tr("Publipostage…"), Act::Merge);
+            ui.separator();
+            ui.menu_button(tr("Révision"), |ui| {
+                self.check(
+                    ui,
+                    tr("Suivre les modifications"),
+                    self.prefs.suivi,
+                    Act::ToggleSuivi,
+                );
+                self.item(ui, tr("Commenter la sélection…"), Act::Commenter);
+                self.item(ui, tr("Commentaires et modifications"), Act::Revision);
+                ui.separator();
+                self.item(ui, tr("Tout accepter"), Act::ToutAccepter);
+                self.item(ui, tr("Tout refuser"), Act::ToutRefuser);
+            });
+            let lecture = self.etat.voix.etat != voix::EtatLecture::Arret;
+            self.item(
+                ui,
+                if lecture {
+                    tr("Pause / reprendre la lecture")
+                } else {
+                    tr("Lire à voix haute")
+                },
+                Act::LireVoix,
+            );
+            if lecture {
+                self.item(ui, tr("Arrêter la lecture"), Act::ArreterVoix);
+            }
             ui.separator();
             self.check(
                 ui,
@@ -1772,6 +1870,8 @@ impl VariumApp {
             if !colles.is_empty() {
                 let convertis: Vec<String> =
                     colles.into_iter().map(|t| self.coller(&ctx, t)).collect();
+                // Des dates, montants, e-mails dans le texte collé : le badge les signale.
+                self.signaler_champs(&convertis.join("\n"));
                 let mut it = convertis.into_iter();
                 ui.input_mut(|i| {
                     for e in &mut i.events {
@@ -1794,11 +1894,18 @@ impl VariumApp {
             ui.memory_mut(|m| m.request_focus(id));
         }
         let pal = Palette::new(ui.visuals().dark_mode);
-        let found = if self.find.open {
+        let mut found = if self.find.open {
             editor::find_all(&self.source, &self.find.query, self.find.case)
         } else {
             Vec::new()
         };
+        // La phrase lue à voix haute est surlignée.
+        if let Some(r) = self.etat.voix.suivre() {
+            found.push((
+                editor::byte_of(&self.source, r.start),
+                editor::byte_of(&self.source, r.end),
+            ));
+        }
         let font = self.page.font;
         let size = if focus {
             19.0
@@ -1843,6 +1950,7 @@ impl VariumApp {
             Color32::from_rgb(0xFF, 0xFF, 0xFE)
         };
         let avant = self.source.clone();
+        let sel_avant = self.sel;
         let hauteur = ui.available_height();
         egui::ScrollArea::vertical()
             .id_salt("source-scroll")
@@ -1893,6 +2001,7 @@ impl VariumApp {
                         if out.response.changed() {
                             let now = ui.input(|i| i.time);
                             self.corriger_frappe(&avant, now);
+                            self.suivre_frappe(&avant, sel_avant.1);
                         }
                         if !focus {
                             self.spell_overlay(ui, &out);
@@ -2039,13 +2148,14 @@ impl VariumApp {
     fn inspector(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            let w = (ui.available_width() - 8.0) / 5.0;
+            let w = (ui.available_width() - 10.0) / 6.0;
             for (tab, label) in [
                 (Inspector::Format, tr("Format")),
                 (Inspector::Document, tr("Document")),
                 (Inspector::Fields, tr("Champs")),
                 (Inspector::Outline, tr("Plan")),
                 (Inspector::Review, tr("Révision")),
+                (Inspector::Suivi, tr("Modifications")),
             ] {
                 let b = egui::Button::selectable(
                     self.prefs.inspector == tab,
@@ -2094,6 +2204,7 @@ impl VariumApp {
             }
             Inspector::Outline => self.outline_tab(ui),
             Inspector::Review => self.review_tab(ui),
+            Inspector::Suivi => self.revision_tab(ui),
         }
     }
 
@@ -2192,6 +2303,8 @@ impl VariumApp {
             }
         });
         ui.add_space(8.0);
+        self.format_paragraphe(ui);
+        ui.add_space(8.0);
         ui.label(RichText::new(tr("Insérer")).strong());
         ui.horizontal_wrapped(|ui| {
             for (label, act) in [
@@ -2284,7 +2397,7 @@ impl VariumApp {
                                         .small()
                                         .color(err(ui)),
                                 );
-                                ui.label(&issue.message);
+                                ui.label(issue.message_in(crate::tr::lang()));
                             });
                             // Le contexte : quelques caractères autour de la remarque.
                             let a = self.source[..issue.start]
@@ -2969,7 +3082,24 @@ impl VariumApp {
 
     fn page_pane(&mut self, ui: &mut egui::Ui) {
         let eff = self.effective();
-        let r = export::prepare(&self.source, &eff, &self.page);
+        let vue = self.vue_page();
+        let r = pageview::preparer(&self.source, &eff, &self.page, &format!("{vue:?}"), || {
+            varium_core::critic::avec_vue(vue, || export::prepare(&self.source, &eff, &self.page))
+        });
+        let view = View {
+            rendu: &r,
+            page: &self.page,
+            zoom: self.prefs.zoom.unwrap_or(1.0),
+            highlight: self.prefs.highlight,
+        };
+        // Vignettes des pages, à gauche (Affichage → Vignettes des pages).
+        if pageview::vignettes_visibles(ui.ctx()) {
+            egui::Panel::left("vignettes-pages")
+                .resizable(true)
+                .size_range(110.0..=260.0)
+                .default_size(150.0)
+                .show(ui, |ui| pageview::vignettes(ui, &view));
+        }
         let desk = if ui.visuals().dark_mode {
             Color32::from_rgb(0x2B, 0x2B, 0x2E)
         } else {
@@ -2990,17 +3120,7 @@ impl VariumApp {
                         zoom = (zoom * delta).clamp(0.3, 3.0);
                         self.prefs.zoom = Some(zoom);
                     }
-                    self.pages = pageview::show(
-                        ui,
-                        &View {
-                            paras: &r.paras,
-                            header: &r.header,
-                            footer: &r.footer,
-                            page: &self.page,
-                            zoom,
-                            highlight: self.prefs.highlight,
-                        },
-                    );
+                    self.pages = pageview::show(ui, &View { zoom, ..view });
                 });
         });
     }
@@ -3031,6 +3151,20 @@ impl VariumApp {
             self.objectif_statut(ui, st.words);
             ui.separator();
             ui.label(trf!("{filled}/{vars} champs", filled, vars = vars.len()));
+            self.badge_statut(ui);
+            self.voix_statut(ui);
+            if self.prefs.suivi {
+                ui.separator();
+                if ui
+                    .small_button(RichText::new(tr("✎ Suivi des modifications")).color(accent(ui)))
+                    .on_hover_text(tr(
+                        "Ce que vous tapez est marqué ; cliquez pour ouvrir le panneau",
+                    ))
+                    .clicked()
+                {
+                    self.queue.push(Act::Revision);
+                }
+            }
             if let Some(m) = &self.merge {
                 ui.separator();
                 ui.label(format!("✉ {}/{}", m.record + 1, m.sheet.rows.len()));
@@ -3075,6 +3209,7 @@ impl VariumApp {
     // ---------------- Dialogues ----------------
 
     fn dialogs(&mut self, ctx: &egui::Context) {
+        self.signature_fenetre(ctx);
         let Some(mut dialog) = self.dialog.take() else {
             return;
         };
@@ -3278,23 +3413,33 @@ impl VariumApp {
                     ui.label(trf!("« {title} » contient des modifications non enregistrées.", title = self.title.trim()));
                     ui.label(RichText::new(tr("Sans enregistrement, elles seront perdues.")).weak());
                     ui.add_space(6.0);
+                    let mut reponse = None;
                     ui.horizontal(|ui| {
                         if ui.button(tr("Enregistrer")).clicked() {
-                            keep = false;
-                            match self.save_project(ctx, false) {
-                                SaveOutcome::Done => self.proceed(ctx, p.clone()),
-                                SaveOutcome::Asking => self.after_save = Some(p.clone()),
-                                SaveOutcome::Failed => {}
-                            }
+                            reponse = Some(files::Reponse::Enregistrer);
                         }
                         if ui.button(tr("Ne pas enregistrer")).clicked() {
-                            keep = false;
-                            self.proceed(ctx, p.clone());
+                            reponse = Some(files::Reponse::NePasEnregistrer);
                         }
                         if ui.button(tr("Annuler")).clicked() {
-                            keep = false;
+                            reponse = Some(files::Reponse::Annuler);
                         }
                     });
+                    if let Some(r) = reponse {
+                        keep = false;
+                        let suite = files::apres_confirmation(r, p.clone(), || {
+                            match self.save_project(ctx, false) {
+                                SaveOutcome::Done => files::Issue::Fait,
+                                SaveOutcome::Asking => files::Issue::Demande,
+                                SaveOutcome::Failed => files::Issue::Echec,
+                            }
+                        });
+                        match suite {
+                            files::Suite::Faire(p) => self.proceed(ctx, p),
+                            files::Suite::ApresEnregistrement(p) => self.after_save = Some(p),
+                            files::Suite::Abandonner => {}
+                        }
+                    }
                 }
                 Dialog::Restore {
                     project,
@@ -3326,6 +3471,9 @@ impl VariumApp {
                 Dialog::Marquer(nom) => keep = self.marquer_dialogue(ui, nom),
                 Dialog::Qr(saisie) => keep = self.qr_dialogue(ui, saisie),
                 Dialog::Detection(saisie) => keep = self.detection_dialogue(ui, saisie),
+                Dialog::Commentaire(texte) => keep = self.commentaire_dialogue(ui, texte),
+                Dialog::Decouper(d) => keep = self.decoupe_dialogue(ui, d),
+                Dialog::Assistant(a) => keep = self.assistant_dialogue(ui, a),
                 Dialog::About => {
                     ui.heading("Varium");
                     ui.label(RichText::new(tr("Un document. Toutes ses possibilités.")).italics());
@@ -3390,6 +3538,14 @@ impl VariumApp {
                     });
                 }
             });
+        ui.add_space(6.0);
+        let mut intelligent = None;
+        self.modeles_intelligents(ui, &mut intelligent);
+        if let Some(m) = intelligent {
+            let ctx = ui.ctx().clone();
+            self.ouvrir_modele_intelligent(&ctx, m);
+            return matches!(self.dialog, Some(Dialog::Templates));
+        }
         ui.add_space(6.0);
         let mut keep = true;
         ui.horizontal(|ui| {
@@ -3819,18 +3975,30 @@ impl eframe::App for VariumApp {
         // Le nombre de pages sert aussi quand la page n'est pas affichée.
         if (mobile && self.tab != Tab::Page) || (!mobile && self.prefs.layout == Layout::Text) {
             let eff = self.effective();
-            let r = export::prepare(&self.source, &eff, &self.page);
+            let r = pageview::preparer(&self.source, &eff, &self.page, "", || {
+                export::prepare(&self.source, &eff, &self.page)
+            });
             self.pages = pageview::count_pages(
                 &ctx,
                 &View {
-                    paras: &r.paras,
-                    header: &r.header,
-                    footer: &r.footer,
+                    rendu: &r,
                     page: &self.page,
                     zoom: 1.0,
                     highlight: false,
                 },
             );
+        }
+        if self.etat.voix.etat != voix::EtatLecture::Arret {
+            if self.prefs.layout == Layout::Page && !mobile {
+                // L'éditeur n'est pas affiché : la lecture avance quand même.
+                let _ = self.etat.voix.suivre();
+            }
+            if let Some(m) = self.etat.voix.message.take() {
+                self.notify(&ctx, m, true);
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(120));
+        } else if let Some(m) = self.etat.voix.message.take() {
+            self.notify(&ctx, m, true);
         }
         let now = ctx.input(|i| i.time);
         self.track(now);
@@ -4330,6 +4498,15 @@ const SYNTAX: &[(&str, &str)] = &[
         n_("formules LaTeX, en ligne ou centrées"),
     ),
     ("\\{{x}}  \\*  \\$", n_("caractères littéraux")),
+    (
+        "{++ajout++}  {--retrait--}",
+        n_("modification suivie (Outils → Révision)"),
+    ),
+    ("{~~ancien~>nouveau~~}", n_("remplacement proposé")),
+    (
+        "{==texte==}{>>remarque<<}",
+        n_("commentaire sur un passage (absent des exports)"),
+    ),
 ];
 
 fn act_label(a: Act) -> &'static str {
@@ -4545,6 +4722,16 @@ pub fn native_menus(b: &mut crate::menubar::Builder) -> muda::Result<Vec<muda::S
             &b.item(tr("Remplir comme un formulaire"), Act::FillForm, None),
             &b.item(tr("Détecter les champs…"), Act::DetectFields, None),
             &b.item(
+                tr("Créer un modèle à partir de ce document…"),
+                Act::DecouperModele,
+                None,
+            ),
+            &b.item(tr("Suivre les modifications"), Act::ToggleSuivi, None),
+            &b.item(tr("Commenter la sélection…"), Act::Commenter, None),
+            &b.item(tr("Commentaires et modifications"), Act::Revision, None),
+            &b.item(tr("Lire à voix haute"), Act::LireVoix, None),
+            &b.item(tr("Arrêter la lecture"), Act::ArreterVoix, None),
+            &b.item(
                 tr("Correction automatique pendant la frappe"),
                 Act::ToggleAutocorrect,
                 None,
@@ -4694,7 +4881,23 @@ impl VariumApp {
                 n_("Outils"),
             ),
         ];
+        let outils = n_("Outils");
+        let revision: [(Act, &'static str, &'static str); 8] = [
+            (
+                Act::DecouperModele,
+                n_("Créer un modèle à partir de ce document…"),
+                fichier,
+            ),
+            (Act::ToggleSuivi, n_("Suivre les modifications"), outils),
+            (Act::Commenter, n_("Commenter la sélection…"), outils),
+            (Act::Revision, n_("Commentaires et modifications"), outils),
+            (Act::ToutAccepter, n_("Tout accepter"), outils),
+            (Act::ToutRefuser, n_("Tout refuser"), outils),
+            (Act::LireVoix, n_("Lire à voix haute"), outils),
+            (Act::ArreterVoix, n_("Arrêter la lecture"), outils),
+        ];
         list.into_iter()
+            .chain(revision)
             .map(|(a, l, g)| (a, l, g, shortcut_for(a)))
             .collect()
     }
@@ -4776,6 +4979,14 @@ impl VariumApp {
 
     /// Charge un modèle de document (accueil).
     pub fn load_template(&mut self, ctx: &egui::Context, i: usize) {
+        // Au-delà des modèles classiques : les modèles intelligents (lettres types,
+        // modèles de l'utilisateur), qui posent leurs questions.
+        if let Some(k) = i.checked_sub(templates::ALL.len()) {
+            if let Some(m) = templates::intelligents().into_iter().nth(k) {
+                self.ouvrir_modele_intelligent(ctx, m.modele);
+            }
+            return;
+        }
         if let Some(t) = templates::ALL.get(i) {
             self.load(t.project());
             self.notify(

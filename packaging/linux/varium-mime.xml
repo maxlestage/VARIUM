@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Types de fichiers de Varium (shared-mime-info). Installé par installer.sh dans
+     ~/.local/share/mime/packages/, puis `update-mime-database ~/.local/share/mime`. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-varium">
+    <comment>Document Varium</comment>
+    <comment xml:lang="en">Varium document</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.varium.json" weight="60"/>
+    <glob pattern="*.varium"/>
+    <icon name="varium"/>
+  </mime-type>
+  <mime-type type="application/x-varium-calc">
+    <comment>Classeur Varium</comment>
+    <comment xml:lang="en">Varium spreadsheet</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.varium-calc.json" weight="60"/>
+    <icon name="varium"/>
+  </mime-type>
+  <mime-type type="application/x-varium-slides">
+    <comment>Présentation Varium</comment>
+    <comment xml:lang="en">Varium presentation</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.varium-slides.json" weight="60"/>
+    <icon name="varium"/>
+  </mime-type>
+</mime-info>
